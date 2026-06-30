@@ -235,13 +235,25 @@ function loop(ts){
 function update(dt){
   if(!P.alive)return;
 
-  // 이동 방향 결정
+  // 입력 방향 결정
   let dx=Joy.dx,dy=Joy.dy;
   if(!Joy.on){const kd=keyDir();dx=kd.dx;dy=kd.dy;}
 
-  const spd=200;
-  P.x=Math.max(P.r,Math.min(W-P.r,P.x+dx*spd*dt));
-  P.y=Math.max(P.r,Math.min(H-P.r,P.y+dy*spd*dt));
+  const spd=220; // 10% 증가
+  const hasInput=(dx!==0||dy!==0);
+  const ACCEL=18; // 가속 보간 속도 (높을수록 즉각 반응)
+
+  if(hasInput){
+    // 부드럽게 목표 속도로 가속
+    P.vx+=(dx*spd-P.vx)*Math.min(1,ACCEL*dt);
+    P.vy+=(dy*spd-P.vy)*Math.min(1,ACCEL*dt);
+  } else {
+    // 입력 없으면 즉시 정지
+    P.vx=0;P.vy=0;
+  }
+
+  P.x=Math.max(P.r,Math.min(W-P.r,P.x+P.vx*dt));
+  P.y=Math.max(P.r,Math.min(H-P.r,P.y+P.vy*dt));
   P.history.unshift({x:P.x,y:P.y});
   if(P.history.length>16)P.history.pop();
 
