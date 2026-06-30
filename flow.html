@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>플로우</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.7rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:18px;padding:2px 6px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:600;color:#111;flex:1;}
+.top-info{font-size:12px;font-weight:600;}
+
+.hud{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;}
+.hud-box{flex:1;background:#f8f8f8;border-radius:10px;padding:6px 10px;text-align:center;}
+.hud-val{font-size:16px;font-weight:700;color:#111;}
+.hud-lbl{font-size:9px;color:#888;margin-top:1px;letter-spacing:0.3px;}
+
+.board-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:0.5rem;touch-action:none;}
+#board{position:relative;touch-action:none;border-radius:8px;overflow:hidden;}
+.cell{position:absolute;box-sizing:border-box;border:0.5px solid #eee;background:#fff;}
+#line-canvas{position:absolute;top:0;left:0;pointer-events:none;}
+.dot{position:absolute;border-radius:50%;pointer-events:none;}
+
+.btn-row{display:flex;gap:8px;padding:0.6rem 1rem 1rem;flex-shrink:0;}
+.act-btn{flex:1;padding:11px;border-radius:10px;border:1px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#555;cursor:pointer;}
+
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:30;display:none;}
+.overlay.show{display:flex;}
+.ov-emoji{font-size:48px;}
+.ov-title{font-size:24px;font-weight:700;color:#111;}
+.ov-desc{font-size:13px;color:#888;text-align:center;padding:0 2rem;line-height:1.5;}
+.ov-btn{margin-top:6px;padding:12px 32px;border-radius:10px;border:none;background:#111;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
+.relative-app{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='flow_stages.html'">←</button>
+    <span class="top-title" id="stage-title">스테이지 1</span>
+    <span class="top-info" id="diff-info"></span>
+  </div>
+  <div class="relative-app">
+    <div class="hud">
+      <div class="hud-box"><div class="hud-val" id="hud-progress">0%</div><div class="hud-lbl">채움</div></div>
+      <div class="hud-box"><div class="hud-val" id="hud-colors">0/0</div><div class="hud-lbl">연결</div></div>
+    </div>
+    <div class="board-wrap" id="board-wrap"><div id="board"></div></div>
+    <div class="btn-row">
+      <button class="act-btn" onclick="resetPuzzle()">🔄 초기화</button>
+      <button class="act-btn" onclick="showStageSelect()">📋 스테이지</button>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <div class="ov-emoji">🎉</div>
+      <div class="ov-title">클리어!</div>
+      <div class="ov-desc">모든 칸을 연결했어요</div>
+      <button class="ov-btn" onclick="goNext()">다음 스테이지 →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const COLORS=[
+  '#E24B4A','#378ADD','#1D9E75','#EF9F27','#9c27b0',
+  '#00BCD4','#FF6B9D','#8BC34A','#FF5722','#3F51B5',
+];
+
+const DIFFS=[
+  {id:'easy',  label:'왕기본',color:'#1D9E75',from:1, to:10, size:5},
+  {id:'normal',label:'기본',  color:'#378ADD',from:11,to:30, size:6},
+  {id:'medium',label:'중간',  color:'#BA7517',from:31,to:70, size:7},
+  {id:'hard',  label:'하드',  color:'#E24B4A',from:71,to:100,size:8},
+];
+function getDiff(s){return DIFFS.find(d=>s>=d.from&&s<=d.to);}
+
+function mkRng(seed){let s=seed|0;return()=>{s=(Math.imul(1664525,s)+1013904223)|0;return(s>>>0)/4294967296;};}
+
+function generateHamiltonian(n,rng,maxAttempts){
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    const visited=Array.from({length:n},()=>new Array(n).fill(false));
+    const path=[];
+    function degree(r,c){
+      let cnt=0;
+      const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+      for(const[dr,dc] of dirs){
+        const nr=r+dr,nc=c+dc;
+        if(nr>=0&&nr<n&&nc>=0&&nc<n&&!visited[nr][nc])cnt++;
+      }
+      return cnt;
+    }
+    function neighbors(r,c){
+      const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+      for(let i=dirs.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));[dirs[i],dirs[j]]=[dirs[j],dirs[i]];}
+      const result=[];
+      for(const[dr,dc] of dirs){
+        const nr=r+dr,nc=c+dc;
+        if(nr>=0&&nr<n&&nc>=0&&nc<n&&!visited[nr][nc])result.push([nr,nc]);
+      }
+      return result;
+    }
+    let sr=Math.floor(rng()*n),sc=Math.floor(rng()*n);
+    visited[sr][sc]=true;path.push([sr,sc]);
+    let cur=[sr,sc];
+    let success=true;
+    for(let step=0;step<n*n-1;step++){
+      const[r,c]=cur;
+      const nbrs=neighbors(r,c);
+      if(nbrs.length===0){success=false;break;}
+      nbrs.sort((a,b)=>degree(a[0],a[1])-degree(b[0],b[1]));
+      const nxt=nbrs[0];
+      visited[nxt[0]][nxt[1]]=true;
+      path.push(nxt);
+      cur=nxt;
+    }
+    if(success&&path.length===n*n)return path;
+  }
+  // 폴백: 지그재그
+  const path=[];
+  for(let r=0;r<n;r++){
+    if(r%2===0){for(let c=0;c<n;c++)path.push([r,c]);}
+    else{for(let c=n-1;c>=0;c--)path.push([r,c]);}
+  }
+  return path;
+}
+
+function generateFlow(n,seed,numColors){
+  const rng=mkRng(seed);
+  const path=generateHamiltonian(n,rng,25);
+  const cells=n*n;
+  const segLen=Math.floor(cells/numColors);
+  const colors=[];
+  let idx=0;
+  for(let i=0;i<numColors;i++){
+    let segment;
+    if(i===numColors-1)segment=path.slice(idx);
+    else segment=path.slice(idx,idx+segLen);
+    if(segment.length<2)return null;
+    colors.push({start:segment[0],end:segment[segment.length-1]});
+    idx+=segLen;
+  }
+  return{n,colors};
+}
+
+function numColorsForStage(n,stageNum){
+  // 격자 크기에 비례 + 스테이지 진행도에 따라 살짝 변동
+  const base=Math.max(3,n-2);
+  return base+(stageNum%3);
+}
+
+const params=new URLSearchParams(location.search);
+const stageNum=parseInt(params.get('stage')||'1');
+const diff=getDiff(stageNum);
+let N,puzzle,grid; // grid[r][c] = colorIndex or -1
+let cellSize=0;
+let userPaths=[]; // [{colorIdx, cells:[[r,c],...]}]
+let dragging=false,dragColorIdx=-1;
+let svgNS='http://www.w3.org/2000/svg';
+
+document.getElementById('stage-title').textContent='스테이지 '+stageNum;
+document.getElementById('diff-info').textContent=diff.label;
+document.getElementById('diff-info').style.color=diff.color;
+
+function startPuzzle(){
+  N=diff.size;
+  const numColors=numColorsForStage(N,stageNum);
+  let attempt=0;
+  do{
+    puzzle=generateFlow(N,stageNum*131+attempt*7919,numColors);
+    attempt++;
+  }while(!puzzle&&attempt<5);
+
+  if(!puzzle){
+    // 안전장치: 색 줄여서 재시도
+    puzzle=generateFlow(N,stageNum*131,Math.max(3,numColors-1));
+  }
+
+  grid=Array.from({length:N},()=>new Array(N).fill(-1));
+  userPaths=puzzle.colors.map((c,i)=>({colorIdx:i,cells:[]}));
+  dragging=false;dragColorIdx=-1;
+  document.getElementById('overlay').classList.remove('show');
+  buildBoard();
+  updateHUD();
+}
+
+function buildBoard(){
+  const wrap=document.getElementById('board-wrap');
+  const maxSize=Math.min(wrap.clientWidth-8,wrap.clientHeight-8,400);
+  cellSize=Math.floor(maxSize/N);
+  const boardSize=cellSize*N;
+
+  const board=document.getElementById('board');
+  board.innerHTML='';
+  board.style.width=boardSize+'px';
+  board.style.height=boardSize+'px';
+
+  // 셀 배경
+  for(let r=0;r<N;r++){
+    for(let c=0;c<N;c++){
+      const cell=document.createElement('div');
+      cell.className='cell';
+      cell.style.left=(c*cellSize)+'px';
+      cell.style.top=(r*cellSize)+'px';
+      cell.style.width=cellSize+'px';
+      cell.style.height=cellSize+'px';
+      cell.id=`cell-${r}-${c}`;
+      board.appendChild(cell);
+    }
+  }
+
+  // SVG 레이어 (선 그리기)
+  const svg=document.createElementNS(svgNS,'svg');
+  svg.setAttribute('id','line-canvas');
+  svg.setAttribute('width',boardSize);
+  svg.setAttribute('height',boardSize);
+  svg.style.position='absolute';svg.style.top='0';svg.style.left='0';
+  svg.style.pointerEvents='none';
+  board.appendChild(svg);
+
+  // 시작/끝 점 표시
+  puzzle.colors.forEach((colorDef,i)=>{
+    [colorDef.start,colorDef.end].forEach(([r,c])=>{
+      const dot=document.createElement('div');
+      dot.className='dot';
+      const dotSize=cellSize*0.55;
+      dot.style.width=dotSize+'px';dot.style.height=dotSize+'px';
+      dot.style.left=(c*cellSize+(cellSize-dotSize)/2)+'px';
+      dot.style.top=(r*cellSize+(cellSize-dotSize)/2)+'px';
+      dot.style.background=COLORS[i%COLORS.length];
+      dot.style.zIndex='3';
+      board.appendChild(dot);
+    });
+  });
+
+  // 터치/마우스 이벤트
+  board.addEventListener('pointerdown',onPointerDown);
+  board.addEventListener('pointermove',onPointerMove);
+  board.addEventListener('pointerup',onPointerUp);
+  board.addEventListener('pointerleave',onPointerUp);
+
+  redrawLines();
+}
+
+function getCellFromEvent(e){
+  const rect=document.getElementById('board').getBoundingClientRect();
+  const x=e.clientX-rect.left,y=e.clientY-rect.top;
+  const c=Math.floor(x/cellSize),r=Math.floor(y/cellSize);
+  if(r<0||r>=N||c<0||c>=N)return null;
+  return[r,c];
+}
+
+function findColorAt(r,c){
+  // 시작점/끝점이거나 이미 그려진 유저 경로 위에 있는지 확인
+  for(let i=0;i<puzzle.colors.length;i++){
+    const def=puzzle.colors[i];
+    if((def.start[0]===r&&def.start[1]===c)||(def.end[0]===r&&def.end[1]===c))return i;
+  }
+  for(const up of userPaths){
+    if(up.cells.some(([cr,cc])=>cr===r&&cc===c))return up.colorIdx;
+  }
+  return -1;
+}
+
+function onPointerDown(e){
+  e.preventDefault();
+  const pos=getCellFromEvent(e);
+  if(!pos)return;
+  const[r,c]=pos;
+  const colorIdx=findColorAt(r,c);
+  if(colorIdx===-1)return;
+
+  dragging=true;dragColorIdx=colorIdx;
+  const up=userPaths[colorIdx];
+
+  // 시작점이면 경로 리셋, 이미 경로 일부면 거기서부터 이어가기
+  const isEndpoint=(puzzle.colors[colorIdx].start[0]===r&&puzzle.colors[colorIdx].start[1]===c)||
+                    (puzzle.colors[colorIdx].end[0]===r&&puzzle.colors[colorIdx].end[1]===c);
+  const idxInPath=up.cells.findIndex(([cr,cc])=>cr===r&&cc===c);
+
+  if(idxInPath!==-1){
+    // 기존 경로 클릭 -> 거기까지만 자르기 (되돌리기)
+    up.cells=up.cells.slice(0,idxInPath+1);
+  } else if(isEndpoint){
+    grid.forEach((row,ri)=>row.forEach((v,ci)=>{if(v===colorIdx)grid[ri][ci]=-1;}));
+    up.cells=[[r,c]];
+    grid[r][c]=colorIdx;
+  }
+  redrawLines();
+}
+
+function onPointerMove(e){
+  if(!dragging)return;
+  e.preventDefault();
+  const pos=getCellFromEvent(e);
+  if(!pos)return;
+  const[r,c]=pos;
+  const up=userPaths[dragColorIdx];
+  if(up.cells.length===0)return;
+  const[lr,lc]=up.cells[up.cells.length-1];
+  if(lr===r&&lc===c)return;
+
+  // 인접 칸인지 확인
+  const adjacent=(Math.abs(lr-r)+Math.abs(lc-c))===1;
+  if(!adjacent)return;
+
+  // 이미 자기 경로 안에 있는 칸이면 (되돌아가기)
+  const backIdx=up.cells.findIndex(([cr,cc])=>cr===r&&cc===c);
+  if(backIdx!==-1){
+    // 해당 지점까지 자르기
+    const removed=up.cells.slice(backIdx+1);
+    removed.forEach(([rr,cc])=>{if(grid[rr][cc]===dragColorIdx)grid[rr][cc]=-1;});
+    up.cells=up.cells.slice(0,backIdx+1);
+    redrawLines();
+    return;
+  }
+
+  // 다른 색이 이미 차지한 칸이면 무시
+  const occupiedBy=grid[r][c];
+  if(occupiedBy!==-1&&occupiedBy!==dragColorIdx)return;
+
+  // 도착점(반대쪽 끝)에 닿으면 그 칸까지만 연결하고 종료
+  const def=puzzle.colors[dragColorIdx];
+  const isOtherEndpoint=
+    (def.start[0]===r&&def.start[1]===c&&!(up.cells[0][0]===r&&up.cells[0][1]===c))||
+    (def.end[0]===r&&def.end[1]===c&&!(up.cells[0][0]===r&&up.cells[0][1]===c));
+
+  up.cells.push([r,c]);
+  grid[r][c]=dragColorIdx;
+  redrawLines();
+  updateHUD();
+
+  if(isOtherEndpoint){
+    dragging=false;
+    checkWin();
+  }
+}
+
+function onPointerUp(e){
+  dragging=false;
+  checkWin();
+}
+
+function redrawLines(){
+  const svg=document.getElementById('line-canvas');
+  if(!svg)return;
+  svg.innerHTML='';
+  userPaths.forEach(up=>{
+    if(up.cells.length<2)return;
+    const color=COLORS[up.colorIdx%COLORS.length];
+    const points=up.cells.map(([r,c])=>`${c*cellSize+cellSize/2},${r*cellSize+cellSize/2}`).join(' ');
+    const polyline=document.createElementNS(svgNS,'polyline');
+    polyline.setAttribute('points',points);
+    polyline.setAttribute('stroke',color);
+    polyline.setAttribute('stroke-width',Math.max(4,cellSize*0.28));
+    polyline.setAttribute('fill','none');
+    polyline.setAttribute('stroke-linecap','round');
+    polyline.setAttribute('stroke-linejoin','round');
+    polyline.setAttribute('opacity','0.85');
+    svg.appendChild(polyline);
+  });
+
+  // 셀 배경색도 업데이트 (채워진 영역 표시)
+  for(let r=0;r<N;r++){
+    for(let c=0;c<N;c++){
+      const cell=document.getElementById(`cell-${r}-${c}`);
+      if(!cell)continue;
+      const colorIdx=grid[r][c];
+      if(colorIdx===-1){
+        cell.style.background='#fff';
+      } else {
+        const hex=COLORS[colorIdx%COLORS.length];
+        cell.style.background=hexToRgba(hex,0.12);
+      }
+    }
+  }
+}
+
+function hexToRgba(hex,alpha){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function updateHUD(){
+  let filled=0;
+  grid.forEach(row=>row.forEach(v=>{if(v!==-1)filled++;}));
+  const total=N*N;
+  document.getElementById('hud-progress').textContent=Math.round(filled/total*100)+'%';
+
+  let connected=0;
+  userPaths.forEach((up,i)=>{
+    const def=puzzle.colors[i];
+    if(up.cells.length>=2){
+      const last=up.cells[up.cells.length-1];
+      const first=up.cells[0];
+      const touchesStart=(first[0]===def.start[0]&&first[1]===def.start[1])||(first[0]===def.end[0]&&first[1]===def.end[1]);
+      const touchesEnd=(last[0]===def.start[0]&&last[1]===def.start[1])||(last[0]===def.end[0]&&last[1]===def.end[1]);
+      if(touchesStart&&touchesEnd&&!(first[0]===last[0]&&first[1]===last[1]))connected++;
+    }
+  });
+  document.getElementById('hud-colors').textContent=connected+'/'+puzzle.colors.length;
+}
+
+function checkWin(){
+  let filled=0;
+  grid.forEach(row=>row.forEach(v=>{if(v!==-1)filled++;}));
+  const total=N*N;
+
+  let allConnected=true;
+  userPaths.forEach((up,i)=>{
+    const def=puzzle.colors[i];
+    if(up.cells.length<2){allConnected=false;return;}
+    const first=up.cells[0],last=up.cells[up.cells.length-1];
+    const touchesStart=(first[0]===def.start[0]&&first[1]===def.start[1])||(first[0]===def.end[0]&&first[1]===def.end[1]);
+    const touchesEnd=(last[0]===def.start[0]&&last[1]===def.start[1])||(last[0]===def.end[0]&&last[1]===def.end[1]);
+    if(!(touchesStart&&touchesEnd))allConnected=false;
+  });
+
+  if(filled===total&&allConnected){
+    onClear();
+  }
+}
+
+function onClear(){
+  let cleared=[];
+  try{cleared=JSON.parse(localStorage.getItem('flow_cleared')||'[]');}catch(e){}
+  if(!cleared.includes(stageNum)){cleared.push(stageNum);localStorage.setItem('flow_cleared',JSON.stringify(cleared));}
+  saveToSupabase();
+  document.getElementById('overlay').classList.add('show');
+}
+
+async function saveToSupabase(){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    await fetch(`${SUPABASE_URL}/rest/v1/clears`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Prefer':'resolution=ignore-duplicates'},
+      body:JSON.stringify({user_id:user.id,username:user.username,game:'flow',stage:stageNum})
+    });
+  }catch(e){}
+}
+
+function resetPuzzle(){
+  grid=Array.from({length:N},()=>new Array(N).fill(-1));
+  userPaths=puzzle.colors.map((c,i)=>({colorIdx:i,cells:[]}));
+  redrawLines();updateHUD();
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function showStageSelect(){location.href='flow_stages.html';}
+function goNext(){
+  if(stageNum<100)location.href='flow.html?stage='+(stageNum+1);
+  else location.href='flow_stages.html';
+}
+
+window.addEventListener('resize',()=>{if(puzzle)buildBoard();});
+startPuzzle();
+</script>
+</body>
+</html>

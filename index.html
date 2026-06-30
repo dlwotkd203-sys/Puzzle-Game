@@ -156,6 +156,7 @@ const GAMES=[
 {id:'sorter', name:'분류하기', icon:'🎯', available:true},
 {id:'minesweeper', name:'지뢰찾기', icon:'💣', available:true},
 {id:'breakout', name:'벽돌깨기', icon:'🧱', available:true},
+{id:'flow', name:'플로우', icon:'🌊', available:true},
   {id:'word',name:'단어 찾기',icon:'가',available:false},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
@@ -248,6 +249,7 @@ function openGame(game){
 if(game.id==='2048'){ location.href='2048.html'; return; }
 if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
   if(game.id==='breakout'){ location.href='breakout.html'; return; }
+  if(game.id==='flow'){ location.href='flow_stages.html'; return; }
   if(game.id==='memory'){ location.href='memory.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
 if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }

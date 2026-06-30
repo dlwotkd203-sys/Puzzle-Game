@@ -47,6 +47,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="tab" onclick="setTab('sorter')" id="tab-sorter">분류하기</div>
     <div class="tab" onclick="setTab('minesweeper')" id="tab-minesweeper">지뢰찾기</div>
     <div class="tab" onclick="setTab('breakout')" id="tab-breakout">벽돌깨기</div>
+    <div class="tab" onclick="setTab('flow')" id="tab-flow">플로우</div>
   </div>
   <div class="ranking-body" id="ranking-body">
     <div class="loading">불러오는 중...</div>
@@ -111,7 +112,7 @@ async function loadRanking(){
       data.forEach(row=>{if(!map[row.username])map[row.username]=0;map[row.username]++;});
       const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
       if(!sorted.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
-      const gameLabel={shikaku:'시카쿠',sudoku:'스도쿠',nonogram:'노노그램',total:'전체'};
+      const gameLabel={shikaku:'시카쿠',sudoku:'스도쿠',nonogram:'노노그램',flow:'플로우',total:'전체'};
       body.innerHTML='';
       sorted.slice(0,50).forEach(([name,count],idx)=>{
         const isMe=currentUser&&currentUser.username===name;
