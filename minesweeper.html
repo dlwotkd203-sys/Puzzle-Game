@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>지뢰찾기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.7rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:18px;padding:2px 6px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:600;color:#111;flex:1;}
+
+.hud{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;}
+.hud-box{flex:1;background:#f8f8f8;border-radius:10px;padding:6px 10px;text-align:center;}
+.hud-val{font-size:17px;font-weight:700;color:#111;font-variant-numeric:tabular-nums;}
+.hud-lbl{font-size:9px;color:#888;margin-top:1px;letter-spacing:0.3px;}
+
+.board-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:0.5rem;-webkit-overflow-scrolling:touch;}
+.board{display:grid;border:2px solid #999;touch-action:none;}
+.cell{border:0.5px solid #ccc;display:flex;align-items:center;justify-content:center;font-weight:700;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;position:relative;background:#e8e8ea;}
+.cell.opened{background:#fafafa;cursor:default;}
+.cell.opened.mine{background:#ffdddd;}
+.cell.flagged{background:#fff3cd;}
+.cell.n1{color:#378ADD;}
+.cell.n2{color:#1D9E75;}
+.cell.n3{color:#E24B4A;}
+.cell.n4{color:#534AB7;}
+.cell.n5{color:#BA7517;}
+.cell.n6{color:#1D9E9E;}
+.cell.n7{color:#333;}
+.cell.n8{color:#888;}
+
+.action-bar{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;}
+.act-btn{flex:1;padding:11px;border-radius:10px;border:1px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#555;cursor:pointer;}
+.act-btn.flag-mode{border-color:#EF9F27;background:#FFF8E1;color:#854F0B;}
+
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:30;}
+.ov-emoji{font-size:48px;}
+.ov-title{font-size:24px;font-weight:700;color:#111;}
+.ov-desc{font-size:13px;color:#888;text-align:center;padding:0 2rem;line-height:1.5;}
+.diff-row{display:flex;gap:8px;width:100%;padding:0 2rem;}
+.diff-btn{flex:1;padding:14px 8px;border-radius:12px;border:1.5px solid #eee;background:#fff;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.diff-btn:active{transform:scale(0.96);}
+.diff-btn.easy{border-color:#9FE1CB;}
+.diff-btn.normal{border-color:#B5D4F4;}
+.diff-btn.hard{border-color:#F09595;}
+.diff-sub{font-size:10px;color:#aaa;font-weight:400;}
+.ov-score{font-size:20px;font-weight:700;color:#378ADD;}
+.ov-best{font-size:13px;color:#aaa;}
+.ov-new{font-size:13px;color:#1D9E75;font-weight:700;}
+.ov-btn{margin-top:6px;padding:12px 32px;border-radius:10px;border:none;background:#111;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
+.ov-btn:active{background:#333;}
+.ov-divider{width:36px;height:1px;background:#eee;}
+.relative-app{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title" id="top-title">지뢰찾기</span>
+  </div>
+  <div class="relative-app">
+    <div class="hud">
+      <div class="hud-box"><div class="hud-val" id="hud-mines">0</div><div class="hud-lbl">남은 지뢰</div></div>
+      <div class="hud-box"><div class="hud-val" id="hud-time">0</div><div class="hud-lbl">시간(초)</div></div>
+      <div class="hud-box"><div class="hud-val" id="hud-best">-</div><div class="hud-lbl">고수 최고기록</div></div>
+    </div>
+    <div class="board-wrap" id="board-wrap"><div class="board" id="board"></div></div>
+    <div class="action-bar">
+      <button class="act-btn" id="flag-toggle" onclick="toggleFlagMode()">🚩 깃발 모드</button>
+      <button class="act-btn" onclick="resetCurrent()">🔄 다시</button>
+      <button class="act-btn" onclick="showDiffSelect()">📋 난이도</button>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <div class="ov-emoji">💣</div>
+      <div class="ov-title">지뢰찾기</div>
+      <div class="ov-desc">난이도를 선택하세요<br>탭=열기, 길게 누르기=깃발</div>
+      <div class="diff-row">
+        <button class="diff-btn easy" onclick="startGame('easy')">하수<span class="diff-sub">7×7</span></button>
+        <button class="diff-btn normal" onclick="startGame('normal')">중수<span class="diff-sub">12×12</span></button>
+        <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">16×16</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const DIFFS={
+  easy:{label:'하수',size:7,mines:8},
+  normal:{label:'중수',size:12,mines:24},
+  hard:{label:'고수',size:16,mines:45},
+};
+
+let curDiff=null,N=0,mineCount=0;
+let board=[]; // {mine,opened,flagged,adj}
+let firstClick=true;
+let timeElapsed=0,timerInterval=null;
+let flagMode=false;
+let gameActive=false;
+let cellSize=28;
+
+function loadBest(){try{return parseInt(localStorage.getItem('mine_hard_best')||'0')||null;}catch(e){return null;}}
+function saveBest(v){try{localStorage.setItem('mine_hard_best',String(v));}catch(e){}}
+
+function updateBestHUD(){
+  const b=loadBest();
+  document.getElementById('hud-best').textContent=b?b+'s':'-';
+}
+
+async function saveScore(seconds){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    // 점수는 낮을수록 좋음 -> score는 (100000-seconds)로 저장해서 desc 정렬시 1등이 가장 빠른 기록이 되게
+    const sc=Math.max(0,100000-seconds);
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.minesweeper&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'minesweeper',score:sc})});
+    }
+  }catch(e){}
+}
+
+function showDiffSelect(){
+  clearInterval(timerInterval);
+  gameActive=false;
+  document.getElementById('overlay').innerHTML=`
+    <div class="ov-emoji">💣</div>
+    <div class="ov-title">지뢰찾기</div>
+    <div class="ov-desc">난이도를 선택하세요<br>탭=열기, 길게 누르기=깃발</div>
+    <div class="diff-row">
+      <button class="diff-btn easy" onclick="startGame('easy')">하수<span class="diff-sub">7×7</span></button>
+      <button class="diff-btn normal" onclick="startGame('normal')">중수<span class="diff-sub">12×12</span></button>
+      <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">16×16</span></button>
+    </div>
+  `;
+  document.getElementById('overlay').style.display='flex';
+}
+
+function resetCurrent(){
+  if(curDiff)startGame(curDiff);
+}
+
+function startGame(diffKey){
+  curDiff=diffKey;
+  const cfg=DIFFS[diffKey];
+  N=cfg.size;mineCount=cfg.mines;
+  document.getElementById('top-title').textContent='지뢰찾기 - '+cfg.label;
+  document.getElementById('overlay').style.display='none';
+
+  board=Array.from({length:N},()=>Array.from({length:N},()=>({mine:false,opened:false,flagged:false,adj:0})));
+  firstClick=true;
+  timeElapsed=0;
+  flagMode=false;
+  gameActive=true;
+  clearInterval(timerInterval);
+
+  document.getElementById('hud-mines').textContent=mineCount;
+  document.getElementById('hud-time').textContent='0';
+  document.getElementById('flag-toggle').classList.remove('flag-mode');
+  updateBestHUD();
+
+  buildBoardDOM();
+}
+
+function buildBoardDOM(){
+  const wrap=document.getElementById('board-wrap');
+  const maxW=wrap.clientWidth-8;
+  cellSize=Math.max(20,Math.min(42,Math.floor(maxW/N)));
+
+  const boardEl=document.getElementById('board');
+  boardEl.innerHTML='';
+  boardEl.style.gridTemplateColumns=`repeat(${N},${cellSize}px)`;
+  boardEl.style.gridTemplateRows=`repeat(${N},${cellSize}px)`;
+
+  for(let r=0;r<N;r++){
+    for(let c=0;c<N;c++){
+      const cell=document.createElement('div');
+      cell.className='cell';
+      cell.style.width=cellSize+'px';
+      cell.style.height=cellSize+'px';
+      cell.style.fontSize=Math.max(9,Math.floor(cellSize*0.55))+'px';
+      cell.id=`cell-${r}-${c}`;
+      attachCellEvents(cell,r,c);
+      boardEl.appendChild(cell);
+    }
+  }
+}
+
+function attachCellEvents(cell,r,c){
+  let pressTimer=null;
+  let longPressed=false;
+
+  function startPress(e){
+    if(!gameActive)return;
+    longPressed=false;
+    pressTimer=setTimeout(()=>{
+      longPressed=true;
+      doFlag(r,c);
+    },380);
+  }
+  function endPress(e){
+    if(!gameActive)return;
+    clearTimeout(pressTimer);
+    if(!longPressed){
+      if(flagMode)doFlag(r,c);
+      else doOpen(r,c);
+    }
+  }
+  function cancelPress(){clearTimeout(pressTimer);}
+
+  cell.addEventListener('touchstart',e=>{e.preventDefault();startPress(e);},{passive:false});
+  cell.addEventListener('touchend',e=>{e.preventDefault();endPress(e);},{passive:false});
+  cell.addEventListener('touchcancel',cancelPress);
+
+  cell.addEventListener('mousedown',e=>{if(e.button===0)startPress(e);});
+  cell.addEventListener('mouseup',e=>{if(e.button===0)endPress(e);});
+  cell.addEventListener('contextmenu',e=>{e.preventDefault();doFlag(r,c);});
+}
+
+function placeMinesAvoiding(safeR,safeC){
+  const forbidden=new Set();
+  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    const nr=safeR+dr,nc=safeC+dc;
+    if(nr>=0&&nr<N&&nc>=0&&nc<N)forbidden.add(nr*N+nc);
+  }
+  let placed=0;
+  while(placed<mineCount){
+    const r=Math.floor(Math.random()*N),c=Math.floor(Math.random()*N);
+    const idx=r*N+c;
+    if(forbidden.has(idx)||board[r][c].mine)continue;
+    board[r][c].mine=true;placed++;
+  }
+  // 인접 지뢰 수 계산
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(board[r][c].mine)continue;
+    let cnt=0;
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      const nr=r+dr,nc=c+dc;
+      if(nr>=0&&nr<N&&nc>=0&&nc<N&&board[nr][nc].mine)cnt++;
+    }
+    board[r][c].adj=cnt;
+  }
+}
+
+function doOpen(r,c){
+  if(!gameActive)return;
+  const cell=board[r][c];
+  if(cell.opened||cell.flagged)return;
+
+  if(firstClick){
+    placeMinesAvoiding(r,c);
+    firstClick=false;
+    timerInterval=setInterval(()=>{timeElapsed++;document.getElementById('hud-time').textContent=timeElapsed;},1000);
+  }
+
+  if(cell.mine){
+    cell.opened=true;
+    renderCell(r,c);
+    onGameOver(false);
+    return;
+  }
+
+  floodOpen(r,c);
+  renderAll();
+  checkWin();
+}
+
+function floodOpen(r,c){
+  const stack=[[r,c]];
+  while(stack.length){
+    const[cr,cc]=stack.pop();
+    const cell=board[cr][cc];
+    if(cell.opened||cell.flagged)continue;
+    cell.opened=true;
+    if(cell.adj===0){
+      for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+        const nr=cr+dr,nc=cc+dc;
+        if(nr>=0&&nr<N&&nc>=0&&nc<N&&!board[nr][nc].opened&&!board[nr][nc].mine){
+          stack.push([nr,nc]);
+        }
+      }
+    }
+  }
+}
+
+function doFlag(r,c){
+  if(!gameActive)return;
+  const cell=board[r][c];
+  if(cell.opened)return;
+  cell.flagged=!cell.flagged;
+  renderCell(r,c);
+  const flagged=board.flat().filter(c=>c.flagged).length;
+  document.getElementById('hud-mines').textContent=mineCount-flagged;
+}
+
+function toggleFlagMode(){
+  flagMode=!flagMode;
+  document.getElementById('flag-toggle').classList.toggle('flag-mode',flagMode);
+}
+
+function renderCell(r,c){
+  const cell=board[r][c];
+  const el=document.getElementById(`cell-${r}-${c}`);
+  if(!el)return;
+  el.className='cell';
+  el.textContent='';
+  if(cell.flagged&&!cell.opened){
+    el.classList.add('flagged');
+    el.textContent='🚩';
+  } else if(cell.opened){
+    el.classList.add('opened');
+    if(cell.mine){
+      el.classList.add('mine');
+      el.textContent='💣';
+    } else if(cell.adj>0){
+      el.classList.add('n'+cell.adj);
+      el.textContent=cell.adj;
+    }
+  }
+}
+
+function renderAll(){
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++)renderCell(r,c);
+}
+
+function checkWin(){
+  let allSafeOpened=true;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(!board[r][c].mine&&!board[r][c].opened){allSafeOpened=false;break;}
+  }
+  if(allSafeOpened)onGameOver(true);
+}
+
+function onGameOver(won){
+  gameActive=false;
+  clearInterval(timerInterval);
+
+  if(won){
+    // 모든 지뢰에 깃발 표시
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+      if(board[r][c].mine){board[r][c].flagged=true;}
+    }
+    renderAll();
+    document.getElementById('hud-mines').textContent=0;
+
+    let isNew=false;
+    if(curDiff==='hard'){
+      const best=loadBest();
+      isNew=!best||timeElapsed<best;
+      if(isNew)saveBest(timeElapsed);
+      saveScore(timeElapsed);
+    }
+
+    setTimeout(()=>{
+      const ov=document.getElementById('overlay');
+      ov.innerHTML=`
+        <div class="ov-emoji">🎉</div>
+        <div class="ov-title">클리어!</div>
+        <div class="ov-score">${timeElapsed}초</div>
+        ${curDiff==='hard'?(isNew?'<div class="ov-new">🏆 새 최고 기록!</div>':'<div class="ov-best">최고 기록 갱신 실패</div>'):'<div class="ov-best">고수 난이도만 랭킹 집계돼요</div>'}
+        <div class="ov-divider"></div>
+        <button class="ov-btn" onclick="startGame('${curDiff}')">다시 시작</button>
+        <button class="ov-btn" style="background:#fff;color:#555;border:1px solid #ddd;margin-top:0" onclick="showDiffSelect()">난이도 변경</button>
+      `;
+      ov.style.display='flex';
+    },400);
+  } else {
+    // 모든 지뢰 공개
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+      if(board[r][c].mine)board[r][c].opened=true;
+    }
+    renderAll();
+
+    setTimeout(()=>{
+      const ov=document.getElementById('overlay');
+      ov.innerHTML=`
+        <div class="ov-emoji">💥</div>
+        <div class="ov-title">지뢰 발견!</div>
+        <div class="ov-score">${timeElapsed}초 생존</div>
+        <div class="ov-divider"></div>
+        <button class="ov-btn" onclick="startGame('${curDiff}')">다시 시작</button>
+        <button class="ov-btn" style="background:#fff;color:#555;border:1px solid #ddd;margin-top:0" onclick="showDiffSelect()">난이도 변경</button>
+      `;
+      ov.style.display='flex';
+    },300);
+  }
+}
+
+window.addEventListener('resize',()=>{if(curDiff)buildBoardDOM();});
+updateBestHUD();
+</script>
+</body>
+</html>

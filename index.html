@@ -154,6 +154,7 @@ const GAMES=[
 {id:'nonogram', name:'노노그램', icon:'▦', available:true},
   {id:'memory',name:'짝맞추기',icon:'🃏',available:true},
 {id:'sorter', name:'분류하기', icon:'🎯', available:true},
+{id:'minesweeper', name:'지뢰찾기', icon:'💣', available:true},
   {id:'word',name:'단어 찾기',icon:'가',available:false},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
@@ -247,6 +248,7 @@ if(game.id==='2048'){ location.href='2048.html'; return; }
 if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
   if(game.id==='memory'){ location.href='memory.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
+if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }
 if(game.id==='dodge'){ location.href='dodge.html'; return; }
   document.getElementById('sel-title').textContent=game.name;
   renderDiffs();showScreen('stage-select');
