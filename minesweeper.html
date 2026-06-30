@@ -23,6 +23,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .cell.opened{background:#fafafa;cursor:default;}
 .cell.opened.mine{background:#ffdddd;}
 .cell.flagged{background:#fff3cd;}
+.cell.question{background:#e6f1fb;}
 .cell.n1{color:#378ADD;}
 .cell.n2{color:#1D9E75;}
 .cell.n3{color:#E24B4A;}
@@ -82,7 +83,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="diff-row">
         <button class="diff-btn easy" onclick="startGame('easy')">하수<span class="diff-sub">7×7</span></button>
         <button class="diff-btn normal" onclick="startGame('normal')">중수<span class="diff-sub">12×12</span></button>
-        <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">16×16</span></button>
+        <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">20×20</span></button>
       </div>
     </div>
   </div>
@@ -95,7 +96,7 @@ const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 const DIFFS={
   easy:{label:'하수',size:7,mines:8},
   normal:{label:'중수',size:12,mines:24},
-  hard:{label:'고수',size:16,mines:45},
+  hard:{label:'고수',size:20,mines:68},
 };
 
 let curDiff=null,N=0,mineCount=0;
@@ -140,7 +141,7 @@ function showDiffSelect(){
     <div class="diff-row">
       <button class="diff-btn easy" onclick="startGame('easy')">하수<span class="diff-sub">7×7</span></button>
       <button class="diff-btn normal" onclick="startGame('normal')">중수<span class="diff-sub">12×12</span></button>
-      <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">16×16</span></button>
+      <button class="diff-btn hard" onclick="startGame('hard')">고수<span class="diff-sub">20×20</span></button>
     </div>
   `;
   document.getElementById('overlay').style.display='flex';
@@ -157,7 +158,7 @@ function startGame(diffKey){
   document.getElementById('top-title').textContent='지뢰찾기 - '+cfg.label;
   document.getElementById('overlay').style.display='none';
 
-  board=Array.from({length:N},()=>Array.from({length:N},()=>({mine:false,opened:false,flagged:false,adj:0})));
+  board=Array.from({length:N},()=>Array.from({length:N},()=>({mine:false,opened:false,flagged:false,question:false,adj:0})));
   firstClick=true;
   timeElapsed=0;
   flagMode=false;
@@ -227,22 +228,9 @@ function attachCellEvents(cell,r,c){
   cell.addEventListener('contextmenu',e=>{e.preventDefault();doFlag(r,c);});
 }
 
-function placeMinesAvoiding(safeR,safeC){
-  const forbidden=new Set();
-  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
-    const nr=safeR+dr,nc=safeC+dc;
-    if(nr>=0&&nr<N&&nc>=0&&nc<N)forbidden.add(nr*N+nc);
-  }
-  let placed=0;
-  while(placed<mineCount){
-    const r=Math.floor(Math.random()*N),c=Math.floor(Math.random()*N);
-    const idx=r*N+c;
-    if(forbidden.has(idx)||board[r][c].mine)continue;
-    board[r][c].mine=true;placed++;
-  }
-  // 인접 지뢰 수 계산
+function calcAdjAll(){
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
-    if(board[r][c].mine)continue;
+    if(board[r][c].mine){board[r][c].adj=0;continue;}
     let cnt=0;
     for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
       const nr=r+dr,nc=c+dc;
@@ -252,10 +240,61 @@ function placeMinesAvoiding(safeR,safeC){
   }
 }
 
+// 클러스터링 점수 계산: 지뢰가 너무 뭉쳐있으면 50/50 패턴이 잘 생김 -> 낮을수록 좋은 배치
+function clusterScore(){
+  let score=0;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(!board[r][c].mine)continue;
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      if(dr===0&&dc===0)continue;
+      const nr=r+dr,nc=c+dc;
+      if(nr>=0&&nr<N&&nc>=0&&nc<N&&board[nr][nc].mine)score++;
+    }
+  }
+  return score;
+}
+
+function placeMinesAvoiding(safeR,safeC){
+  const forbidden=new Set();
+  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    const nr=safeR+dr,nc=safeC+dc;
+    if(nr>=0&&nr<N&&nc>=0&&nc<N)forbidden.add(nr*N+nc);
+  }
+
+  // 여러 후보 배치를 만들어서 클러스터링이 가장 적은(고르게 퍼진) 배치를 선택
+  // -> 50/50 트윈 패턴 발생 빈도를 줄임
+  const TRIALS=N<=10?6:N<=15?4:2; // 보드가 클수록 시도 횟수 줄여 성능 확보
+  let bestBoard=null,bestScore=Infinity;
+
+  for(let t=0;t<TRIALS;t++){
+    const trialBoard=Array.from({length:N},()=>Array.from({length:N},()=>({mine:false})));
+    let placed=0;
+    let attempts=0;
+    while(placed<mineCount&&attempts<mineCount*50){
+      attempts++;
+      const r=Math.floor(Math.random()*N),c=Math.floor(Math.random()*N);
+      const idx=r*N+c;
+      if(forbidden.has(idx)||trialBoard[r][c].mine)continue;
+      trialBoard[r][c].mine=true;placed++;
+    }
+    // 임시로 board에 적용해서 클러스터 점수 계산
+    const savedMines=board.map(row=>row.map(c=>c.mine));
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++)board[r][c].mine=trialBoard[r][c].mine;
+    const sc=clusterScore();
+    if(sc<bestScore){bestScore=sc;bestBoard=trialBoard;}
+    // 원복
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++)board[r][c].mine=savedMines[r][c];
+  }
+
+  // 가장 좋은 배치 최종 적용
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++)board[r][c].mine=bestBoard[r][c].mine;
+  calcAdjAll();
+}
+
 function doOpen(r,c){
   if(!gameActive)return;
   const cell=board[r][c];
-  if(cell.opened||cell.flagged)return;
+  if(cell.opened||cell.flagged||cell.question)return;
 
   if(firstClick){
     placeMinesAvoiding(r,c);
@@ -280,7 +319,7 @@ function floodOpen(r,c){
   while(stack.length){
     const[cr,cc]=stack.pop();
     const cell=board[cr][cc];
-    if(cell.opened||cell.flagged)continue;
+    if(cell.opened||cell.flagged||cell.question)continue;
     cell.opened=true;
     if(cell.adj===0){
       for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
@@ -297,7 +336,14 @@ function doFlag(r,c){
   if(!gameActive)return;
   const cell=board[r][c];
   if(cell.opened)return;
-  cell.flagged=!cell.flagged;
+  // 상태 순환: none -> flagged -> question -> none
+  if(!cell.flagged&&!cell.question){
+    cell.flagged=true;cell.question=false;
+  } else if(cell.flagged){
+    cell.flagged=false;cell.question=true;
+  } else {
+    cell.flagged=false;cell.question=false;
+  }
   renderCell(r,c);
   const flagged=board.flat().filter(c=>c.flagged).length;
   document.getElementById('hud-mines').textContent=mineCount-flagged;
@@ -317,6 +363,9 @@ function renderCell(r,c){
   if(cell.flagged&&!cell.opened){
     el.classList.add('flagged');
     el.textContent='🚩';
+  } else if(cell.question&&!cell.opened){
+    el.classList.add('question');
+    el.textContent='❓';
   } else if(cell.opened){
     el.classList.add('opened');
     if(cell.mine){
@@ -375,24 +424,11 @@ function onGameOver(won){
       ov.style.display='flex';
     },400);
   } else {
-    // 모든 지뢰 공개
+    // 모든 지뢰 공개 - 오버레이는 띄우지 않고 보드만 보여줌 (하단 "다시"/"난이도" 버튼으로 조작)
     for(let r=0;r<N;r++)for(let c=0;c<N;c++){
       if(board[r][c].mine)board[r][c].opened=true;
     }
     renderAll();
-
-    setTimeout(()=>{
-      const ov=document.getElementById('overlay');
-      ov.innerHTML=`
-        <div class="ov-emoji">💥</div>
-        <div class="ov-title">지뢰 발견!</div>
-        <div class="ov-score">${timeElapsed}초 생존</div>
-        <div class="ov-divider"></div>
-        <button class="ov-btn" onclick="startGame('${curDiff}')">다시 시작</button>
-        <button class="ov-btn" style="background:#fff;color:#555;border:1px solid #ddd;margin-top:0" onclick="showDiffSelect()">난이도 변경</button>
-      `;
-      ov.style.display='flex';
-    },300);
   }
 }
 
