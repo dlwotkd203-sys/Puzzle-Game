@@ -16,6 +16,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .back-btn:hover{background:#f0f0f0;}
 .top-title{font-size:17px;font-weight:600;color:#111;}
 #home{padding:1rem;}
+.notice-banner{background:linear-gradient(90deg,#378ADD,#534AB7);overflow:hidden;white-space:nowrap;position:relative;height:36px;display:none;align-items:center;}
+.notice-banner.show{display:flex;}
+.notice-track{display:inline-block;padding-left:100%;animation:marquee 14s linear infinite;color:#fff;font-size:13px;font-weight:600;}
+@keyframes marquee{0%{transform:translateX(0);}100%{transform:translateX(-100%);}}
 .home-title{font-size:20px;font-weight:700;color:#111;text-align:center;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid #eee;}
 .game-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
 .game-card{background:#fff;border:1px solid #eee;border-radius:16px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all 0.15s;position:relative;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
@@ -64,6 +68,7 @@ button.gbtn.primary:active{background:#185FA5;}
 <body>
 <div id="app">
 <div id="home" class="screen active">
+<div class="notice-banner" id="notice-banner"><div class="notice-track" id="notice-track"></div></div>
 <div class="home-title">미니게임</div>
 <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:0.5rem;">
   <button onclick="location.href='ranking.html'" style="font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer;font-weight:600;">🏆 랭킹</button>
@@ -183,17 +188,48 @@ async function getTop1(gameId){
   }catch(e){return null;}
 }
 
+let gameEnabledMap={};
+
+async function loadSettingsAndNotice(){
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/settings?select=*`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+    });
+    const data=await res.json();
+    const map={};
+    data.forEach(row=>{map[row.key]=row.value;});
+
+    // 공지사항 표시
+    if(map.notice_enabled==='true'&&map.notice){
+      document.getElementById('notice-track').textContent='📢 '+map.notice;
+      document.getElementById('notice-banner').classList.add('show');
+    }
+
+    // 게임별 활성화 상태 저장
+    gameEnabledMap={};
+    GAMES.forEach(g=>{
+      const key='game_'+g.id+'_enabled';
+      gameEnabledMap[g.id]=map[key]!=='false';
+    });
+  }catch(e){}
+}
+
 function renderHome(){
 const u=JSON.parse(localStorage.getItem('puzzle_user')||'null');
 const lb=document.getElementById('login-btn');
 if(lb) lb.textContent=u?'👤 '+u.username:'로그인';
   const g=document.getElementById('game-grid');g.innerHTML='';
   GAMES.forEach(game=>{
+    const isMaintenance=game.available&&gameEnabledMap[game.id]===false;
     const div=document.createElement('div');
-    div.className='game-card'+(game.available?'':' coming');
+    div.className='game-card'+((game.available&&!isMaintenance)?'':' coming');
     const hasClear=game.id==='shikaku'&&cleared.size>0;
-    div.innerHTML=`${hasClear?'<div class="cleared-dot"></div>':''}<div class="g-icon">${game.icon}</div><div class="g-name">${game.name}</div>${!game.available?'<div class="g-sub">준비중</div>':'<div class="g-top1" id="top1-'+game.id+'"></div>'}`;
-if(game.available){
+    if(isMaintenance){
+      div.innerHTML=`<div class="g-icon">${game.icon}</div><div class="g-name">${game.name}</div><div class="g-sub">점검중</div>`;
+    } else {
+      div.innerHTML=`${hasClear?'<div class="cleared-dot"></div>':''}<div class="g-icon">${game.icon}</div><div class="g-name">${game.name}</div>${!game.available?'<div class="g-sub">준비중</div>':'<div class="g-top1" id="top1-'+game.id+'"></div>'}`;
+    }
+if(game.available&&!isMaintenance){
   div.onclick=()=>openGame(game);
   getTop1(game.id).then(name=>{
     const el=document.getElementById('top1-'+game.id);
@@ -346,10 +382,12 @@ function goNextStage(){startStage(curStage+1);}
 // URL에서 시카쿠 스테이지 직접 실행
 const _sp = new URLSearchParams(location.search);
 const _sn = parseInt(_sp.get('shikaku')||'0');
-if(_sn > 0){
-  try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s).map(Number));}catch(e){}
-  startStage(_sn);
-} else { renderHome(); }
+loadSettingsAndNotice().then(()=>{
+  if(_sn > 0){
+    try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s).map(Number));}catch(e){}
+    startStage(_sn);
+  } else { renderHome(); }
+});
 </script>
 </body>
 </html>
