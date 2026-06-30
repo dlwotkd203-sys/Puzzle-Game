@@ -35,6 +35,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .choice-display.win{border-color:#1D9E75;background:#E1F5EE;transform:scale(1.08);}
 .choice-display.lose{border-color:#E24B4A;background:#FCEBEB;opacity:0.6;}
 .choice-display.draw{border-color:#EF9F27;background:#FFF8E1;}
+
+.cpu-bubble-wrap{position:relative;height:0;}
+.cpu-bubble{position:absolute;left:50%;bottom:4px;transform:translateX(-50%) translateY(0) scale(0.85);background:#fff;border:1.5px solid #FCEBEB;color:#E24B4A;font-size:12px;font-weight:700;padding:7px 14px;border-radius:14px;white-space:nowrap;box-shadow:0 3px 10px rgba(226,75,74,0.15);opacity:0;transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);pointer-events:none;z-index:5;}
+.cpu-bubble::after{content:'';position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-width:6px 6px 0;border-style:solid;border-color:#fff transparent transparent;}
+.cpu-bubble::before{content:'';position:absolute;bottom:-7.5px;left:50%;transform:translateX(-50%);border-width:7px 7px 0;border-style:solid;border-color:#FCEBEB transparent transparent;}
+.cpu-bubble.show{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}
 .vs-text{font-size:13px;font-weight:700;color:#ccc;}
 
 .result-text{font-size:18px;font-weight:800;min-height:26px;text-align:center;}
@@ -53,14 +59,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .history-dot.lose{background:#E24B4A;}
 .history-dot.draw{background:#EF9F27;}
 
-.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.97);display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:30;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:none;align-items:center;justify-content:center;z-index:30;}
 .overlay.show{display:flex;}
-.ov-emoji{font-size:50px;}
-.ov-title{font-size:24px;font-weight:700;color:#111;}
-.ov-score{font-size:22px;font-weight:800;color:#FF6B35;}
+.ov-modal{position:relative;background:#fff;border-radius:20px;padding:1.75rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:280px;width:88%;box-shadow:0 12px 40px rgba(0,0,0,0.2);animation:modalPop 0.25s cubic-bezier(0.34,1.56,0.64,1);overflow:hidden;}
+.ov-stamp{position:absolute;font-size:13px;font-weight:800;color:#E24B4A;border:2px solid #E24B4A;padding:4px 10px;border-radius:8px;opacity:0.55;pointer-events:none;white-space:nowrap;}
+.ov-stamp.tl{top:14px;left:-8px;transform:rotate(-18deg);}
+.ov-stamp.br{bottom:64px;right:-10px;transform:rotate(14deg);}
+@keyframes modalPop{0%{transform:scale(0.85);opacity:0;}100%{transform:scale(1);opacity:1;}}
+.ov-emoji{font-size:42px;}
+.ov-title{font-size:20px;font-weight:700;color:#111;}
+.ov-score{font-size:20px;font-weight:800;color:#FF6B35;}
 .ov-best{font-size:13px;color:#aaa;}
 .ov-new{font-size:13px;color:#1D9E75;font-weight:700;}
-.ov-btn{margin-top:6px;padding:12px 36px;border-radius:10px;border:none;background:#111;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+.ov-btn{margin-top:6px;padding:11px 32px;border-radius:10px;border:none;background:#111;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;}
 .relative-app{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;}
 </style>
 </head>
@@ -87,6 +98,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="player-box">
           <div class="player-label">컴퓨터</div>
           <div class="choice-display" id="cpu-display">❔</div>
+          <div class="cpu-bubble-wrap"><div class="cpu-bubble" id="cpu-bubble"></div></div>
         </div>
         <div class="vs-text">VS</div>
         <div class="player-box">
@@ -106,12 +118,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
 
     <div class="overlay" id="overlay">
-      <div class="ov-emoji">💔</div>
-      <div class="ov-title">연승 종료!</div>
-      <div class="ov-score" id="ov-streak"></div>
-      <div class="ov-best" id="ov-best-text"></div>
-      <div class="ov-new" id="ov-new" style="display:none">🏆 새 최고 기록!</div>
-      <button class="ov-btn" onclick="resetStreak()">다시 도전</button>
+      <div class="ov-modal">
+        <div class="ov-stamp tl" id="ov-stamp1"></div>
+        <div class="ov-stamp br" id="ov-stamp2"></div>
+        <div class="ov-emoji">💔</div>
+        <div class="ov-title">연승 종료!</div>
+        <div class="ov-score" id="ov-streak"></div>
+        <div class="ov-best" id="ov-best-text"></div>
+        <div class="ov-new" id="ov-new" style="display:none">🏆 새 최고 기록!</div>
+        <button class="ov-btn" onclick="resetStreak()">다시 도전</button>
+      </div>
     </div>
   </div>
 </div>
@@ -122,6 +138,35 @@ const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 
 const EMOJI={rock:'✊',scissors:'✌️',paper:'✋'};
 const CHOICES=['rock','scissors','paper'];
+
+// 컴퓨터가 이겼을 때(=플레이어 패배) 놀리는 멘트
+const TAUNT_LINES=[
+  'ㅋㅋㅋ',
+  '에게?',
+  '그만하게?',
+  'ㅎㅎ',
+  '^^',
+  '쉽다ㅋ',
+  '이지ㅋ',
+  '딸깍~',
+  '슛~~',
+  '2김',
+  '잘가라~',
+  '포기하셈ㅋㅋ',
+  '짜잔~',
+  '퍼퍼펖ㅍ푸퍼퍼펑~',
+  '다음엔 진짜 묵 낼게',
+  '다음엔 진짜 찌 낼게',
+  '다음엔 진짜 빠 낼게',
+];
+
+let lastTauntIdx=-1;
+function getRandomTaunt(){
+  let idx;
+  do{idx=Math.floor(Math.random()*TAUNT_LINES.length);}while(idx===lastTauntIdx&&TAUNT_LINES.length>1);
+  lastTauntIdx=idx;
+  return TAUNT_LINES[idx];
+}
 
 let streak=0,best=0,total=0;
 let history=[]; // 'win'/'lose'/'draw'
@@ -195,6 +240,7 @@ function play(playerChoice){
 
   playerEl.className='choice-display';
   cpuEl.className='choice-display shake';
+  hideCpuTaunt();
   playerEl.textContent=EMOJI[playerChoice];
   resultEl.textContent='';
   resultEl.className='result-text';
@@ -209,6 +255,24 @@ function play(playerChoice){
       finishRound(playerChoice);
     }
   },70);
+}
+
+let tauntTimeout=null;
+
+let lastShownTaunt='';
+
+function showCpuTaunt(){
+  clearTimeout(tauntTimeout);
+  const bubble=document.getElementById('cpu-bubble');
+  const taunt=getRandomTaunt();
+  lastShownTaunt=taunt;
+  bubble.textContent=taunt;
+  bubble.classList.add('show');
+  tauntTimeout=setTimeout(()=>{bubble.classList.remove('show');},2200);
+}
+function hideCpuTaunt(){
+  clearTimeout(tauntTimeout);
+  document.getElementById('cpu-bubble').classList.remove('show');
 }
 
 function finishRound(playerChoice){
@@ -234,23 +298,26 @@ function finishRound(playerChoice){
     resultEl.textContent='🎉 승리!';resultEl.classList.add('win');
     if(streak>best){best=streak;saveBest(best);}
     updateHUD();
+    hideCpuTaunt(); // 내가 이겼을 때는 멘트 없음
     busy=false;
     document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
   } else if(result==='draw'){
     playerEl.classList.add('draw');cpuEl.classList.add('draw');
     resultEl.textContent='무승부';resultEl.classList.add('draw');
     updateHUD();
+    hideCpuTaunt();
     busy=false;
     document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
   } else {
+    // 컴퓨터가 이겼을 때 -> 놀리는 멘트 표시
+    showCpuTaunt();
     playerEl.classList.add('lose');cpuEl.classList.add('win');
     resultEl.textContent='😢 패배...';resultEl.classList.add('lose');
     updateHUD();
     saveScore(best);
     setTimeout(()=>{
-      const isNew=streak>0&&streak===best&&streak>loadBest0; // 사용 안 함, 아래서 처리
       showGameOverOverlay();
-    },500);
+    },900); // 멘트 잠깐 보이도록 약간 더 대기
   }
 }
 
@@ -262,6 +329,20 @@ function showGameOverOverlay(){
   document.getElementById('ov-streak').textContent=finalStreak+'연승';
   document.getElementById('ov-best-text').textContent='최고 기록: '+best+'연승';
   document.getElementById('ov-new').style.display=isNew?'block':'none';
+
+  // 컴퓨터가 마지막에 한 멘트를 모달에도 도장처럼 표시
+  const stamp1=document.getElementById('ov-stamp1');
+  const stamp2=document.getElementById('ov-stamp2');
+  if(lastShownTaunt){
+    stamp1.textContent=lastShownTaunt;
+    stamp2.textContent=lastShownTaunt;
+    stamp1.style.display='block';
+    stamp2.style.display='block';
+  } else {
+    stamp1.style.display='none';
+    stamp2.style.display='none';
+  }
+
   document.getElementById('overlay').classList.add('show');
 }
 
@@ -276,6 +357,7 @@ function resetStreak(){
   document.getElementById('result-text').textContent='';
   document.getElementById('result-text').className='result-text';
   busy=false;
+  hideCpuTaunt();
   document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
 }
 
