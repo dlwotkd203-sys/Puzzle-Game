@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>반응속도 테스트</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;background:#0d0d0d;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;}
+
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.7rem 1rem;background:rgba(13,13,13,0.95);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;z-index:10;}
+.back-btn{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:18px;padding:2px 6px;}
+.top-title{font-size:16px;font-weight:600;color:#fff;flex:1;}
+
+.hud{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;background:#0d0d0d;}
+.hud-box{flex:1;background:rgba(255,255,255,0.05);border-radius:10px;padding:7px 10px;text-align:center;}
+.hud-val{font-size:16px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;}
+.hud-lbl{font-size:9px;color:rgba(255,255,255,0.35);margin-top:1px;letter-spacing:0.3px;}
+.hud-val.danger{color:#FF453A;}
+.miss-dots{display:flex;gap:4px;justify-content:center;margin-top:3px;}
+.miss-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.12);}
+.miss-dot.used{background:#FF453A;}
+
+.play-area{flex:1;position:relative;background:#0d0d0d;touch-action:none;overflow:hidden;}
+.target{position:absolute;border-radius:50%;cursor:pointer;transform:scale(0);transition:transform 0.15s cubic-bezier(0.34,1.56,0.64,1);-webkit-tap-highlight-color:transparent;}
+.target.show{transform:scale(1);}
+.target.hit{transform:scale(1.4);opacity:0;transition:all 0.18s ease-out;}
+.target.good{background:#4CD964;box-shadow:0 0 24px rgba(76,217,100,0.5);}
+.target.bad{background:#FF453A;box-shadow:0 0 24px rgba(255,69,58,0.5);}
+.target.wrong-shake{animation:wrongShake 0.3s ease;}
+@keyframes wrongShake{0%,100%{transform:scale(1);}25%{transform:scale(1) translateX(-6px);}75%{transform:scale(1) translateX(6px);}}
+
+.ready-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:rgba(255,255,255,0.3);font-size:14px;font-weight:600;pointer-events:none;}
+.ready-text .big{font-size:36px;font-weight:800;color:rgba(255,255,255,0.15);}
+
+.too-soon{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(226,75,74,0.15);}
+.too-soon.show{display:flex;}
+.too-soon-text{color:#FF6B6B;font-size:18px;font-weight:800;}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:30;}
+.overlay.show{display:flex;}
+.ov-modal{background:#1a1a1a;border-radius:20px;padding:1.75rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:6px;max-width:280px;width:88%;box-shadow:0 12px 40px rgba(0,0,0,0.4);animation:modalPop 0.25s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes modalPop{0%{transform:scale(0.85);opacity:0;}100%{transform:scale(1);opacity:1;}}
+.ov-emoji{font-size:42px;}
+.ov-title{font-size:20px;font-weight:700;color:#fff;}
+.ov-score{font-size:32px;font-weight:800;color:#FFD200;margin:4px 0;}
+.ov-title-badge{font-size:15px;font-weight:800;padding:6px 16px;border-radius:99px;margin:2px 0;}
+.ov-score small{font-size:14px;color:rgba(255,255,255,0.4);font-weight:500;}
+.ov-detail{font-size:11px;color:rgba(255,255,255,0.4);text-align:center;line-height:1.6;}
+.ov-best{font-size:13px;color:rgba(255,255,255,0.4);}
+.ov-new{font-size:13px;color:#1D9E75;font-weight:700;}
+.ov-btn{margin-top:8px;padding:12px 32px;border-radius:10px;border:none;background:#FFD200;color:#0d0d0d;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;}
+.ov-divider{width:36px;height:1px;background:rgba(255,255,255,0.1);margin:2px 0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">반응속도 테스트</span>
+  </div>
+
+  <div class="hud">
+    <div class="hud-box"><div class="hud-val" id="hud-round">0/10</div><div class="hud-lbl">라운드</div></div>
+    <div class="hud-box"><div class="hud-val" id="hud-last">-</div><div class="hud-lbl">최근 (ms)</div></div>
+    <div class="hud-box">
+      <div class="hud-val" id="hud-miss">0/3</div>
+      <div class="hud-lbl">실수</div>
+      <div class="miss-dots" id="miss-dots"><span class="miss-dot"></span><span class="miss-dot"></span><span class="miss-dot"></span></div>
+    </div>
+  </div>
+
+  <div class="play-area" id="play-area">
+    <div class="ready-text" id="ready-text">
+      <div class="big">👁️</div>
+      <div>🟢 초록=클릭 · 🔴 빨강=피하기</div>
+      <div style="margin-top:4px;">화면 아무 곳이나 터치해서 시작</div>
+    </div>
+    <div class="too-soon" id="too-soon"><div class="too-soon-text">너무 빨라요! 다시 대기...</div></div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="ov-modal">
+      <div class="ov-emoji">⚡</div>
+      <div class="ov-title">테스트 완료!</div>
+      <div class="ov-score" id="ov-avg">0<small>ms</small></div>
+      <div class="ov-detail" id="ov-rounds"></div>
+      <div class="ov-divider"></div>
+      <div class="ov-best" id="ov-best-text"></div>
+      <div class="ov-new" id="ov-new" style="display:none">🏆 새 최고 기록!</div>
+      <button class="ov-btn" onclick="startTest()">다시 도전</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const TOTAL_ROUNDS=10;
+const MAX_MISS=3; // 빨간 원 잘못 클릭 허용 횟수 (3번까지 OK, 4번째 실패)
+let round=0;
+let times=[]; // 초록 원만 클릭 성공시 반응시간 기록
+let missCount=0;
+let testActive=false;
+let waitingForTarget=false;
+let spawnTimeout=null;
+let targetSpawnTs=0;
+let curTargetType='good'; // 'good' 또는 'bad'
+let badAutoTimeout=null;
+
+const playArea=document.getElementById('play-area');
+const readyText=document.getElementById('ready-text');
+const tooSoon=document.getElementById('too-soon');
+
+// 칭호 구간
+const TITLES=[
+  {max:150, label:'치타', emoji:'🐆', color:'#FF453A'},
+  {max:200, label:'다람쥐', emoji:'🐿️', color:'#FF9F0A'},
+  {max:250, label:'사람', emoji:'🙂', color:'#FFD60A'},
+  {max:300, label:'거북이', emoji:'🐢', color:'#30D158'},
+  {max:400, label:'달팽이', emoji:'🐌', color:'#64D2FF'},
+  {max:Infinity, label:'느림보', emoji:'🦥', color:'#BF5AF2'},
+];
+function getTitle(avgMs){
+  return TITLES.find(t=>avgMs<=t.max);
+}
+
+function loadBest(){try{return parseInt(localStorage.getItem('reaction_best')||'0')||null;}catch(e){return null;}}
+function saveBest(v){try{localStorage.setItem('reaction_best',String(v));}catch(e){}}
+
+function updateHUD(){
+  document.getElementById('hud-round').textContent=round+'/'+TOTAL_ROUNDS;
+  document.getElementById('hud-last').textContent=times.length?times[times.length-1]:'-';
+  document.getElementById('hud-miss').textContent=missCount+'/'+MAX_MISS;
+  document.getElementById('hud-miss').className='hud-val'+(missCount>=MAX_MISS?' danger':'');
+  document.querySelectorAll('.miss-dot').forEach((dot,i)=>{
+    dot.classList.toggle('used',i<missCount);
+  });
+}
+
+async function saveScore(avgMs){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const sc=Math.max(0,100000-Math.round(avgMs));
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.reaction&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'reaction',score:sc})});
+    }
+  }catch(e){}
+}
+
+function startTest(){
+  document.getElementById('overlay').classList.remove('show');
+  clearTimeout(badAutoTimeout);
+  round=0;times=[];missCount=0;testActive=true;waitingForTarget=false;
+  readyText.style.display='none';
+  tooSoon.classList.remove('show');
+  updateHUD();
+  scheduleNextTarget();
+}
+
+function scheduleNextTarget(){
+  waitingForTarget=true;
+  const delay=700+Math.random()*1900; // 0.7~2.6초 랜덤 대기
+  clearTimeout(spawnTimeout);
+  spawnTimeout=setTimeout(spawnTarget,delay);
+}
+
+function spawnTarget(){
+  if(!testActive)return;
+  waitingForTarget=false;
+
+  // 라운드 진행에 따라 빨간 원(함정) 등장 확률 증가 (1라운드는 무조건 초록)
+  const badChance=round===0?0:Math.min(0.25+round*0.03,0.45);
+  curTargetType=Math.random()<badChance?'bad':'good';
+
+  const areaRect=playArea.getBoundingClientRect();
+  const size=52+Math.random()*22;
+  const maxX=areaRect.width-size;
+  const maxY=areaRect.height-size;
+  const x=Math.random()*maxX;
+  const y=Math.random()*maxY;
+
+  const target=document.createElement('div');
+  target.className='target '+(curTargetType==='good'?'good':'bad');
+  target.style.width=size+'px';
+  target.style.height=size+'px';
+  target.style.left=x+'px';
+  target.style.top=y+'px';
+  target.id='target-active';
+
+  target.addEventListener('pointerdown',onTargetHit,{once:true});
+  playArea.appendChild(target);
+
+  requestAnimationFrame(()=>{target.classList.add('show');});
+  targetSpawnTs=performance.now();
+
+  // 빨간 원은 일정 시간 내에 클릭 안 하면 자동으로 사라지고 다음으로 진행 (성공적으로 피한 것)
+  clearTimeout(badAutoTimeout);
+  if(curTargetType==='bad'){
+    const id=target.id;
+    badAutoTimeout=setTimeout(()=>{
+      const stillThere=document.getElementById(id);
+      if(stillThere&&testActive){
+        stillThere.classList.add('hit');
+        setTimeout(()=>stillThere.remove(),200);
+        scheduleNextTarget();
+      }
+    },900);
+  }
+}
+
+function onTargetHit(e){
+  e.stopPropagation();
+  clearTimeout(badAutoTimeout);
+  const elapsed=performance.now()-targetSpawnTs;
+  const target=document.getElementById('target-active');
+
+  if(curTargetType==='bad'){
+    // 빨간 원 클릭 -> 실수
+    missCount++;
+    if(target){
+      target.classList.add('wrong-shake');
+      setTimeout(()=>target.remove(),320);
+    }
+    updateHUD();
+
+    if(missCount>=MAX_MISS+1){
+      // 4번째 실수 -> 즉시 실패 종료
+      finishTest(true);
+      return;
+    }
+    // 다음 라운드로 (실수는 round 카운트에 포함 안 함 - 같은 라운드 재시도 느낌으로 유지하되 자연스럽게 다음 타겟)
+    scheduleNextTarget();
+    return;
+  }
+
+  // 초록 원 정상 클릭
+  if(target){
+    target.classList.add('hit');
+    setTimeout(()=>target.remove(),200);
+  }
+
+  round++;
+  times.push(Math.round(elapsed));
+  updateHUD();
+
+  if(round>=TOTAL_ROUNDS){
+    finishTest(false);
+  } else {
+    scheduleNextTarget();
+  }
+}
+
+function onEarlyClick(){
+  if(!testActive||!waitingForTarget)return;
+  clearTimeout(spawnTimeout);
+  waitingForTarget=false;
+  tooSoon.classList.add('show');
+  setTimeout(()=>{
+    tooSoon.classList.remove('show');
+    scheduleNextTarget();
+  },700);
+}
+
+playArea.addEventListener('pointerdown',(e)=>{
+  if(!testActive){
+    if(e.target===playArea||e.target===readyText||readyText.contains(e.target)){
+      startTest();
+    }
+    return;
+  }
+  if(e.target===playArea){
+    onEarlyClick();
+  }
+});
+
+function finishTest(failed){
+  testActive=false;
+  clearTimeout(spawnTimeout);
+  clearTimeout(badAutoTimeout);
+  const target=document.getElementById('target-active');
+  if(target)target.remove();
+
+  const ov=document.getElementById('overlay');
+
+  if(failed){
+    // 실수 4회로 실패 종료
+    ov.querySelector('.ov-modal').innerHTML=`
+      <div class="ov-emoji">💥</div>
+      <div class="ov-title">실패!</div>
+      <div class="ov-detail" style="margin-top:6px;">빨간 원을 너무 많이 클릭했어요<br>(${missCount}/${MAX_MISS} 초과)</div>
+      <div class="ov-divider"></div>
+      <button class="ov-btn" onclick="startTest()">다시 도전</button>
+    `;
+    ov.classList.add('show');
+    readyText.style.display='flex';
+    return;
+  }
+
+  const avg=times.reduce((a,b)=>a+b,0)/times.length;
+  const best=loadBest();
+  const isNew=!best||avg<best;
+  if(isNew)saveBest(Math.round(avg));
+  saveScore(avg);
+
+  const title=getTitle(avg);
+
+  ov.querySelector('.ov-modal').innerHTML=`
+    <div class="ov-emoji">⚡</div>
+    <div class="ov-title">테스트 완료!</div>
+    <div class="ov-score">${Math.round(avg)}<small>ms 평균</small></div>
+    <div class="ov-title-badge" style="background:${title.color}22;color:${title.color};">${title.emoji} ${title.label}</div>
+    <div class="ov-detail">기록: ${times.join('ms, ')}ms</div>
+    <div class="ov-divider"></div>
+    ${isNew?'<div class="ov-new">🏆 새 최고 기록!</div>':'<div class="ov-best">최고 기록: '+best+'ms</div>'}
+    <button class="ov-btn" onclick="startTest()">다시 도전</button>
+  `;
+  ov.classList.add('show');
+  readyText.style.display='flex';
+}
+
+updateHUD();
+</script>
+</body>
+</html>
