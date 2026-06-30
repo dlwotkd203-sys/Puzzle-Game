@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>벽돌깨기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;background:#0d0d0d;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;}
+
+.hud{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(13,13,13,0.95);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;z-index:10;}
+.back-btn{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:18px;padding:4px 6px;line-height:1;}
+.hud-center{text-align:center;}
+.hud-score{font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;}
+.hud-label{font-size:9px;color:rgba(255,255,255,0.35);margin-top:1px;letter-spacing:0.5px;text-transform:uppercase;}
+.hud-right{display:flex;gap:3px;align-items:center;}
+.heart{font-size:16px;}
+.hud-wave{font-size:12px;color:rgba(255,255,255,0.5);font-weight:600;}
+.wave-timer-bg{position:absolute;top:48px;left:0;right:0;height:3px;background:rgba(255,255,255,0.06);z-index:8;}
+.wave-timer-fill{height:100%;transition:width 0.1s linear,background 0.3s;}
+.descend-warning{position:absolute;top:55px;left:50%;transform:translateX(-50%);background:rgba(226,75,74,0.9);color:#fff;font-size:11px;font-weight:700;padding:3px 12px;border-radius:99px;z-index:9;display:none;animation:pulse-warn 0.5s ease infinite alternate;}
+@keyframes pulse-warn{0%{opacity:0.7;}100%{opacity:1;}}
+
+#canvas{display:block;flex:1;width:100%;touch-action:none;}
+
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:20;background:rgba(13,13,13,0.96);}
+.ov-title{font-size:30px;font-weight:700;color:#fff;letter-spacing:-0.5px;}
+.ov-sub{font-size:13px;color:rgba(255,255,255,0.4);text-align:center;padding:0 2rem;line-height:1.5;}
+.ov-score{font-size:22px;font-weight:700;color:#fff;}
+.ov-record{font-size:13px;color:rgba(255,255,255,0.4);}
+.ov-new{font-size:13px;color:#60a5fa;font-weight:600;}
+.ov-btn{margin-top:6px;padding:12px 38px;border-radius:10px;border:none;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;background:#fff;color:#0d0d0d;}
+.ov-btn:active{background:rgba(255,255,255,0.85);}
+.ov-divider{width:36px;height:1px;background:rgba(255,255,255,0.08);}
+.combo-pop{position:absolute;pointer-events:none;font-weight:800;z-index:15;font-size:16px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <div class="hud-center">
+      <div class="hud-score" id="hud-score">0</div>
+      <div class="hud-label">점수</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="hud-right" id="hud-hearts"></div>
+      <div class="hud-wave" id="hud-wave">웨이브 1</div>
+    </div>
+  </div>
+  <div class="wave-timer-bg"><div class="wave-timer-fill" id="wave-timer-fill" style="width:100%;background:#1D9E75;"></div></div>
+  <div class="descend-warning" id="descend-warning">⚠ 블록이 내려와요!</div>
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="overlay" id="ov-start">
+  <div class="ov-title">벽돌깨기</div>
+  <div class="ov-sub">패들을 움직여 공을 튕기고<br>위쪽 블록을 모두 깨보세요</div>
+  <div class="ov-divider"></div>
+  <button class="ov-btn" onclick="startGame()">시작</button>
+  <div class="ov-sub" style="font-size:11px;">드래그 또는 ←→ 키로 패들 조작</div>
+</div>
+
+<div class="overlay" id="ov-dead" style="display:none">
+  <div class="ov-title">게임 오버</div>
+  <div class="ov-score" id="ov-score-val"></div>
+  <div class="ov-record" id="ov-record"></div>
+  <div class="ov-new" id="ov-new" style="display:none">🏆 새 최고 기록!</div>
+  <div class="ov-divider"></div>
+  <button class="ov-btn" onclick="startGame()">다시 시작</button>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+let W=0,H=0;
+function resize(){W=canvas.width=canvas.offsetWidth;H=canvas.height=canvas.offsetHeight;}
+
+// 게임 상태
+let running=false,paused=false,raf=null,lastTs=0;
+let score=0,best=0,lives=3,wave=1;
+let combo=0,comboTimer=0;
+
+// 블록 타입 정의
+const BRICK_TYPES={
+  normal:{hp:1,color:'#378ADD',points:10},
+  hard:{hp:2,color:'#EF9F27',points:20},
+  veryhard:{hp:3,color:'#E24B4A',points:35},
+  explosive:{hp:1,color:'#9c27b0',points:15,explosive:true},
+  power_wide:{hp:1,color:'#1D9E75',points:10,power:'wide'},
+  power_multi:{hp:1,color:'#FFD200',points:10,power:'multi'},
+  power_slow:{hp:1,color:'#60a5fa',points:10,power:'slow'},
+  indestructible:{hp:Infinity,color:'#555',points:0,indestructible:true},
+};
+
+let waveTimeLimit=20,waveTimeLeft=20; // 웨이브당 제한시간(초)
+let descendPending=false;
+let bricks=[]; // {x,y,w,h,type,hp,maxHp,alive}
+let balls=[]; // {x,y,vx,vy,r}
+const paddle={x:0,y:0,w:70,h:10,baseW:70};
+let particles=[];
+let powerups=[]; // 떨어지는 파워업 아이템 {x,y,vy,type}
+let activePowerTimers={wide:0,slow:0,shrink:0};
+
+const BRICK_ROWS=6,BRICK_COLS=8;
+const BRICK_GAP=4,BRICK_TOP=25;
+let brickW=0,brickH=18;
+
+function loadBest(){try{return parseInt(localStorage.getItem('breakout_best')||'0');}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('breakout_best',String(v));}catch(e){}}
+
+async function saveScore(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.breakout&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'breakout',score:sc})});
+    }
+  }catch(e){}
+}
+
+function updateHUD(){
+  document.getElementById('hud-score').textContent=score.toLocaleString();
+  document.getElementById('hud-wave').textContent='웨이브 '+wave;
+  const heartsEl=document.getElementById('hud-hearts');
+  heartsEl.innerHTML='';
+  for(let i=0;i<lives;i++){
+    const h=document.createElement('span');h.className='heart';h.textContent='❤️';
+    heartsEl.appendChild(h);
+  }
+}
+
+function buildWave(){
+  bricks=[];
+  brickW=(W-BRICK_GAP*(BRICK_COLS+1))/BRICK_COLS;
+  waveTimeLimit=Math.max(12,22-wave*0.5);
+  waveTimeLeft=waveTimeLimit;
+  descendPending=false;
+  document.getElementById('descend-warning').style.display='none';
+
+  // 웨이브 진행에 따라 단단한 블록/특수블록 비율 증가
+  const hardChance=Math.min(0.1+wave*0.04,0.4);
+  const explosiveChance=Math.min(0.04+wave*0.01,0.12);
+  const powerChance=0.1;
+
+  // 웨이브마다 일부 행은 빈 공간 생성 (패턴 다양화)
+  const activeRows=Math.min(BRICK_ROWS,3+Math.floor(wave/2));
+
+  for(let r=0;r<activeRows;r++){
+    for(let c=0;c<BRICK_COLS;c++){
+      // 가끔 블록 비우기 (체커보드 느낌 패턴 가능성)
+      if(Math.random()<0.06)continue;
+
+      let type='normal';
+      const roll=Math.random();
+      const indestructibleChance=wave>=2?Math.min(0.05+wave*0.005,0.08):0;
+      if(roll<indestructibleChance)type='indestructible';
+      else if(roll<indestructibleChance+explosiveChance)type='explosive';
+      else if(roll<indestructibleChance+explosiveChance+powerChance*0.33)type='power_wide';
+      else if(roll<indestructibleChance+explosiveChance+powerChance*0.66)type='power_multi';
+      else if(roll<indestructibleChance+explosiveChance+powerChance)type='power_slow';
+      else if(roll<indestructibleChance+explosiveChance+powerChance+hardChance*0.6)type='hard';
+      else if(roll<indestructibleChance+explosiveChance+powerChance+hardChance)type='veryhard';
+
+      const def=BRICK_TYPES[type];
+      bricks.push({
+        x:BRICK_GAP+c*(brickW+BRICK_GAP),
+        y:BRICK_TOP+r*(brickH+BRICK_GAP),
+        w:brickW,h:brickH,
+        type,hp:def.hp,maxHp:def.hp,alive:true,
+      });
+    }
+  }
+}
+
+function resetBallAndPaddle(){
+  paddle.w=paddle.baseW;
+  paddle.x=W/2-paddle.w/2;
+  paddle.y=H*0.62;
+  balls=[{x:W/2,y:paddle.y-15,vx:170*(Math.random()<0.5?-1:1),vy:-320,r:6,stuck:true}];
+}
+
+function startGame(){
+  document.getElementById('ov-start').style.display='none';
+  document.getElementById('ov-dead').style.display='none';
+  best=loadBest();
+  resize();
+  score=0;lives=1;wave=1;combo=0;comboTimer=0;
+  particles=[];powerups=[];
+  activePowerTimers={wide:0,slow:0,shrink:0};
+  buildWave();
+  resetBallAndPaddle();
+  updateHUD();
+  running=true;paused=false;
+  if(raf)cancelAnimationFrame(raf);
+  lastTs=performance.now();
+  raf=requestAnimationFrame(loop);
+}
+
+function loop(ts){
+  if(paused){lastTs=ts;draw();raf=requestAnimationFrame(loop);return;}
+  const dt=Math.min((ts-lastTs)/1000,0.033);
+  lastTs=ts;
+  if(running)update(dt);
+  draw();
+  raf=requestAnimationFrame(loop);
+}
+
+function launchBall(){
+  balls.forEach(b=>{
+    if(b.stuck){
+      b.stuck=false;
+    }
+  });
+}
+
+function addCombo(){
+  combo++;
+  comboTimer=1.2;
+}
+
+function spawnParticles(x,y,color,n=10){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,s=40+Math.random()*100;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,maxLife:0.4+Math.random()*0.3,r:1.5+Math.random()*2,color});
+  }
+}
+
+function showComboPop(x,y,text,color){
+  const el=document.createElement('div');
+  el.className='combo-pop';
+  el.textContent=text;
+  el.style.color=color;
+  el.style.left=x+'px';el.style.top=y+'px';
+  document.getElementById('app').appendChild(el);
+  el.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-26px)'}],{duration:600,easing:'ease-out'}).onfinish=()=>el.remove();
+}
+
+function hitBrick(brick,bx,by){
+  const def=BRICK_TYPES[brick.type];
+  if(def.indestructible){
+    // 파괴 불가 - 튕기기만, 점수/콤보 없음, 작은 스파크만 표시
+    spawnParticles(bx,by,'#888',4);
+    return;
+  }
+  brick.hp--;
+  addCombo();
+  const comboMult=1+Math.min(combo*0.1,2);
+  const gained=Math.round(def.points*comboMult);
+  score+=gained;
+
+  const canvasRect=canvas.getBoundingClientRect();
+  if(combo>=3){
+    showComboPop(canvasRect.left+brick.x+brick.w/2-10,canvasRect.top+brick.y,combo+'x COMBO',def.color);
+  }
+
+  if(brick.hp<=0){
+    brick.alive=false;
+    spawnParticles(brick.x+brick.w/2,brick.y+brick.h/2,def.color,12);
+
+    if(def.explosive){
+      // 주변 블록도 같이 파괴
+      bricks.forEach(other=>{
+        if(!other.alive||other===brick)return;
+        const dx=Math.abs((other.x+other.w/2)-(brick.x+brick.w/2));
+        const dy=Math.abs((other.y+other.h/2)-(brick.y+brick.h/2));
+        if(dx<brickW*1.6&&dy<brickH*1.6){
+          other.alive=false;
+          score+=Math.round(BRICK_TYPES[other.type].points*0.6);
+          spawnParticles(other.x+other.w/2,other.y+other.h/2,BRICK_TYPES[other.type].color,8);
+        }
+      });
+    }
+
+    if(def.power){
+      powerups.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:80,type:def.power,bad:false});
+    } else if(!def.explosive&&Math.random()<0.05+Math.min(wave*0.005,0.05)){
+      // 일반/단단한 블록 파괴시 낮은 확률로 나쁜 아이템 낙하
+      powerups.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:90,type:'bad',bad:true});
+    }
+  }
+  updateHUD();
+}
+
+function applyPower(type){
+  if(type==='wide'){
+    paddle.w=Math.min(paddle.baseW*1.8,paddle.w+30);
+    activePowerTimers.wide=8;
+  } else if(type==='multi'){
+    const extra=[];
+    balls.forEach(b=>{
+      if(b.stuck)return;
+      extra.push({x:b.x,y:b.y,vx:-b.vx*0.7+((Math.random()-0.5)*60),vy:b.vy,r:b.r,stuck:false});
+      extra.push({x:b.x,y:b.y,vx:b.vx*0.7+((Math.random()-0.5)*60),vy:b.vy,r:b.r,stuck:false});
+    });
+    balls.push(...extra);
+  } else if(type==='slow'){
+    activePowerTimers.slow=6;
+  } else if(type==='bad'){
+    // 나쁜 효과: 패들 작아짐 + 공 빨라짐
+    paddle.w=Math.max(36,paddle.w*0.65);
+    activePowerTimers.wide=0; // 확장 효과 취소
+    activePowerTimers.shrink=6;
+    balls.forEach(b=>{
+      if(b.stuck)return;
+      const speed=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+      const newSpeed=speed*1.25;
+      const ratio=newSpeed/speed;
+      b.vx*=ratio;b.vy*=ratio;
+    });
+    showComboPop(W/2-20,H*0.3,'⚠ 디버프!','#E24B4A');
+  }
+}
+
+function updateWaveTimerBar(){
+  const bar=document.getElementById('wave-timer-fill');
+  const pct=Math.max(0,(waveTimeLeft/waveTimeLimit)*100);
+  bar.style.width=pct+'%';
+  bar.style.background=pct>50?'#1D9E75':pct>20?'#EF9F27':'#E24B4A';
+}
+
+function descendBricks(){
+  const dropAmount=brickH+BRICK_GAP;
+  bricks.forEach(b=>{b.y+=dropAmount;});
+  spawnParticles(W/2,BRICK_TOP,'#E24B4A',6);
+
+  // 블록이 패들 높이까지 내려오면 즉시 게임오버
+  const dangerLine=paddle.y-10;
+  const tooLow=bricks.some(b=>b.alive&&b.y+b.h>=dangerLine);
+  if(tooLow&&running){
+    onGameOver();
+  }
+}
+
+function update(dt){
+  // 웨이브 제한시간 타이머
+  if(running&&bricks.length>0){
+    waveTimeLeft-=dt;
+    if(waveTimeLeft<0)waveTimeLeft=0;
+    updateWaveTimerBar();
+    if(waveTimeLeft<=5&&!descendPending){
+      document.getElementById('descend-warning').style.display='block';
+    }
+    if(waveTimeLeft<=0){
+      descendBricks();
+      waveTimeLeft=waveTimeLimit*0.6; // 다음 하강까지 시간 (점점 빨라지는 압박)
+      document.getElementById('descend-warning').style.display='none';
+    }
+  }
+
+  // 콤보 타이머
+  if(comboTimer>0){
+    comboTimer-=dt;
+    if(comboTimer<=0)combo=0;
+  }
+
+  // 파워업 타이머
+  if(activePowerTimers.wide>0){
+    activePowerTimers.wide-=dt;
+    if(activePowerTimers.wide<=0)paddle.w=paddle.baseW;
+  }
+  if(activePowerTimers.slow>0)activePowerTimers.slow-=dt;
+  if(activePowerTimers.shrink>0){
+    activePowerTimers.shrink-=dt;
+    if(activePowerTimers.shrink<=0)paddle.w=paddle.baseW;
+  }
+
+  const slowFactor=activePowerTimers.slow>0?0.55:1;
+
+  // 패들 경계 고정
+  paddle.x=Math.max(0,Math.min(W-paddle.w,paddle.x));
+
+  // 공 업데이트
+  let lostCount=0;
+  balls=balls.filter(ball=>{
+    if(ball.stuck){
+      ball.x=paddle.x+paddle.w/2;
+      ball.y=paddle.y-ball.r-2;
+      return true;
+    }
+
+    ball.x+=ball.vx*dt*slowFactor;
+    ball.y+=ball.vy*dt*slowFactor;
+
+    // 벽 충돌
+    if(ball.x-ball.r<0){ball.x=ball.r;ball.vx*=-1;}
+    if(ball.x+ball.r>W){ball.x=W-ball.r;ball.vx*=-1;}
+    if(ball.y-ball.r<0){ball.y=ball.r;ball.vy*=-1;}
+
+    // 패들 충돌
+    if(ball.vy>0&&ball.y+ball.r>=paddle.y&&ball.y-ball.r<=paddle.y+paddle.h&&ball.x>=paddle.x&&ball.x<=paddle.x+paddle.w){
+      const hitPos=(ball.x-(paddle.x+paddle.w/2))/(paddle.w/2); // -1~1
+      const speed=Math.sqrt(ball.vx*ball.vx+ball.vy*ball.vy);
+      const angle=hitPos*1.0; // 최대 약 57도
+      ball.vx=speed*Math.sin(angle);
+      ball.vy=-Math.abs(speed*Math.cos(angle));
+      ball.y=paddle.y-ball.r-1;
+      combo=0; // 패들 맞으면 콤보 리셋
+    }
+
+    // 바닥으로 떨어짐
+    if(ball.y-ball.r>H){lostCount++;return false;}
+
+    // 블록 충돌
+    for(const brick of bricks){
+      if(!brick.alive)continue;
+      if(ball.x+ball.r>brick.x&&ball.x-ball.r<brick.x+brick.w&&ball.y+ball.r>brick.y&&ball.y-ball.r<brick.y+brick.h){
+        // 충돌 방향 추정 (단순화: 이전 위치 기반)
+        const overlapLeft=(ball.x+ball.r)-brick.x;
+        const overlapRight=(brick.x+brick.w)-(ball.x-ball.r);
+        const overlapTop=(ball.y+ball.r)-brick.y;
+        const overlapBottom=(brick.y+brick.h)-(ball.y-ball.r);
+        const minOverlap=Math.min(overlapLeft,overlapRight,overlapTop,overlapBottom);
+        if(minOverlap===overlapTop||minOverlap===overlapBottom)ball.vy*=-1;
+        else ball.vx*=-1;
+        hitBrick(brick,ball.x,ball.y);
+        break;
+      }
+    }
+    return true;
+  });
+
+  if(lostCount>0&&balls.length===0){
+    lives-=lostCount;
+    updateHUD();
+    if(lives<=0){
+      onGameOver();
+    } else {
+      resetBallAndPaddle();
+    }
+  }
+
+  // 파워업 아이템 낙하
+  powerups=powerups.filter(p=>{
+    p.y+=p.vy*dt;
+    if(p.y>H)return false;
+    if(p.y+10>=paddle.y&&p.y<=paddle.y+paddle.h&&p.x>=paddle.x-10&&p.x<=paddle.x+paddle.w+10){
+      applyPower(p.type);
+      return false;
+    }
+    return true;
+  });
+
+  // 파티클
+  particles=particles.filter(p=>{
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=180*dt;
+    p.life-=dt/p.maxLife;
+    return p.life>0;
+  });
+
+  // 모든 블록 깨졌으면 다음 웨이브
+  bricks=bricks.filter(b=>b.alive);
+  if(bricks.length===0&&running){
+    wave++;
+    score+=100; // 웨이브 클리어 보너스
+    buildWave();
+    updateHUD();
+  }
+}
+
+function onGameOver(){
+  running=false;
+  const isNew=score>best;
+  if(isNew){best=score;saveBest(best);}
+  saveScore(score);
+  document.getElementById('ov-score-val').textContent=score.toLocaleString()+'점';
+  document.getElementById('ov-record').textContent='최고 기록 '+best.toLocaleString()+'점';
+  document.getElementById('ov-new').style.display=isNew?'block':'none';
+  document.getElementById('ov-dead').style.display='flex';
+}
+
+function roundRectPath(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function draw(){
+  ctx.fillStyle='#0d0d0d';
+  ctx.fillRect(0,0,W,H);
+
+  // 블록 - 깔끔한 카드 스타일 (둥근 모서리 + 하이라이트 + 그림자)
+  bricks.forEach(b=>{
+    const def=BRICK_TYPES[b.type];
+    if(def.indestructible){
+      ctx.save();
+      ctx.fillStyle='#3a3a3e';
+      roundRectPath(b.x,b.y,b.w,b.h,4);
+      ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.15)';
+      ctx.lineWidth=1;
+      roundRectPath(b.x+1,b.y+1,b.w-2,b.h-2,3);
+      ctx.stroke();
+      // 대각선 줄무늬 (경고 패턴)
+      ctx.save();
+      ctx.beginPath();
+      roundRectPath(b.x,b.y,b.w,b.h,4);
+      ctx.clip();
+      ctx.strokeStyle='rgba(255,255,255,0.08)';
+      ctx.lineWidth=3;
+      for(let i=-b.h;i<b.w+b.h;i+=8){
+        ctx.beginPath();
+        ctx.moveTo(b.x+i,b.y);
+        ctx.lineTo(b.x+i+b.h,b.y+b.h);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+    const dmgRatio=b.hp/b.maxHp;
+    const alpha=0.55+dmgRatio*0.45;
+    const radius=4;
+
+    ctx.save();
+    ctx.globalAlpha=alpha;
+
+    // 그림자
+    ctx.shadowColor='rgba(0,0,0,0.35)';
+    ctx.shadowBlur=4;
+    ctx.shadowOffsetY=2;
+
+    // 본체 (둥근 사각형)
+    ctx.fillStyle=def.color;
+    roundRectPath(b.x,b.y,b.w,b.h,radius);
+    ctx.fill();
+
+    ctx.shadowColor='transparent';
+    ctx.shadowBlur=0;
+    ctx.shadowOffsetY=0;
+
+    // 상단 하이라이트 (입체감)
+    const grad=ctx.createLinearGradient(b.x,b.y,b.x,b.y+b.h);
+    grad.addColorStop(0,'rgba(255,255,255,0.28)');
+    grad.addColorStop(0.5,'rgba(255,255,255,0.05)');
+    grad.addColorStop(1,'rgba(0,0,0,0.12)');
+    ctx.fillStyle=grad;
+    roundRectPath(b.x,b.y,b.w,b.h,radius);
+    ctx.fill();
+
+    // 데미지 표시 - hp 2 이상인 블록은 살짝 금이 가는 느낌
+    if(b.maxHp>1&&b.hp<b.maxHp){
+      ctx.strokeStyle='rgba(0,0,0,0.25)';
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(b.x+b.w*0.3,b.y+2);
+      ctx.lineTo(b.x+b.w*0.45,b.y+b.h*0.6);
+      ctx.lineTo(b.x+b.w*0.6,b.y+b.h-2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // 아이콘
+    if(def.explosive||def.power){
+      ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.font='600 10px -apple-system,sans-serif';
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      const icon=def.explosive?'💥':def.power==='wide'?'↔':def.power==='multi'?'✦✦':'⏱';
+      ctx.fillText(icon,b.x+b.w/2,b.y+b.h/2+1);
+      ctx.textAlign='start';
+      ctx.textBaseline='alphabetic';
+    }
+  });
+
+  // 낙하 아이템 (좋은 파워업 / 나쁜 디버프)
+  powerups.forEach(p=>{
+    const isBad=p.bad;
+    const color=isBad?'#E24B4A':p.type==='wide'?BRICK_TYPES.power_wide.color:p.type==='multi'?BRICK_TYPES.power_multi.color:BRICK_TYPES.power_slow.color;
+
+    if(isBad){
+      // 경고 느낌 - 점멸 테두리
+      ctx.save();
+      ctx.shadowColor='rgba(226,75,74,0.6)';
+      ctx.shadowBlur=8;
+      ctx.fillStyle=color;
+      ctx.beginPath();ctx.arc(p.x,p.y,9,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle='#fff';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(p.x,p.y,9,0,Math.PI*2);ctx.stroke();
+      ctx.fillStyle='#fff';ctx.font='700 11px sans-serif';ctx.textAlign='center';
+      ctx.fillText('!',p.x,p.y+4);
+    } else {
+      ctx.fillStyle=color;
+      ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='9px sans-serif';ctx.textAlign='center';
+      const icon=p.type==='wide'?'↔':p.type==='multi'?'●':'⏱';
+      ctx.fillText(icon,p.x,p.y+3);
+    }
+    ctx.textAlign='start';
+  });
+
+  // 파티클
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life*0.8;
+    ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+
+  // 패들 - 그라데이션 + 둥근 처리
+  const paddleBase=activePowerTimers.wide>0?'#1D9E75':'#e8e8e8';
+  const pGrad=ctx.createLinearGradient(paddle.x,paddle.y,paddle.x,paddle.y+paddle.h);
+  pGrad.addColorStop(0,'#ffffff');
+  pGrad.addColorStop(1,paddleBase);
+  ctx.fillStyle=pGrad;
+  roundRectPath(paddle.x,paddle.y,paddle.w,paddle.h,5);
+  ctx.fill();
+
+  // 공
+  balls.forEach(ball=>{
+    ctx.fillStyle=activePowerTimers.slow>0?'#60a5fa':'#FFD200';
+    ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+  });
+
+  // 콤보 표시
+  if(combo>=2){
+    ctx.font='700 13px -apple-system,sans-serif';
+    ctx.fillStyle='rgba(255,210,0,0.6)';
+    ctx.textAlign='right';
+    ctx.fillText(combo+'x 콤보',W-12,20);
+    ctx.textAlign='start';
+  }
+}
+
+// 패들 조작 - 터치/마우스 드래그
+function setPaddleX(clientX){
+  const rect=canvas.getBoundingClientRect();
+  const x=clientX-rect.left;
+  paddle.x=x-paddle.w/2;
+}
+
+canvas.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  setPaddleX(e.touches[0].clientX);
+  if(balls.some(b=>b.stuck))launchBall();
+},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  setPaddleX(e.touches[0].clientX);
+},{passive:false});
+
+canvas.addEventListener('mousedown',e=>{
+  setPaddleX(e.clientX);
+  if(balls.some(b=>b.stuck))launchBall();
+});
+let mouseDown=false;
+canvas.addEventListener('mousedown',()=>mouseDown=true);
+window.addEventListener('mouseup',()=>mouseDown=false);
+canvas.addEventListener('mousemove',e=>{if(mouseDown)setPaddleX(e.clientX);});
+
+// 키보드
+const K={};
+document.addEventListener('keydown',e=>{
+  K[e.key]=true;
+  if(['ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
+  if(e.key===' '&&balls.some(b=>b.stuck))launchBall();
+  if(e.key===' '&&!running)startGame();
+});
+document.addEventListener('keyup',e=>K[e.key]=false);
+
+function keyboardMove(dt){
+  const spd=320;
+  if(K['ArrowLeft'])paddle.x-=spd*dt;
+  if(K['ArrowRight'])paddle.x+=spd*dt;
+}
+
+// update 함수에 키보드 이동 통합 (loop 내 update 호출 전에 처리)
+const origUpdate=update;
+update=function(dt){
+  keyboardMove(dt);
+  origUpdate(dt);
+};
+
+// 일시정지 (백그라운드 전환 대응)
+function pauseGame(){if(!running||paused)return;paused=true;}
+function resumeGame(){if(!paused)return;paused=false;lastTs=performance.now();}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
+window.addEventListener('blur',()=>pauseGame());
+
+window.addEventListener('resize',()=>{if(running){const oldW=W;resize();paddle.x=paddle.x*(W/oldW);}});
+resize();
+best=loadBest();
+</script>
+</body>
+</html>

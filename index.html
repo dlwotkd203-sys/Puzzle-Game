@@ -155,6 +155,7 @@ const GAMES=[
   {id:'memory',name:'짝맞추기',icon:'🃏',available:true},
 {id:'sorter', name:'분류하기', icon:'🎯', available:true},
 {id:'minesweeper', name:'지뢰찾기', icon:'💣', available:true},
+{id:'breakout', name:'벽돌깨기', icon:'🧱', available:true},
   {id:'word',name:'단어 찾기',icon:'가',available:false},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
@@ -165,7 +166,7 @@ let curStage=1,N=4,CELL=68,puzzle=null,userRects=[],dragging=false,dragStart=nul
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
-const SCORE_GAMES=['2048','dodge','memory','sorter'];
+const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout'];
 
 async function getTop1(gameId){
   try{
@@ -246,6 +247,7 @@ function openGame(game){
   if(game.id==='shikaku'){ location.href='shikaku_stages.html'; return; }
 if(game.id==='2048'){ location.href='2048.html'; return; }
 if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
+  if(game.id==='breakout'){ location.href='breakout.html'; return; }
   if(game.id==='memory'){ location.href='memory.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
 if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }
