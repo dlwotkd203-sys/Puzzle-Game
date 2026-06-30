@@ -148,14 +148,14 @@ function buildWave(){
   document.getElementById('descend-warning').style.display='none';
 
   // 웨이브 진행에 따라 단단한 블록/특수블록 비율 증가
-  const hardChance=Math.min(0.1+wave*0.04,0.4);
+  const hardChance=Math.min(0.1+wave*0.05,0.55);
   const explosiveChance=Math.min(0.04+wave*0.01,0.12);
   const powerChance=0.16; // 파워업 전체 확률 상향
   const multiBoost=0.09;  // 멀티볼 추가 확률 (더 상향)
   const pierceBoost=0.04; // 관통 아이템 확률
 
   // 첫 웨이브부터 블록 꽉 채워서 시작 (도파민 위해 행 수 대폭 증가)
-  const activeRows=Math.min(BRICK_ROWS,7+Math.floor(wave/2));
+  const activeRows=Math.min(BRICK_ROWS,7+Math.floor(wave/1.5));
 
   for(let r=0;r<activeRows;r++){
     for(let c=0;c<BRICK_COLS;c++){
@@ -190,6 +190,7 @@ function buildWave(){
 }
 
 function resetBallAndPaddle(){
+  paddle.baseW=Math.max(40,70-Math.floor(wave/3)*4); // 웨이브 진행에 따라 기본 패들 크기 점점 축소
   paddle.w=paddle.baseW;
   paddle.x=W/2-paddle.w/2;
   paddle.y=H*0.74;
@@ -242,14 +243,22 @@ function spawnParticles(x,y,color,n=10){
   }
 }
 
+let activeComboPopCount=0;
+const MAX_COMBO_POPS=16; // 동시 표시 개수 제한 - 화면 도배 방지
+
 function showComboPop(x,y,text,color){
+  if(activeComboPopCount>=MAX_COMBO_POPS)return;
+  activeComboPopCount++;
   const el=document.createElement('div');
   el.className='combo-pop';
   el.textContent=text;
   el.style.color=color;
   el.style.left=x+'px';el.style.top=y+'px';
   document.getElementById('app').appendChild(el);
-  el.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-26px)'}],{duration:600,easing:'ease-out'}).onfinish=()=>el.remove();
+  el.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-26px)'}],{duration:600,easing:'ease-out'}).onfinish=()=>{
+    el.remove();
+    activeComboPopCount--;
+  };
 }
 
 function hitBrick(brick,bx,by){
@@ -266,7 +275,7 @@ function hitBrick(brick,bx,by){
   score+=gained;
 
   const canvasRect=canvas.getBoundingClientRect();
-  if(combo>=3){
+  if(combo>=3&&combo%2===0){
     showComboPop(canvasRect.left+brick.x+brick.w/2-10,canvasRect.top+brick.y,combo+'x COMBO',def.color);
   }
 
@@ -290,7 +299,7 @@ function hitBrick(brick,bx,by){
 
     if(def.power){
       powerups.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:80,type:def.power,bad:false});
-    } else if(!def.explosive&&Math.random()<0.05+Math.min(wave*0.005,0.05)){
+    } else if(!def.explosive&&Math.random()<0.04+Math.min(wave*0.012,0.18)){
       // 일반/단단한 블록 파괴시 낮은 확률로 나쁜 아이템 낙하
       powerups.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,vy:90,type:'bad',bad:true});
     }
@@ -303,11 +312,16 @@ function applyPower(type){
     paddle.w=Math.min(paddle.baseW*1.8,paddle.w+30);
     activePowerTimers.wide=8;
   } else if(type==='multi'){
+    const MAX_BALLS=30; // 공 개수 상한선
+    if(balls.length>=MAX_BALLS)return;
     const extra=[];
     balls.forEach(b=>{
       if(b.stuck)return;
+      if(balls.length+extra.length>=MAX_BALLS)return;
       extra.push({x:b.x,y:b.y,vx:-b.vx*0.7+((Math.random()-0.5)*60),vy:b.vy,r:b.r,stuck:false});
-      extra.push({x:b.x,y:b.y,vx:b.vx*0.7+((Math.random()-0.5)*60),vy:b.vy,r:b.r,stuck:false});
+      if(balls.length+extra.length<MAX_BALLS){
+        extra.push({x:b.x,y:b.y,vx:b.vx*0.7+((Math.random()-0.5)*60),vy:b.vy,r:b.r,stuck:false});
+      }
     });
     balls.push(...extra);
   } else if(type==='slow'){
