@@ -63,6 +63,7 @@ html,body{height:100%;overflow:hidden;background:#000000;}
 .ov-btn:hover{background:rgba(255,255,255,0.9);}
 .ov-hint{font-size:11px;color:rgba(255,255,255,0.2);margin-top:4px;}
 .ov-divider{width:40px;height:1px;background:rgba(255,255,255,0.08);}
+.pause-icon{font-size:40px;}
 </style>
 </head>
 <body>
@@ -103,6 +104,14 @@ html,body{height:100%;overflow:hidden;background:#000000;}
   <button class="ov-btn" onclick="startGame()">다시 시작</button>
 </div>
 
+<div class="overlay" id="ov-pause" style="display:none">
+  <div class="pause-icon">⏸</div>
+  <div class="ov-title">일시정지</div>
+  <div class="ov-sub">화면을 벗어나면 자동으로 멈춰요</div>
+  <div class="ov-divider"></div>
+  <button class="ov-btn" onclick="resumeGame()">계속하기</button>
+</div>
+
 <script>
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
@@ -117,7 +126,7 @@ function resize(){
 }
 
 // 게임 상태
-let running=false,raf=null,lastTs=0;
+let running=false,paused=false,raf=null,lastTs=0;
 let elapsed=0,startTs=0;
 let best=0;
 let bullets=[],trails=[];
@@ -189,6 +198,8 @@ function spawnBullet(){
 function startGame(){
   document.getElementById('ov-start').style.display='none';
   document.getElementById('ov-dead').style.display='none';
+  document.getElementById('ov-pause').style.display='none';
+  paused=false;
   best=loadBest();
   resize();
   P.x=W/2;P.y=H/2;P.vx=0;P.vy=0;P.alive=true;P.history=[];
@@ -221,6 +232,12 @@ function die(){
 }
 
 function loop(ts){
+  if(paused){
+    lastTs=ts; // 일시정지 중엔 시간 누적 방지, draw는 계속해서 화면은 유지
+    draw();
+    raf=requestAnimationFrame(loop);
+    return;
+  }
   const dt=Math.min((ts-lastTs)/1000,0.05);
   lastTs=ts;
   if(running){
@@ -231,6 +248,28 @@ function loop(ts){
   draw();
   raf=requestAnimationFrame(loop);
 }
+
+function pauseGame(){
+  if(!running||paused)return;
+  paused=true;
+  document.getElementById('ov-pause').style.display='flex';
+}
+
+function resumeGame(){
+  if(!paused)return;
+  paused=false;
+  document.getElementById('ov-pause').style.display='none';
+  // startTs를 보정해서 일시정지 동안 흐른 시간이 elapsed에 반영되지 않도록 함
+  startTs=performance.now()-elapsed*1000;
+  lastTs=performance.now();
+}
+
+// 탭 전환, 앱 최소화, 화면 꺼짐 등 감지 -> 자동 일시정지
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)pauseGame();
+});
+window.addEventListener('blur',()=>{pauseGame();});
+window.addEventListener('pagehide',()=>{pauseGame();});
 
 function update(dt){
   if(!P.alive)return;
