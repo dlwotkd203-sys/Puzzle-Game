@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>가위바위보</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.7rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:18px;padding:2px 6px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:600;color:#111;flex:1;}
+
+.hud{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;}
+.hud-box{flex:1;background:#f8f8f8;border-radius:10px;padding:8px 10px;text-align:center;}
+.hud-val{font-size:20px;font-weight:800;color:#111;font-variant-numeric:tabular-nums;}
+.hud-lbl{font-size:9px;color:#888;margin-top:1px;letter-spacing:0.3px;}
+.hud-val.streak{color:#FF6B35;}
+
+.cpu-history-box{margin:0.6rem 1rem 0;background:#f8f8f8;border-radius:12px;padding:10px 12px;}
+.cpu-history-label{font-size:11px;color:#aaa;font-weight:600;margin-bottom:6px;}
+.cpu-history-row{display:flex;gap:5px;flex-wrap:wrap;}
+.history-icon{width:26px;height:26px;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;border:1px solid #eee;}
+.history-icon.latest{border-color:#FF6B35;background:#FFF3EC;}
+.history-empty{font-size:12px;color:#ccc;}
+
+.battle-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem 1.5rem;gap:1rem;}
+.vs-row{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;width:100%;}
+.player-box{text-align:center;}
+.player-label{font-size:12px;color:#aaa;font-weight:600;margin-bottom:8px;}
+.choice-display{width:80px;height:80px;border-radius:20px;background:#f8f8f8;display:flex;align-items:center;justify-content:center;font-size:40px;margin:0 auto;transition:all 0.2s;border:2px solid transparent;}
+.choice-display.shake{animation:shake 0.08s ease infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}50%{transform:translateX(3px);}}
+.choice-display.win{border-color:#1D9E75;background:#E1F5EE;transform:scale(1.08);}
+.choice-display.lose{border-color:#E24B4A;background:#FCEBEB;opacity:0.6;}
+.choice-display.draw{border-color:#EF9F27;background:#FFF8E1;}
+.vs-text{font-size:13px;font-weight:700;color:#ccc;}
+
+.result-text{font-size:18px;font-weight:800;min-height:26px;text-align:center;}
+.result-text.win{color:#1D9E75;}
+.result-text.lose{color:#E24B4A;}
+.result-text.draw{color:#EF9F27;}
+
+.choice-buttons{display:flex;gap:12px;padding:1rem;flex-shrink:0;}
+.choice-btn{flex:1;aspect-ratio:1;border-radius:20px;border:none;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.08);font-size:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;-webkit-tap-highlight-color:transparent;}
+.choice-btn:active{transform:scale(0.9);}
+.choice-btn:disabled{opacity:0.5;}
+
+.streak-history{display:flex;gap:4px;padding:0 1rem 1rem;justify-content:center;flex-wrap:wrap;flex-shrink:0;min-height:20px;}
+.history-dot{width:10px;height:10px;border-radius:50%;}
+.history-dot.win{background:#1D9E75;}
+.history-dot.lose{background:#E24B4A;}
+.history-dot.draw{background:#EF9F27;}
+
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.97);display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:30;}
+.overlay.show{display:flex;}
+.ov-emoji{font-size:50px;}
+.ov-title{font-size:24px;font-weight:700;color:#111;}
+.ov-score{font-size:22px;font-weight:800;color:#FF6B35;}
+.ov-best{font-size:13px;color:#aaa;}
+.ov-new{font-size:13px;color:#1D9E75;font-weight:700;}
+.ov-btn{margin-top:6px;padding:12px 36px;border-radius:10px;border:none;background:#111;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+.relative-app{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">가위바위보</span>
+  </div>
+  <div class="relative-app">
+    <div class="hud">
+      <div class="hud-box"><div class="hud-val streak" id="hud-streak">0</div><div class="hud-lbl">현재 연승</div></div>
+      <div class="hud-box"><div class="hud-val" id="hud-best">0</div><div class="hud-lbl">최고 연승</div></div>
+      <div class="hud-box"><div class="hud-val" id="hud-total">0</div><div class="hud-lbl">총 판수</div></div>
+    </div>
+
+    <div class="cpu-history-box">
+      <div class="cpu-history-label">🖥️ 컴퓨터가 낸 패턴 (최근 10판)</div>
+      <div class="cpu-history-row" id="cpu-history-row"><span class="history-empty">아직 기록이 없어요</span></div>
+    </div>
+
+    <div class="battle-area">
+      <div class="vs-row">
+        <div class="player-box">
+          <div class="player-label">컴퓨터</div>
+          <div class="choice-display" id="cpu-display">❔</div>
+        </div>
+        <div class="vs-text">VS</div>
+        <div class="player-box">
+          <div class="player-label">나</div>
+          <div class="choice-display" id="player-display">❔</div>
+        </div>
+      </div>
+      <div class="result-text" id="result-text"></div>
+    </div>
+
+    <div class="streak-history" id="streak-history"></div>
+
+    <div class="choice-buttons">
+      <button class="choice-btn" onclick="play('rock')">✊</button>
+      <button class="choice-btn" onclick="play('scissors')">✌️</button>
+      <button class="choice-btn" onclick="play('paper')">✋</button>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <div class="ov-emoji">💔</div>
+      <div class="ov-title">연승 종료!</div>
+      <div class="ov-score" id="ov-streak"></div>
+      <div class="ov-best" id="ov-best-text"></div>
+      <div class="ov-new" id="ov-new" style="display:none">🏆 새 최고 기록!</div>
+      <button class="ov-btn" onclick="resetStreak()">다시 도전</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const EMOJI={rock:'✊',scissors:'✌️',paper:'✋'};
+const CHOICES=['rock','scissors','paper'];
+
+let streak=0,best=0,total=0;
+let history=[]; // 'win'/'lose'/'draw'
+let cpuHistory=[]; // 컴퓨터가 낸 선택 기록 ('rock'/'scissors'/'paper')
+let busy=false;
+
+function loadBest(){try{return parseInt(localStorage.getItem('rps_best')||'0');}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('rps_best',String(v));}catch(e){}}
+
+async function saveScore(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.rps&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'rps',score:sc})});
+    }
+  }catch(e){}
+}
+
+function updateHUD(){
+  document.getElementById('hud-streak').textContent=streak;
+  document.getElementById('hud-best').textContent=best;
+  document.getElementById('hud-total').textContent=total;
+}
+
+function judge(p,c){
+  if(p===c)return'draw';
+  if((p==='rock'&&c==='scissors')||(p==='scissors'&&c==='paper')||(p==='paper'&&c==='rock'))return'win';
+  return'lose';
+}
+
+function renderHistory(){
+  const wrap=document.getElementById('streak-history');
+  wrap.innerHTML='';
+  // 최근 20개만 표시
+  history.slice(-20).forEach(r=>{
+    const dot=document.createElement('div');
+    dot.className='history-dot '+r;
+    wrap.appendChild(dot);
+  });
+}
+
+function renderCpuHistory(){
+  const wrap=document.getElementById('cpu-history-row');
+  if(cpuHistory.length===0){
+    wrap.innerHTML='<span class="history-empty">아직 기록이 없어요</span>';
+    return;
+  }
+  wrap.innerHTML='';
+  const recent=cpuHistory.slice(-10);
+  recent.forEach((choice,idx)=>{
+    const icon=document.createElement('div');
+    icon.className='history-icon'+(idx===recent.length-1?' latest':'');
+    icon.textContent=EMOJI[choice];
+    wrap.appendChild(icon);
+  });
+}
+
+function play(playerChoice){
+  if(busy)return;
+  busy=true;
+  document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=true);
+
+  const playerEl=document.getElementById('player-display');
+  const cpuEl=document.getElementById('cpu-display');
+  const resultEl=document.getElementById('result-text');
+
+  playerEl.className='choice-display';
+  cpuEl.className='choice-display shake';
+  playerEl.textContent=EMOJI[playerChoice];
+  resultEl.textContent='';
+  resultEl.className='result-text';
+
+  // 컴퓨터가 고민하는 연출
+  let shakeCount=0;
+  const shakeInterval=setInterval(()=>{
+    cpuEl.textContent=EMOJI[CHOICES[Math.floor(Math.random()*3)]];
+    shakeCount++;
+    if(shakeCount>=6){
+      clearInterval(shakeInterval);
+      finishRound(playerChoice);
+    }
+  },70);
+}
+
+function finishRound(playerChoice){
+  const cpuChoice=CHOICES[Math.floor(Math.random()*3)];
+  cpuHistory.push(cpuChoice);
+  renderCpuHistory();
+  const result=judge(playerChoice,cpuChoice);
+
+  const playerEl=document.getElementById('player-display');
+  const cpuEl=document.getElementById('cpu-display');
+  const resultEl=document.getElementById('result-text');
+
+  cpuEl.className='choice-display';
+  cpuEl.textContent=EMOJI[cpuChoice];
+
+  total++;
+  history.push(result);
+  renderHistory();
+
+  if(result==='win'){
+    streak++;
+    playerEl.classList.add('win');cpuEl.classList.add('lose');
+    resultEl.textContent='🎉 승리!';resultEl.classList.add('win');
+    if(streak>best){best=streak;saveBest(best);}
+    updateHUD();
+    busy=false;
+    document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
+  } else if(result==='draw'){
+    playerEl.classList.add('draw');cpuEl.classList.add('draw');
+    resultEl.textContent='무승부';resultEl.classList.add('draw');
+    updateHUD();
+    busy=false;
+    document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
+  } else {
+    playerEl.classList.add('lose');cpuEl.classList.add('win');
+    resultEl.textContent='😢 패배...';resultEl.classList.add('lose');
+    updateHUD();
+    saveScore(best);
+    setTimeout(()=>{
+      const isNew=streak>0&&streak===best&&streak>loadBest0; // 사용 안 함, 아래서 처리
+      showGameOverOverlay();
+    },500);
+  }
+}
+
+let loadBest0=0;
+
+function showGameOverOverlay(){
+  const finalStreak=streak;
+  const isNew=finalStreak>0&&finalStreak===best;
+  document.getElementById('ov-streak').textContent=finalStreak+'연승';
+  document.getElementById('ov-best-text').textContent='최고 기록: '+best+'연승';
+  document.getElementById('ov-new').style.display=isNew?'block':'none';
+  document.getElementById('overlay').classList.add('show');
+}
+
+function resetStreak(){
+  streak=0;
+  updateHUD();
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('player-display').className='choice-display';
+  document.getElementById('cpu-display').className='choice-display';
+  document.getElementById('player-display').textContent='❔';
+  document.getElementById('cpu-display').textContent='❔';
+  document.getElementById('result-text').textContent='';
+  document.getElementById('result-text').className='result-text';
+  busy=false;
+  document.querySelectorAll('.choice-btn').forEach(b=>b.disabled=false);
+}
+
+best=loadBest();
+updateHUD();
+</script>
+</body>
+</html>
