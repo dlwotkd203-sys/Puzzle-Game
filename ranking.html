@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>랭킹</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.tab-bar{display:flex;border-bottom:1px solid #eee;overflow-x:auto;}
+.tab{flex-shrink:0;padding:10px 14px;text-align:center;font-size:13px;font-weight:600;color:#888;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+.tab.active{color:#378ADD;border-bottom-color:#378ADD;}
+.ranking-body{padding:1rem;}
+.rank-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f0f0f0;}
+.rank-num{width:28px;text-align:center;font-size:15px;font-weight:700;color:#999;}
+.rank-num.gold{color:#F5A623;}
+.rank-num.silver{color:#9B9B9B;}
+.rank-num.bronze{color:#C47A35;}
+.rank-info{flex:1;}
+.rank-name{font-size:15px;font-weight:600;color:#111;}
+.rank-sub{font-size:12px;color:#888;margin-top:2px;}
+.rank-score{font-size:15px;font-weight:700;color:#378ADD;text-align:right;}
+.rank-score small{font-size:11px;color:#888;font-weight:400;display:block;}
+.me-badge{font-size:10px;background:#E6F1FB;color:#378ADD;border-radius:4px;padding:1px 5px;margin-left:6px;}
+.loading{text-align:center;padding:2rem;color:#888;font-size:14px;}
+.empty{text-align:center;padding:2rem;color:#aaa;font-size:14px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">🏆 랭킹</span>
+  </div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="setTab('total')" id="tab-total">전체</div>
+    <div class="tab" onclick="setTab('shikaku')" id="tab-shikaku">시카쿠</div>
+    <div class="tab" onclick="setTab('sudoku')" id="tab-sudoku">스도쿠</div>
+    <div class="tab" onclick="setTab('nonogram')" id="tab-nonogram">노노그램</div>
+    <div class="tab" onclick="setTab('2048')" id="tab-2048">2048</div>
+    <div class="tab" onclick="setTab('dodge')" id="tab-dodge">닷지</div>
+    <div class="tab" onclick="setTab('memory')" id="tab-memory">짝맞추기</div>
+    <div class="tab" onclick="setTab('sorter')" id="tab-sorter">분류하기</div>
+  </div>
+  <div class="ranking-body" id="ranking-body">
+    <div class="loading">불러오는 중...</div>
+  </div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+let currentTab='total';
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+
+function setTab(tab){
+  currentTab=tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  loadRanking();
+}
+
+async function loadRanking(){
+  const body=document.getElementById('ranking-body');
+  body.innerHTML='<div class="loading">불러오는 중...</div>';
+  try{
+    if(currentTab==='2048'||currentTab==='dodge'||currentTab==='memory'||currentTab==='sorter'){
+      // 점수 기준 랭킹
+      const game=currentTab;
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${game}&select=username,score&order=score.desc&limit=50`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      if(!data.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
+      body.innerHTML='';
+      data.forEach((row,idx)=>{
+        const isMe=currentUser&&currentUser.username===row.username;
+        const div=document.createElement('div');div.className='rank-item';
+        const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':idx+1;
+        const numClass=idx===0?'gold':idx===1?'silver':idx===2?'bronze':'';
+        const isDodge=game==='dodge';
+        const isMemory=game==='memory';
+        const displayScore=isDodge?(row.score/10).toFixed(1)+'s':row.score.toLocaleString();
+        const scoreLabel=isDodge?'생존 시간':isMemory?'최고 점수':'최고 점수';
+        const scoreUnit=isDodge?'':' 점';
+        div.innerHTML=`
+          <div class="rank-num ${numClass}">${medal}</div>
+          <div class="rank-info">
+            <div class="rank-name">${row.username}${isMe?'<span class="me-badge">나</span>':''}</div>
+            <div class="rank-sub">${scoreLabel}</div>
+          </div>
+          <div class="rank-score">${displayScore}<small>${scoreUnit}</small></div>
+        `;
+        body.appendChild(div);
+      });
+    } else {
+      // 나머지는 클리어 스테이지 수 기준
+      const url=currentTab==='total'
+        ?`${SUPABASE_URL}/rest/v1/clears?select=username`
+        :`${SUPABASE_URL}/rest/v1/clears?game=eq.${currentTab}&select=username`;
+      const res=await fetch(url,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+      const data=await res.json();
+      const map={};
+      data.forEach(row=>{if(!map[row.username])map[row.username]=0;map[row.username]++;});
+      const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+      if(!sorted.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
+      const gameLabel={shikaku:'시카쿠',sudoku:'스도쿠',nonogram:'노노그램',total:'전체'};
+      body.innerHTML='';
+      sorted.slice(0,50).forEach(([name,count],idx)=>{
+        const isMe=currentUser&&currentUser.username===name;
+        const div=document.createElement('div');div.className='rank-item';
+        const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':idx+1;
+        const numClass=idx===0?'gold':idx===1?'silver':idx===2?'bronze':'';
+        div.innerHTML=`
+          <div class="rank-num ${numClass}">${medal}</div>
+          <div class="rank-info">
+            <div class="rank-name">${name}${isMe?'<span class="me-badge">나</span>':''}</div>
+            <div class="rank-sub">${gameLabel[currentTab]||'전체'} 클리어</div>
+          </div>
+          <div class="rank-score">${count}<small>스테이지</small></div>
+        `;
+        body.appendChild(div);
+      });
+    }
+  }catch(e){
+    body.innerHTML='<div class="empty">랭킹을 불러올 수 없어요.</div>';
+  }
+}
+loadRanking();
+</script>
+</body>
+</html>

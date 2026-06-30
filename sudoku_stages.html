@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>스도쿠 - 스테이지 선택</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.progress-bar-wrap{padding:0.75rem 1rem 0.25rem;}
+.progress-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.progress-text{font-size:13px;font-weight:600;color:#111;}
+.progress-pct{font-size:13px;font-weight:700;color:#378ADD;}
+.progress-bar-bg{background:#eee;border-radius:99px;height:6px;overflow:hidden;}
+.progress-bar-fill{height:6px;border-radius:99px;background:#378ADD;transition:width 0.3s;}
+.sections{padding:0.75rem 1rem 1.5rem;}
+.diff-section{margin-bottom:1.25rem;}
+.diff-label{font-size:12px;font-weight:600;color:#888;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.diff-label-left{display:flex;align-items:center;gap:6px;}
+.diff-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.diff-count{font-size:11px;color:#aaa;}
+.stage-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;}
+.stage-tile{background:#fff;border:1px solid #eee;border-radius:12px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:transform 0.1s;}
+.stage-tile:active{transform:scale(0.93);}
+.stage-tile.diff-easy.cleared{background:#E1F5EE;border:1.5px solid #1D9E75;}
+.stage-tile.diff-normal.cleared{background:#E6F1FB;border:1.5px solid #378ADD;}
+.stage-tile.diff-medium.cleared{background:#FAEEDA;border:1.5px solid #BA7517;}
+.stage-tile.diff-hard.cleared{background:#FCEBEB;border:1.5px solid #E24B4A;}
+.s-num{font-size:13px;font-weight:600;color:#111;}
+.s-check{font-size:10px;position:absolute;top:3px;right:5px;color:#1D9E75;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">스도쿠</span>
+  </div>
+  <div class="progress-bar-wrap">
+    <div class="progress-info">
+      <span class="progress-text" id="prog-text">0/100 클리어</span>
+      <span class="progress-pct" id="prog-pct">0%</span>
+    </div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
+  </div>
+  <div class="sections" id="sections"></div>
+</div>
+<script>
+var DIFFS=[
+  {id:'easy',  label:'왕기본', color:'#1D9E75', from:1,  to:10},
+  {id:'normal',label:'기본',   color:'#378ADD', from:11, to:30},
+  {id:'medium',label:'중간',   color:'#BA7517', from:31, to:70},
+  {id:'hard',  label:'하드',   color:'#E24B4A', from:71, to:100},
+];
+
+var clearedArr=[];
+try{var raw=localStorage.getItem('sudoku_cleared');if(raw)clearedArr=JSON.parse(raw).map(Number);}catch(e){}
+function isCleared(n){return clearedArr.indexOf(n)!==-1;}
+
+function updateProgress(){
+  var total=100,done=clearedArr.length;
+  var pct=Math.round(done/total*100);
+  document.getElementById('prog-text').textContent=done+'/'+total+' 클리어';
+  document.getElementById('prog-pct').textContent=pct+'%';
+  document.getElementById('prog-bar').style.width=pct+'%';
+}
+
+function render(){
+  var wrap=document.getElementById('sections');wrap.innerHTML='';
+  DIFFS.forEach(function(diff){
+    var sec=document.createElement('div');sec.className='diff-section';
+    var total=diff.to-diff.from+1,done=0;
+    for(var x=diff.from;x<=diff.to;x++)if(isCleared(x))done++;
+    var label=document.createElement('div');label.className='diff-label';
+    label.innerHTML='<div class="diff-label-left"><span class="diff-dot" style="background:'+diff.color+'"></span>'+diff.label+'</div><span class="diff-count">'+done+'/'+total+'</span>';
+    sec.appendChild(label);
+    var row=document.createElement('div');row.className='stage-row';
+    for(var i=diff.from;i<=diff.to;i++){
+      (function(n){
+        var tile=document.createElement('div');
+        tile.className='stage-tile diff-'+diff.id+(isCleared(n)?' cleared':'');
+        tile.innerHTML='<div class="s-num">'+n+'</div>'+(isCleared(n)?'<div class="s-check">✓</div>':'');
+        tile.addEventListener('click',function(){location.href='sudoku.html?stage='+n;});
+        row.appendChild(tile);
+      })(i);
+    }
+    sec.appendChild(row);wrap.appendChild(sec);
+  });
+  updateProgress();
+}
+render();
+</script>
+</body>
+</html>

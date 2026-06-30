@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>분류하기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;overflow:hidden;}
+#app{max-width:430px;margin:0 auto;height:100vh;display:flex;flex-direction:column;background:#fff;position:relative;}
+
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.7rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:18px;padding:2px 6px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:600;color:#111;flex:1;}
+
+.hud{display:flex;gap:8px;padding:0.6rem 1rem;flex-shrink:0;}
+.hud-box{flex:1;background:#f8f8f8;border-radius:10px;padding:6px 10px;text-align:center;}
+.hud-val{font-size:17px;font-weight:700;color:#111;font-variant-numeric:tabular-nums;}
+.hud-lbl{font-size:9px;color:#888;margin-top:1px;letter-spacing:0.3px;}
+
+.timer-wrap{padding:0 1rem 0.5rem;flex-shrink:0;}
+.timer-bg{height:8px;background:#eee;border-radius:99px;overflow:hidden;}
+.timer-fill{height:100%;border-radius:99px;transition:width 0.05s linear,background 0.3s;}
+
+.rule-bar{display:flex;gap:8px;padding:0.5rem 1rem;flex-shrink:0;}
+.rule-side{flex:1;text-align:center;border-radius:12px;padding:8px 6px;}
+.rule-side.l{background:#E6F1FB;}
+.rule-side.r{background:#FAEEDA;}
+.rule-emoji{font-size:22px;letter-spacing:2px;line-height:1.3;}
+.rule-label{font-size:10px;margin-top:3px;font-weight:700;letter-spacing:0.3px;}
+.rule-side.l .rule-label{color:#185FA5;}
+.rule-side.r .rule-label{color:#854F0B;}
+
+.belt-wrap{flex:1;position:relative;overflow:hidden;background:linear-gradient(180deg,#eef0f3,#f7f7f8 70%,#fafafa);margin:0.5rem 0;}
+.road{position:absolute;left:50%;bottom:0;width:90px;top:0;background:linear-gradient(180deg,rgba(210,210,218,0.35),rgba(225,225,232,0.5) 60%,rgba(235,235,240,0.6));transform:translateX(-50%);clip-path:polygon(38% 0%, 62% 0%, 78% 100%, 22% 100%);}
+.road-line{position:absolute;left:50%;bottom:0;top:0;width:3px;background:repeating-linear-gradient(180deg,#fff 0,#fff 14px,transparent 14px,transparent 28px);transform:translateX(-50%);opacity:0.7;}
+.guide-side{position:absolute;top:42%;display:flex;flex-direction:column;align-items:center;gap:4px;z-index:4;padding:10px 8px;border-radius:16px;background:rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+.guide-left{left:6%;border:2px solid #B5D4F4;}
+.guide-right{right:6%;border:2px solid #FAC775;}
+.guide-emoji{font-size:24px;letter-spacing:3px;line-height:1.4;text-align:center;}
+.guide-label{font-size:10px;font-weight:700;}
+.guide-left .guide-label{color:#185FA5;}
+.guide-right .guide-label{color:#854F0B;}
+.split-zone{position:absolute;left:0;right:0;bottom:0;height:64px;display:flex;z-index:1;}
+.split-left{flex:1;background:rgba(55,138,221,0.06);border-top:2px dashed rgba(55,138,221,0.3);}
+.split-right{flex:1;background:rgba(239,159,39,0.06);border-top:2px dashed rgba(239,159,39,0.3);}
+.split-label{position:absolute;bottom:6px;font-size:11px;font-weight:700;color:#aaa;width:50%;text-align:center;}
+.split-label.l{left:0;color:#185FA5;}
+.split-label.r{right:0;color:#854F0B;}
+.front-marker{position:absolute;left:50%;bottom:0px;width:91px;height:91px;border:2.5px dashed #bbb;border-radius:14px;transform:translateX(-50%);pointer-events:none;z-index:3;}
+.queue-track{position:absolute;inset:0;}
+.item{position:absolute;left:50%;top:18%;font-size:52px;width:77px;height:77px;display:flex;align-items:center;justify-content:center;transform-origin:center center;transition:top 0.24s ease,left 0.24s ease,transform 0.24s ease,opacity 0.24s,filter 0.24s;}
+.item.front{z-index:5;}
+.item.gone-left{opacity:0 !important;transform:translate(-50%,-50%) translateX(-100px) scale(1.5) !important;}
+.item.gone-right{opacity:0 !important;transform:translate(-50%,-50%) translateX(100px) scale(1.5) !important;}
+.item.wrong{animation:itemshake 0.3s ease;}
+@keyframes itemshake{0%,100%{transform:translate(-50%,-50%) scale(1.65);}25%{transform:translate(-65%,-50%) scale(1.65);}75%{transform:translate(-35%,-50%) scale(1.65);}}
+
+.float-pop{position:absolute;font-size:16px;font-weight:800;pointer-events:none;z-index:10;}
+
+.btn-row{display:flex;gap:10px;padding:0.75rem 1rem 1rem;flex-shrink:0;}
+.dir-btn{flex:1;padding:18px;border-radius:16px;border:none;font-size:15px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;transition:transform 0.08s;}
+.dir-btn:active{transform:scale(0.95);}
+.dir-btn.left-btn{background:#E6F1FB;color:#185FA5;}
+.dir-btn.right-btn{background:#FAEEDA;color:#854F0B;}
+.dir-btn-emoji{font-size:22px;}
+
+.fever-overlay{position:absolute;inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity 0.3s;background:radial-gradient(circle,rgba(255,210,0,0.15),transparent 70%);}
+.fever-overlay.active{opacity:1;}
+.fever-banner{position:absolute;top:8px;left:50%;transform:translateX(-50%) translateY(-40px);background:linear-gradient(135deg,#FFD200,#FF8A00);color:#fff;font-weight:800;font-size:13px;padding:6px 18px;border-radius:99px;z-index:15;opacity:0;transition:all 0.3s;letter-spacing:0.5px;}
+.fever-banner.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:30;}
+.ov-emoji{font-size:46px;}
+.ov-title{font-size:24px;font-weight:700;color:#111;}
+.ov-desc{font-size:13px;color:#888;text-align:center;padding:0 2rem;line-height:1.5;}
+.ov-score{font-size:20px;font-weight:700;color:#378ADD;}
+.ov-best{font-size:13px;color:#aaa;}
+.ov-new{font-size:13px;color:#1D9E75;font-weight:700;}
+.ov-btn{margin-top:6px;padding:13px 38px;border-radius:12px;border:none;background:#111;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+.ov-btn:active{background:#333;}
+.ov-divider{width:36px;height:1px;background:#eee;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">분류하기</span>
+  </div>
+
+  <div class="hud">
+    <div class="hud-box"><div class="hud-val" id="hud-score">0</div><div class="hud-lbl">점수</div></div>
+    <div class="hud-box"><div class="hud-val" id="hud-combo">0</div><div class="hud-lbl">콤보</div></div>
+    <div class="hud-box"><div class="hud-val" id="hud-best">0</div><div class="hud-lbl">최고점수</div></div>
+  </div>
+
+  <div class="timer-wrap"><div class="timer-bg"><div class="timer-fill" id="timer-fill" style="width:100%;background:#1D9E75;"></div></div></div>
+
+  <div class="rule-bar" id="rule-bar" style="display:none;"></div>
+
+  <div class="belt-wrap" id="belt-wrap">
+    <div class="road"></div>
+    <div class="road-line"></div>
+    <div class="guide-side guide-left" id="guide-left"></div>
+    <div class="guide-side guide-right" id="guide-right"></div>
+    <div class="front-marker"></div>
+    <div class="queue-track" id="queue-track"></div>
+    <div class="split-zone">
+      <div class="split-left"></div>
+      <div class="split-right"></div>
+    </div>
+    <div class="split-label l">⬅ 왼쪽</div>
+    <div class="split-label r">오른쪽 ➡</div>
+    <div class="fever-overlay" id="fever-overlay"></div>
+    <div class="fever-banner" id="fever-banner">🔥 피버 타임!</div>
+  </div>
+
+  <div class="btn-row">
+    <button class="dir-btn left-btn" id="btn-left" onclick="choose('left')">
+      <span class="dir-btn-emoji" id="left-emoji"></span><span>왼쪽</span>
+    </button>
+    <button class="dir-btn right-btn" id="btn-right" onclick="choose('right')">
+      <span class="dir-btn-emoji" id="right-emoji"></span><span>오른쪽</span>
+    </button>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="ov-emoji">🎯</div>
+    <div class="ov-title">분류하기</div>
+    <div class="ov-desc" id="ov-desc">규칙에 맞게 캐릭터를 왼쪽/오른쪽으로 보내세요!<br>맞히면 시간이 회복, 틀리면 많이 줄어들어요.</div>
+    <div class="ov-divider"></div>
+    <button class="ov-btn" onclick="startGame()">시작</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const RULESETS=[
+  {leftPool:['🍎','🍇','🍒','🍓','🍑'],rightPool:['🍌','🍋','🌽','🥕','🍍'],leftLabel:'과일A',rightLabel:'과일B'},
+  {leftPool:['🐱','🦁','🐯','🐆'],rightPool:['🐶','🐺','🦊','🐕'],leftLabel:'고양이과',rightLabel:'개과'},
+  {leftPool:['⚽','🏀','🏈','🎾'],rightPool:['🎵','🎸','🎹','🎺'],leftLabel:'스포츠',rightLabel:'음악'},
+  {leftPool:['☀️','🌤️','⛅','🌻'],rightPool:['🌙','⭐','🌃','🦉'],leftLabel:'낮',rightLabel:'밤'},
+  {leftPool:['🔵','🟦','💙','🐳'],rightPool:['🔴','🟥','❤️','🌹'],leftLabel:'파란색',rightLabel:'빨간색'},
+  {leftPool:['🐸','🐊','🦎','🐍'],rightPool:['🐢','🐌','🦀','🦞'],leftLabel:'양서/파충류',rightLabel:'느린 동물'},
+];
+
+const ITEM_W=64,GAP=11;
+const STEP=ITEM_W+GAP;
+const QUEUE_MIN=5;   // 시작 줄 길이
+const QUEUE_CAP=8;  // 최대 줄 길이
+let queueTarget=QUEUE_MIN;
+
+let rule=null;
+let score=0,best=0,combo=0,maxCombo=0;
+let timeLeft=100,drainRate=8;
+let raf=null,lastTs=0;
+let items=[]; // {id, correctDir, el}
+let itemId=0;
+let fever=false,feverTimer=0;
+let running=false;
+
+function loadBest(){try{return parseInt(localStorage.getItem('sorter_best')||'0');}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('sorter_best',String(v));}catch(e){}}
+
+async function saveScore(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.sorter&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'sorter',score:sc})});
+    }
+  }catch(e){}
+}
+
+let activeLeftCount=1, activeRightCount=1;
+let nextGrowSide='left';   // 다음에 늘어날 쪽
+let growTimer=10;          // 다음 증가까지 남은 시간
+
+function pickRule(){
+  rule=RULESETS[Math.floor(Math.random()*RULESETS.length)];
+  activeLeftCount=1;activeRightCount=1;
+  nextGrowSide='left';growTimer=10;
+  updateRuleDisplay();
+}
+
+function updateRuleDisplay(){
+  const leftActive=rule.leftPool.slice(0,activeLeftCount);
+  const rightActive=rule.rightPool.slice(0,activeRightCount);
+  document.getElementById('guide-left').innerHTML=`<div class="guide-emoji">${leftActive.join('<br>')}</div><div class="guide-label">⬅</div>`;
+  document.getElementById('guide-right').innerHTML=`<div class="guide-emoji">${rightActive.join('<br>')}</div><div class="guide-label">➡</div>`;
+}
+
+function startGame(){
+  document.getElementById('overlay').style.display='none';
+  best=loadBest();
+  pickRule();
+  score=0;combo=0;maxCombo=0;timeLeft=100;drainRate=8;gameElapsed=0;
+  itemId=0;fever=false;feverTimer=0;
+  items=[];
+  const track=document.getElementById('queue-track');
+  track.innerHTML='';
+  track.style.transform='translateY(-50%) translateX(0px)';
+  updateHUD();updateTimerBar();
+
+  queueTarget=QUEUE_MIN;
+  for(let i=0;i<queueTarget;i++)spawnItem();
+  requestAnimationFrame(()=>layoutItems());
+
+  running=true;
+  if(raf)cancelAnimationFrame(raf);
+  lastTs=performance.now();
+  raf=requestAnimationFrame(loop);
+}
+
+function spawnItem(){
+  const isLeft=Math.random()<0.5;
+  const pool=isLeft?rule.leftPool.slice(0,activeLeftCount):rule.rightPool.slice(0,activeRightCount);
+  const emoji=pool[Math.floor(Math.random()*pool.length)];
+  const correctDir=isLeft?'left':'right';
+  const id=itemId++;
+  const el=document.createElement('div');
+  el.className='item';
+  el.textContent=emoji;
+  document.getElementById('queue-track').appendChild(el);
+  items.push({id,correctDir,el});
+}
+
+// 큐의 각 아이템에게 절대 위치(left) 부여, 맨 앞은 front 마커 자리(24px)에 맞춤
+const FRONT_BOTTOM_PX=0;  // px - 판정선이 분할영역(64px)에 바로 맞닿도록
+const ITEM_GAP_PX=41;      // px - 아이템 간 간격 (20% 확대)
+const FRONT_SCALE=1.35;
+const BACK_SCALE=0.55;  // 뒤쪽은 확실히 작게 - 깊이감 강화
+
+function layoutItems(){
+  const beltEl=document.getElementById('belt-wrap');
+  const beltH=beltEl.clientHeight>0?beltEl.clientHeight:300;
+  // 줄 전체가 belt-wrap 하단부(약 45%) 안에만 분포하도록 압축
+  const maxSpan=beltH*0.45;
+  const totalSpan=Math.min(maxSpan,(QUEUE_CAP-1)*ITEM_GAP_PX);
+  const dynamicGap=items.length>1?totalSpan/(items.length-1||1):ITEM_GAP_PX;
+  const effectiveGap=Math.min(ITEM_GAP_PX,dynamicGap||ITEM_GAP_PX);
+
+  items.forEach((it,idx)=>{
+    const bottomPx=FRONT_BOTTOM_PX+idx*effectiveGap;
+    const topPx=beltH-bottomPx;
+    const scaleRatio=Math.min(idx/6,1);
+    const scale=FRONT_SCALE-(FRONT_SCALE-BACK_SCALE)*scaleRatio;
+    const opacity=idx===0?1:0.97;
+
+    it.el.style.top=topPx+'px';
+    it.el.style.left='50%';
+    it.el.style.transform=`translate(-50%,-50%) scale(${scale})`;
+    it.el.style.opacity=opacity;
+    it.el.style.filter='none';
+    it.el.style.zIndex=100-idx;
+    it.el.classList.toggle('front',idx===0);
+  });
+}
+
+function choose(dir){
+  if(!running||items.length===0)return;
+  const target=items[0];
+  const correct=target.correctDir===dir;
+
+  if(correct){
+    combo++;
+    maxCombo=Math.max(maxCombo,combo);
+    const gain=(10+Math.min(combo*2,40))*(fever?2:1);
+    score+=gain;
+    timeLeft=Math.min(100,timeLeft+3);
+    showPop(target.el,'+'+gain,'#1D9E75');
+    if(combo>0&&combo%10===0&&!fever)enterFever();
+  } else {
+    combo=0;
+    score=Math.max(0,score-5);
+    const penaltyRamp=1+Math.min(gameElapsed/45,1.5);
+    timeLeft=Math.max(0,timeLeft-10*penaltyRamp);
+    showPop(target.el,'오답','#E24B4A');
+  }
+
+  // top/left는 유지하고 transform/filter만 클리어해서 gone 애니메이션이 그 자리에서 시작
+  target.el.style.filter='';
+  target.el.classList.add(dir==='left'?'gone-left':'gone-right');
+  if(!correct){
+    target.el.classList.add('wrong');
+    setTimeout(()=>target.el.classList.remove('wrong'),300);
+  }
+
+  updateHUD();
+
+  // 큐에서 제거
+  items.shift();
+  setTimeout(()=>target.el.remove(),220);
+
+  // 새 아이템 보충 (큐 목표 길이까지 유지)
+  if(items.length<queueTarget)spawnItem();
+
+  // 전체 재배치 (앞으로 한 칸씩 당기기)
+  layoutItems();
+}
+
+function enterFever(){
+  fever=true;feverTimer=5;
+  document.getElementById('fever-overlay').classList.add('active');
+  document.getElementById('fever-banner').classList.add('show');
+}
+function exitFever(){
+  fever=false;
+  document.getElementById('fever-overlay').classList.remove('active');
+  document.getElementById('fever-banner').classList.remove('show');
+}
+
+function showPop(el,text,color){
+  const rect=el.getBoundingClientRect();
+  const appRect=document.getElementById('app').getBoundingClientRect();
+  const pop=document.createElement('div');
+  pop.className='float-pop';
+  pop.textContent=text;
+  pop.style.color=color;
+  pop.style.left=(rect.left-appRect.left+rect.width/2-15)+'px';
+  pop.style.top=(rect.top-appRect.top-12)+'px';
+  document.getElementById('app').appendChild(pop);
+  pop.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-24px)'}],{duration:600,easing:'ease-out'}).onfinish=()=>pop.remove();
+}
+
+function updateHUD(){
+  document.getElementById('hud-score').textContent=score.toLocaleString();
+  document.getElementById('hud-combo').textContent=combo;
+  document.getElementById('hud-best').textContent=best.toLocaleString();
+}
+
+function updateTimerBar(){
+  const bar=document.getElementById('timer-fill');
+  bar.style.width=timeLeft+'%';
+  bar.style.background=timeLeft>50?'#1D9E75':timeLeft>20?'#EF9F27':'#E24B4A';
+}
+
+function loop(ts){
+  const dt=Math.min((ts-lastTs)/1000,0.05);
+  lastTs=ts;
+  if(running)update(dt);
+  raf=requestAnimationFrame(loop);
+}
+
+let gameElapsed=0;
+
+function update(dt){
+  gameElapsed+=dt;
+  const rampFactor=1+Math.min(gameElapsed/45,1.2);
+  const effectiveDrain=drainRate*rampFactor;
+
+  timeLeft-=effectiveDrain*dt;
+  if(timeLeft<=0){timeLeft=0;updateTimerBar();onGameOver();return;}
+  updateTimerBar();
+
+  if(fever){
+    feverTimer-=dt;
+    if(feverTimer<=0)exitFever();
+  }
+
+  // 줄 길이 점진 증가 (점수 기준 - 100점마다 +1, 최대 9)
+  const newTarget=Math.min(QUEUE_CAP,QUEUE_MIN+Math.floor(score/100));
+  if(newTarget>queueTarget){
+    queueTarget=newTarget;
+    while(items.length<queueTarget)spawnItem();
+    layoutItems();
+  }
+
+  // 항목 종류 증가 - 10초마다 좌/우 번갈아 1개씩 (풀 한도까지)
+  growTimer-=dt;
+  if(growTimer<=0){
+    growTimer=10;
+    if(nextGrowSide==='left'){
+      if(activeLeftCount<rule.leftPool.length)activeLeftCount++;
+      nextGrowSide='right';
+    } else {
+      if(activeRightCount<rule.rightPool.length)activeRightCount++;
+      nextGrowSide='left';
+    }
+    updateRuleDisplay();
+  }
+}
+
+function onGameOver(){
+  running=false;
+  const isNew=score>best;
+  if(isNew){best=score;saveBest(best);}
+  saveScore(score);
+
+  const ov=document.getElementById('overlay');
+  ov.innerHTML=`
+    <div class="ov-emoji">⏱️</div>
+    <div class="ov-title">시간 종료!</div>
+    <div class="ov-score">${score.toLocaleString()}점</div>
+    ${isNew?'<div class="ov-new">🏆 새 최고 기록!</div>':'<div class="ov-best">최고 기록: '+best.toLocaleString()+'점</div>'}
+    <div style="font-size:12px;color:#aaa;">최대 콤보 ${maxCombo}</div>
+    <div class="ov-divider"></div>
+    <button class="ov-btn" onclick="startGame()">다시 시작</button>
+  `;
+  ov.style.display='flex';
+}
+
+window.addEventListener('resize',()=>{if(running)layoutItems();});
+document.addEventListener('keydown',e=>{
+  if(!running)return;
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')choose('left');
+  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')choose('right');
+});
+
+best=loadBest();
+document.getElementById('hud-best').textContent=best;
+</script>
+</body>
+</html>

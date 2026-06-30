@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>노노그램 - 스테이지 선택</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.progress-bar-wrap{padding:0.75rem 1rem 0.25rem;}
+.progress-info{display:flex;justify-content:space-between;margin-bottom:6px;}
+.progress-text{font-size:13px;font-weight:600;color:#111;}
+.progress-pct{font-size:13px;font-weight:700;color:#534AB7;}
+.progress-bar-bg{background:#eee;border-radius:99px;height:6px;overflow:hidden;}
+.progress-bar-fill{height:6px;border-radius:99px;background:#534AB7;transition:width 0.3s;}
+.sections{padding:0.75rem 1rem 1.5rem;}
+.diff-section{margin-bottom:1.25rem;}
+.diff-label{font-size:12px;font-weight:600;color:#888;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.diff-label-left{display:flex;align-items:center;gap:6px;}
+.diff-dot{width:8px;height:8px;border-radius:50%;}
+.diff-count{font-size:11px;color:#aaa;}
+.stage-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;}
+.stage-tile{background:#fff;border:1px solid #eee;border-radius:12px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:transform 0.1s;}
+.stage-tile:active{transform:scale(0.93);}
+.stage-tile.cleared{border-width:1.5px;}
+.stage-tile.diff-easy.cleared{background:#E1F5EE;border-color:#1D9E75;}
+.stage-tile.diff-normal.cleared{background:#E6F1FB;border-color:#378ADD;}
+.stage-tile.diff-medium.cleared{background:#FAEEDA;border-color:#BA7517;}
+.stage-tile.diff-hard.cleared{background:#FCEBEB;border-color:#E24B4A;}
+.s-num{font-size:11px;font-weight:600;color:#888;}
+.s-name{font-size:11px;font-weight:600;color:#111;text-align:center;padding:0 2px;}
+.s-check{font-size:10px;position:absolute;top:3px;right:5px;color:#1D9E75;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">노노그램</span>
+  </div>
+  <div class="progress-bar-wrap">
+    <div class="progress-info">
+      <span class="progress-text" id="prog-text">0/40 클리어</span>
+      <span class="progress-pct" id="prog-pct">0%</span>
+    </div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
+  </div>
+  <div class="sections" id="sections"></div>
+</div>
+<script>
+var DIFFS=[
+  {id:'easy',  label:'왕초보 (5×5)',  color:'#1D9E75', from:1,  to:10},
+  {id:'normal',label:'초보 (10×10)', color:'#378ADD', from:11, to:20},
+  {id:'medium',label:'중수 (20×20)', color:'#BA7517', from:21, to:30},
+  {id:'hard',  label:'고수 (30×30)', color:'#E24B4A', from:31, to:40},
+];
+var NAMES=['하트','별','집','나무','물고기','달','십자','체크','다이아몬드','사람',
+           '큰하트','고양이','큰별','큰집','비행기','꽃','달팽이','곰','배','로켓',
+           '팩맨','링','다이아몬드','별','십자','체스','큰하트','나비','나선','화살표',
+           '대형원','대형별','드래곤','성','우주선','지구','불꽃','꽃밭','나비','왕관'];
+
+var clearedArr=[];
+try{var raw=localStorage.getItem('nonogram_cleared');if(raw)clearedArr=JSON.parse(raw).map(Number);}catch(e){}
+function isCleared(n){return clearedArr.indexOf(n)!==-1;}
+
+function updateProgress(){
+  var total=40,done=clearedArr.length,pct=Math.round(done/total*100);
+  document.getElementById('prog-text').textContent=done+'/'+total+' 클리어';
+  document.getElementById('prog-pct').textContent=pct+'%';
+  document.getElementById('prog-bar').style.width=pct+'%';
+}
+
+function render(){
+  var wrap=document.getElementById('sections');wrap.innerHTML='';
+  DIFFS.forEach(function(diff){
+    var sec=document.createElement('div');sec.className='diff-section';
+    var total=diff.to-diff.from+1,done=0;
+    for(var x=diff.from;x<=diff.to;x++)if(isCleared(x))done++;
+    var label=document.createElement('div');label.className='diff-label';
+    label.innerHTML='<div class="diff-label-left"><span class="diff-dot" style="background:'+diff.color+'"></span>'+diff.label+'</div><span class="diff-count">'+done+'/'+total+'</span>';
+    sec.appendChild(label);
+    var row=document.createElement('div');row.className='stage-row';
+    for(var i=diff.from;i<=diff.to;i++){
+      (function(n){
+        var tile=document.createElement('div');
+        tile.className='stage-tile diff-'+diff.id+(isCleared(n)?' cleared':'');
+        var name=NAMES[n-1]||n;
+        tile.innerHTML='<div class="s-num">'+n+'</div><div class="s-name">'+name+'</div>'+(isCleared(n)?'<div class="s-check">✓</div>':'');
+        tile.addEventListener('click',function(){location.href='nonogram.html?stage='+n;});
+        row.appendChild(tile);
+      })(i);
+    }
+    sec.appendChild(row);wrap.appendChild(sec);
+  });
+  updateProgress();
+}
+render();
+</script>
+</body>
+</html>

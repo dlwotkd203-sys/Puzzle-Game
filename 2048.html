@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>2048</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#faf8f0;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#faf8f0;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.75rem 1rem;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:22px;font-weight:800;color:#776e65;flex:1;}
+.score-bar{display:flex;gap:8px;padding:0 1rem 0.75rem;justify-content:flex-end;}
+.score-box{background:#bbada0;border-radius:8px;padding:6px 14px;text-align:center;min-width:80px;}
+.score-lbl{font-size:10px;font-weight:700;color:#eee4da;letter-spacing:0.5px;}
+.score-val{font-size:18px;font-weight:800;color:#fff;}
+.board-wrap{padding:0 1rem;display:flex;justify-content:center;}
+#board{background:#bbada0;border-radius:10px;padding:8px;position:relative;width:100%;max-width:360px;aspect-ratio:1;}
+.grid-bg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;height:100%;}
+.cell-bg{background:#cdc1b4;border-radius:6px;}
+.tile{position:absolute;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:800;transition:top 0.12s ease, left 0.12s ease, transform 0.12s ease, opacity 0.1s ease;will-change:top,left,transform;}
+.tile.new-tile{animation:spawn 0.15s ease 0.1s both;}
+@keyframes spawn{0%{transform:scale(0);opacity:0;}60%{transform:scale(1.1);}100%{transform:scale(1);opacity:1;}}
+.tile.merge-tile{animation:mergeboom 0.18s ease 0.1s both;}
+@keyframes mergeboom{0%{transform:scale(1);}40%{transform:scale(1.2);}100%{transform:scale(1);}}
+.t2   {background:#eee4da;color:#776e65;}
+.t4   {background:#ede0c8;color:#776e65;}
+.t8   {background:#f2b179;color:#fff;}
+.t16  {background:#f59563;color:#fff;}
+.t32  {background:#f67c5f;color:#fff;}
+.t64  {background:#f65e3b;color:#fff;}
+.t128 {background:#edcf72;color:#fff;box-shadow:0 0 12px rgba(237,207,114,0.6);}
+.t256 {background:#edcc61;color:#fff;box-shadow:0 0 12px rgba(237,204,97,0.6);}
+.t512 {background:#edc850;color:#fff;box-shadow:0 0 14px rgba(237,200,80,0.7);}
+.t1024{background:#edc53f;color:#fff;box-shadow:0 0 16px rgba(237,197,63,0.8);}
+.t2048{background:#edc22e;color:#fff;box-shadow:0 0 20px rgba(237,194,46,0.9);}
+.tsuper{background:#3c3a32;color:#fff;box-shadow:0 0 24px rgba(60,58,50,0.8);}
+.controls{padding:0.75rem 1rem;display:flex;gap:8px;justify-content:center;}
+.ctrl-btn{flex:1;max-width:140px;padding:10px;border-radius:10px;border:none;background:#bbada0;color:#fff;font-size:14px;font-weight:700;cursor:pointer;}
+.ctrl-btn.new-game{background:#8f7a66;}
+.ctrl-btn:active{opacity:0.8;}
+.dpad{padding:0 1rem 1rem;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.dpad-row{display:flex;gap:4px;}
+.dpad-btn{width:64px;height:48px;border-radius:10px;border:none;background:#bbada0;color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;}
+.dpad-btn:active{background:#8f7a66;transform:scale(0.95);}
+.overlay{position:fixed;inset:0;background:rgba(250,248,240,0.88);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:100;}
+.overlay.show{display:flex;}
+.ov-title{font-size:36px;font-weight:800;color:#776e65;}
+.ov-score{font-size:18px;color:#999;}
+.ov-btn{padding:12px 32px;border-radius:12px;border:none;background:#8f7a66;color:#fff;font-size:16px;font-weight:700;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">2048</span>
+  </div>
+  <div class="score-bar">
+    <div class="score-box"><div class="score-lbl">SCORE</div><div class="score-val" id="score">0</div></div>
+    <div class="score-box"><div class="score-lbl">BEST</div><div class="score-val" id="best">0</div></div>
+  </div>
+  <div class="board-wrap">
+    <div id="board">
+      <div class="grid-bg" id="grid-bg"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn new-game" onclick="newGame()">🔄 새 게임</button>
+    <button class="ctrl-btn" onclick="undoMove()">↩ 되돌리기</button>
+  </div>
+  <div class="dpad">
+    <div class="dpad-row"><button class="dpad-btn" onclick="move('up')">↑</button></div>
+    <div class="dpad-row">
+      <button class="dpad-btn" onclick="move('left')">←</button>
+      <button class="dpad-btn" onclick="move('down')">↓</button>
+      <button class="dpad-btn" onclick="move('right')">→</button>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="overlay">
+  <div class="ov-title" id="ov-title">게임 오버!</div>
+  <div class="ov-score" id="ov-score"></div>
+  <button class="ov-btn" onclick="newGame()">다시 시작</button>
+</div>
+<script>
+let board, score, best, prevBoard, prevScore;
+let tileEls = {}; // id -> DOM element
+let tileIdCounter = 0;
+let animating = false;
+let boardSize = 0, cellSize = 0, gap = 8, pad = 8;
+
+const COLORS = {
+  2:'t2',4:'t4',8:'t8',16:'t16',32:'t32',64:'t64',
+  128:'t128',256:'t256',512:'t512',1024:'t1024',2048:'t2048'
+};
+function cls(v){ return COLORS[v]||'tsuper'; }
+function fs(v){ if(v<100)return'1.8em';if(v<1000)return'1.4em';if(v<10000)return'1.1em';return'0.85em'; }
+
+function loadBest(){ try{return parseInt(localStorage.getItem('2048_best')||'0');}catch(e){return 0;} }
+function saveBest(v){ try{localStorage.setItem('2048_best',v);}catch(e){} }
+
+// 좌표 계산
+function tilePos(r, c) {
+  const step = cellSize + gap;
+  return { top: pad + r * step, left: pad + c * step };
+}
+
+function measureBoard() {
+  const el = document.getElementById('board');
+  boardSize = el.offsetWidth;
+  cellSize = (boardSize - pad*2 - gap*3) / 4;
+}
+
+// 배경 셀 생성
+function buildGridBg() {
+  const bg = document.getElementById('grid-bg');
+  bg.innerHTML = '';
+  bg.style.cssText = `
+    position:absolute;inset:0;
+    display:grid;grid-template-columns:repeat(4,1fr);
+    gap:${gap}px;padding:${pad}px;
+  `;
+  for(let i=0;i<16;i++){
+    const d=document.createElement('div');d.className='cell-bg';bg.appendChild(d);
+  }
+}
+
+// 타일 DOM 생성
+function createTileEl(id, val, r, c, isNew, isMerge) {
+  const el = document.createElement('div');
+  const pos = tilePos(r, c);
+  el.className = `tile ${cls(val)}${isNew?' new-tile':''}${isMerge?' merge-tile':''}`;
+  el.style.cssText = `
+    width:${cellSize}px;height:${cellSize}px;
+    top:${pos.top}px;left:${pos.left}px;
+    font-size:${fs(val)};
+  `;
+  el.textContent = val;
+  el.dataset.tid = id;
+  document.getElementById('board').appendChild(el);
+  tileEls[id] = el;
+  return el;
+}
+
+function removeTileEl(id) {
+  if(tileEls[id]){ tileEls[id].remove(); delete tileEls[id]; }
+}
+
+function updateScoreUI() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('best').textContent = best;
+}
+
+// board: 2D array of {val, id} or 0
+function newGame() {
+  document.getElementById('overlay').classList.remove('show');
+  // 기존 타일 전부 제거
+  Object.keys(tileEls).forEach(id=>{ tileEls[id].remove(); });
+  tileEls = {}; tileIdCounter = 0;
+  board = Array.from({length:4},()=>new Array(4).fill(0));
+  score = 0; best = loadBest(); prevBoard = null; prevScore = 0;
+  measureBoard();
+  buildGridBg();
+  addRandom(true); addRandom(true);
+  updateScoreUI();
+}
+
+function addRandom(instant=false) {
+  const empty=[];
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++)if(board[r][c]===0)empty.push([r,c]);
+  if(!empty.length)return;
+  const [r,c]=empty[Math.floor(Math.random()*empty.length)];
+  const val=Math.random()<0.9?2:4;
+  const id=++tileIdCounter;
+  board[r][c]={val,id};
+  createTileEl(id,val,r,c,!instant,false);
+}
+
+function copyBoardState() {
+  return board.map(row=>row.map(cell=>cell===0?0:{...cell}));
+}
+
+// 이동 처리 — 슬라이드 애니메이션
+function move(dir) {
+  if(animating)return;
+  measureBoard();
+  prevBoard = copyBoardState();
+  prevScore = score;
+
+  const moves = []; // {id, fromR, fromC, toR, toC}
+  const merges = []; // {id, val} 합쳐진 새 타일
+  const removes = []; // 없어질 타일 id
+  let gained = 0;
+  let changed = false;
+
+  const b = board.map(row=>[...row]);
+
+  function processLine(line) {
+    // line: array of {val,id} or 0, length 4
+    let arr = line.filter(x=>x!==0);
+    const result = [];
+    let i=0;
+    while(i<arr.length){
+      if(i+1<arr.length && arr[i].val===arr[i+1].val){
+        const newVal=arr[i].val*2;
+        const newId=++tileIdCounter;
+        gained+=newVal;
+        merges.push({id:newId,val:newVal,srcA:arr[i].id,srcB:arr[i+1].id});
+        result.push({val:newVal,id:newId});
+        i+=2;
+      } else {
+        result.push(arr[i]);i++;
+      }
+    }
+    while(result.length<4)result.push(0);
+    return result;
+  }
+
+  // 방향별 처리
+  if(dir==='left'){
+    for(let r=0;r<4;r++){
+      const line=board[r];
+      const res=processLine(line);
+      for(let c=0;c<4;c++){
+        if(line[c]!==0&&res[c]!==0&&line[c].id===res[c].id&&c===getOrigCol(line,line[c].id)){}
+        board[r][c]=res[c];
+      }
+    }
+  } else if(dir==='right'){
+    for(let r=0;r<4;r++){
+      const line=[...board[r]].reverse();
+      const res=processLine(line);res.reverse();
+      board[r]=res;
+    }
+  } else if(dir==='up'){
+    for(let c=0;c<4;c++){
+      const line=[board[0][c],board[1][c],board[2][c],board[3][c]];
+      const res=processLine(line);
+      for(let r=0;r<4;r++) board[r][c]=res[r];
+    }
+  } else if(dir==='down'){
+    for(let c=0;c<4;c++){
+      const line=[board[3][c],board[2][c],board[1][c],board[0][c]];
+      const res=processLine(line);
+      for(let r=0;r<4;r++) board[r][c]=res[3-r];
+    }
+  }
+
+  // 변경 감지 & 이동 계산
+  // prevBoard 기준 각 id의 원래 위치 파악
+  const origPos={};
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const cell=prevBoard[r][c];
+    if(cell!==0) origPos[cell.id]={r,c};
+  }
+  // 새 board에서 각 id 위치
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const cell=board[r][c];
+    if(cell!==0&&origPos[cell.id]){
+      const op=origPos[cell.id];
+      if(op.r!==r||op.c!==c){ changed=true; moves.push({id:cell.id,toR:r,toC:c}); }
+    }
+  }
+  if(merges.length>0) changed=true;
+
+  if(!changed){ board=prevBoard; return; }
+
+  score+=gained;
+  if(score>best){best=score;saveBest(best);}
+  updateScoreUI();
+
+  animating=true;
+
+  // 1. 기존 타일 이동 애니메이션
+  moves.forEach(({id,toR,toC})=>{
+    const el=tileEls[id];
+    if(!el)return;
+    const pos=tilePos(toR,toC);
+    el.style.top=pos.top+'px';
+    el.style.left=pos.left+'px';
+  });
+
+  // merge에서 사라질 원본 타일들도 이동
+  merges.forEach(({srcA,srcB,id,val})=>{
+    // srcA, srcB의 목적지 찾기 (board에서 새 id 위치)
+    let toR=-1,toC=-1;
+    for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+      if(board[r][c]!==0&&board[r][c].id===id){toR=r;toC=c;}
+    }
+    if(toR===-1)return;
+    const pos=tilePos(toR,toC);
+    [srcA,srcB].forEach(sid=>{
+      const el=tileEls[sid];
+      if(el){el.style.top=pos.top+'px';el.style.left=pos.left+'px';}
+    });
+  });
+
+  // transition 완료 후 새 타일 생성 & 정리
+  setTimeout(()=>{
+    // merge 처리
+    merges.forEach(({srcA,srcB,id,val})=>{
+      removeTileEl(srcA);removeTileEl(srcB);
+      let toR=-1,toC=-1;
+      for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+        if(board[r][c]!==0&&board[r][c].id===id){toR=r;toC=c;}
+      }
+      if(toR!==-1) createTileEl(id,val,toR,toC,false,true);
+    });
+
+    // 새 랜덤 타일 추가
+    addRandom();
+    animating=false;
+    updateScoreUI();
+    if(isGameOver()) showGameOver();
+  }, 130);
+}
+
+function getOrigCol(line,id){
+  for(let i=0;i<line.length;i++) if(line[i]!==0&&line[i].id===id) return i;
+  return -1;
+}
+
+function isGameOver(){
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    if(board[r][c]===0)return false;
+    if(c<3&&board[r][c].val===board[r][c+1].val)return false;
+    if(r<3&&board[r][c].val===board[r+1][c].val)return false;
+  }
+  return true;
+}
+
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+async function saveScoreToSupabase(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    // 기존 점수 조회
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.2048&select=id,score`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+    });
+    const existing=await res.json();
+    if(existing.length>0){
+      // 기존보다 높으면 업데이트
+      if(sc>existing[0].score){
+        await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${existing[0].id}`,{
+          method:'PATCH',
+          headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+          body:JSON.stringify({score:sc})
+        });
+      }
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+        body:JSON.stringify({user_id:user.id,username:user.username,game:'2048',score:sc})
+      });
+    }
+  }catch(e){}
+}
+
+function showGameOver(){
+  document.getElementById('ov-title').textContent='게임 오버!';
+  document.getElementById('ov-score').textContent='점수: '+score+(score===best?' 🏆 최고 기록!':'');
+  document.getElementById('overlay').classList.add('show');
+  saveScoreToSupabase(score);
+}
+
+function undoMove(){
+  if(!prevBoard||animating)return;
+  // 기존 타일 제거
+  Object.keys(tileEls).forEach(id=>{ tileEls[id].remove(); });
+  tileEls={};
+  board=prevBoard; score=prevScore; prevBoard=null;
+  measureBoard();
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const cell=board[r][c];
+    if(cell!==0){
+      tileIdCounter=Math.max(tileIdCounter,cell.id);
+      createTileEl(cell.id,cell.val,r,c,false,false);
+    }
+  }
+  updateScoreUI();
+}
+
+// 스와이프
+let tx=0,ty=0;
+document.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY;},{passive:true});
+document.addEventListener('touchend',e=>{
+  if(animating)return;
+  const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;
+  const adx=Math.abs(dx),ady=Math.abs(dy);
+  if(Math.max(adx,ady)<30)return;
+  if(adx>ady)move(dx>0?'right':'left');else move(dy>0?'down':'up');
+},{passive:true});
+
+document.addEventListener('keydown',e=>{
+  const map={'ArrowLeft':'left','ArrowRight':'right','ArrowUp':'up','ArrowDown':'down'};
+  if(map[e.key]){e.preventDefault();move(map[e.key]);}
+});
+
+window.addEventListener('resize',()=>{
+  measureBoard();
+  // 타일 위치 재계산
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const cell=board[r][c];
+    if(cell!==0&&tileEls[cell.id]){
+      const pos=tilePos(r,c);
+      const el=tileEls[cell.id];
+      el.style.transition='none';
+      el.style.top=pos.top+'px';el.style.left=pos.left+'px';
+      el.style.width=cellSize+'px';el.style.height=cellSize+'px';
+    }
+  }
+});
+
+// 시작
+window.addEventListener('load',()=>{ newGame(); });
+</script>
+</body>
+</html>

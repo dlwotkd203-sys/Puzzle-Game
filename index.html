@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>미니게임</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.screen{display:none;}.screen.active{display:block;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.back-btn:hover{background:#f0f0f0;}
+.top-title{font-size:17px;font-weight:600;color:#111;}
+#home{padding:1rem;}
+.home-title{font-size:20px;font-weight:700;color:#111;text-align:center;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid #eee;}
+.game-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+.game-card{background:#fff;border:1px solid #eee;border-radius:16px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all 0.15s;position:relative;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);}
+.game-card:active{transform:scale(0.95);}
+.game-card.coming{opacity:0.4;cursor:default;}
+.g-top1{font-size:9px;color:#aaa;margin-top:2px;text-align:center;line-height:1.3;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.g-top1 b{color:#EF9F27;font-weight:700;}
+.g-icon{font-size:28px;}.g-name{font-size:13px;font-weight:600;color:#111;}.g-sub{font-size:11px;color:#aaa;}
+.cleared-dot{position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#1D9E75;}
+.difficulty-sections{padding:0.75rem 1rem 1.5rem;}
+.diff-section{margin-bottom:1.25rem;}
+.diff-label{font-size:12px;font-weight:600;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.diff-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.stage-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;}
+.stage-tile{background:#fff;border:1px solid #eee;border-radius:12px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.05);}
+.stage-tile:active:not(.locked){transform:scale(0.93);}
+.stage-tile.locked{opacity:0.3;cursor:default;}
+.stage-tile.diff-easy.cleared{background:#E1F5EE;border-color:#1D9E75;border-width:2px;}
+.stage-tile.diff-normal.cleared{background:#E6F1FB;border-color:#378ADD;border-width:2px;}
+.stage-tile.diff-medium.cleared{background:#FAEEDA;border-color:#BA7517;border-width:2px;}
+.stage-tile.diff-hard.cleared{background:#FCEBEB;border-color:#E24B4A;border-width:2px;}
+.s-num{font-size:13px;font-weight:600;color:#111;}
+.s-check{font-size:10px;position:absolute;top:3px;right:5px;color:#1D9E75;}
+#game-screen{padding:0.75rem 1rem 1rem;}
+.game-info-bar{display:flex;justify-content:center;gap:8px;margin-bottom:0.75rem;}
+.info-badge{background:#f5f5f5;border-radius:8px;padding:4px 12px;font-size:12px;color:#666;}
+.info-badge span{font-weight:600;color:#111;}
+#grid-wrap{display:flex;justify-content:center;margin-bottom:0.75rem;}
+#grid{display:grid;border:2px solid #222;border-radius:8px;overflow:hidden;position:relative;cursor:crosshair;user-select:none;-webkit-user-select:none;touch-action:none;}
+.cell{border-right:1px solid #ddd;border-bottom:1px solid #ddd;display:flex;align-items:center;justify-content:center;font-weight:700;color:#111;transition:background 0.1s;}
+.cell.numbered{font-size:14px;}
+.rect-overlay{position:absolute;border-radius:4px;pointer-events:none;z-index:3;border:2.5px solid transparent;}
+.rect-overlay.preview{border-color:#378ADD;background:rgba(55,138,221,0.10);}
+.game-msg{text-align:center;font-size:14px;min-height:22px;margin-bottom:0.5rem;font-weight:500;}
+.game-msg.success{color:#1D9E75;}
+.game-msg.error{color:#E24B4A;}
+.game-msg.info{color:#888;}
+.btn-row{display:flex;gap:8px;justify-content:center;margin-bottom:0.5rem;}
+button.gbtn{font-family:inherit;font-size:14px;cursor:pointer;border-radius:10px;border:1px solid #ddd;padding:8px 20px;background:#fff;color:#111;font-weight:500;}
+button.gbtn:active{background:#f0f0f0;}
+button.gbtn.primary{background:#378ADD;color:#fff;border-color:transparent;}
+button.gbtn.primary:active{background:#185FA5;}
+.hint-txt{text-align:center;font-size:11px;color:#aaa;}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="home" class="screen active">
+<div class="home-title">미니게임</div>
+<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:0.5rem;">
+  <button onclick="location.href='ranking.html'" style="font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer;font-weight:600;">🏆 랭킹</button>
+  <button onclick="location.href='login.html'" id="login-btn" style="font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer;font-weight:600;">로그인</button>
+</div>
+<div class="game-grid" id="game-grid"></div>
+</div>
+<div id="stage-select" class="screen">
+  <div class="top-bar">
+    <button class="back-btn" onclick="goHome()">←</button>
+    <span class="top-title" id="sel-title"></span>
+  </div>
+  <div class="difficulty-sections" id="diff-sections"></div>
+</div>
+<div id="game-screen" class="screen">
+  <div class="top-bar">
+    <button class="back-btn" onclick="goStageSelect()">←</button>
+    <span class="top-title" id="game-title-bar"></span>
+  </div>
+  <div class="game-info-bar">
+    <div class="info-badge">격자 <span id="grid-size-lbl"></span></div>
+    <div class="info-badge">완성 <span id="progress-lbl">0/0</span></div>
+    <div class="info-badge"><span id="diff-lbl"></span></div>
+  </div>
+  <div id="grid-wrap"><div id="grid"></div></div>
+  <div class="game-msg info" id="game-msg">드래그로 영역을 선택하세요</div>
+  <div class="btn-row">
+    <button class="gbtn" onclick="resetPuzzle()">초기화</button>
+    <button class="gbtn primary" onclick="goNextStage()" id="next-btn" style="display:none">다음 스테이지 →</button>
+  </div>
+  <div class="hint-txt">정확한 면적만 확정 · 틀리면 자동 취소</div>
+</div>
+</div>
+<script>
+function mkRng(seed){let s=seed|0;return()=>{s=(Math.imul(1664525,s)+1013904223)|0;return(s>>>0)/4294967296;};}
+function generateShikaku(n,seed,maxArea){
+  const minArea=2,grid=new Array(n*n).fill(-1),rects=[];
+  function canPlace(r,c,h,w){if(r+h>n||c+w>n)return false;for(let rr=r;rr<r+h;rr++)for(let cc=c;cc<c+w;cc++)if(grid[rr*n+cc]!==-1)return false;return true;}
+  function fill(r,c,h,w,id){for(let rr=r;rr<r+h;rr++)for(let cc=c;cc<c+w;cc++)grid[rr*n+cc]=id;}
+  function unfill(r,c,h,w){for(let rr=r;rr<r+h;rr++)for(let cc=c;cc<c+w;cc++)grid[rr*n+cc]=-1;}
+  function nextEmpty(){for(let i=0;i<n*n;i++)if(grid[i]===-1)return[Math.floor(i/n),i%n];return null;}
+  function attempt(rngFn,maxA){
+    grid.fill(-1);rects.length=0;
+    function solve(id){
+      const pos=nextEmpty();if(!pos)return true;
+      const[sr,sc]=pos,cands=[];
+      for(let h=1;h<=n-sr;h++)for(let w=1;w<=n-sc;w++){const a=h*w;if(a<minArea||a>maxA)continue;if(canPlace(sr,sc,h,w))cands.push([h,w]);}
+      for(let i=cands.length-1;i>0;i--){const j=Math.floor(rngFn()*(i+1));[cands[i],cands[j]]=[cands[j],cands[i]];}
+      for(const[h,w]of cands){fill(sr,sc,h,w,id);rects.push({r:sr,c:sc,h,w,area:h*w});if(solve(id+1))return true;unfill(sr,sc,h,w);rects.pop();}
+      return false;
+    }
+    return solve(0);
+  }
+  const rng=mkRng(seed);
+  if(!attempt(rng,maxArea)){const rng2=mkRng(seed^0xDEAD);attempt(rng2,n*n);}
+  const rng3=mkRng(seed^0xABCD);
+  const clues=rects.map(rect=>{
+    const cells=[];for(let r=rect.r;r<rect.r+rect.h;r++)for(let c=rect.c;c<rect.c+rect.w;c++)cells.push([r,c]);
+    const[pr,pc]=cells[Math.floor(rng3()*cells.length)];return[pr,pc,rect.area];
+  });
+  return{n,clues,rects};
+}
+const RECT_COLORS=[
+  {bg:'rgba(55,138,221,0.2)',border:'#378ADD'},{bg:'rgba(29,158,117,0.2)',border:'#1D9E75'},
+  {bg:'rgba(186,117,23,0.2)',border:'#BA7517'},{bg:'rgba(211,83,126,0.2)',border:'#D4537E'},
+  {bg:'rgba(83,74,183,0.2)',border:'#534AB7'},{bg:'rgba(99,153,34,0.2)',border:'#639922'},
+  {bg:'rgba(239,159,39,0.2)',border:'#EF9F27'},{bg:'rgba(93,202,165,0.2)',border:'#5DCAA5'},
+  {bg:'rgba(240,153,123,0.2)',border:'#F0997B'},{bg:'rgba(237,147,177,0.2)',border:'#ED93B1'},
+];
+function getRectColor(i){return RECT_COLORS[i%RECT_COLORS.length];}
+const DIFFS=[
+  {id:'easy',label:'왕기본',color:'#1D9E75',range:[1,10],n:4,maxArea:8},
+  {id:'normal',label:'기본',color:'#378ADD',range:[11,30],n:5,maxArea:8},
+  {id:'medium',label:'중간',color:'#BA7517',range:[31,70],n:6,maxArea:6},
+  {id:'hard',label:'하드',color:'#E24B4A',range:[71,100],n:8,maxArea:6},
+];
+function getDiff(s){return DIFFS.find(d=>s>=d.range[0]&&s<=d.range[1]);}
+const GAMES=[
+  {id:'shikaku',name:'시카쿠',icon:'⊞',available:true},
+{id:'sudoku', name:'스도쿠', icon:'#', available:true},
+  {id:'2048',name:'2048',icon:'∞',available:true},
+{id:'dodge', name:'닷지', icon:'🔵', available:true},
+{id:'nonogram', name:'노노그램', icon:'▦', available:true},
+  {id:'memory',name:'짝맞추기',icon:'🃏',available:true},
+{id:'sorter', name:'분류하기', icon:'🎯', available:true},
+  {id:'word',name:'단어 찾기',icon:'가',available:false},
+  {id:'more',name:'더 보기',icon:'+',available:false},
+];
+let cleared=new Set();
+try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s));}catch(e){}
+function saveCleared(){try{localStorage.setItem('shikaku_v5',JSON.stringify([...cleared]));}catch(e){}}
+let curStage=1,N=4,CELL=68,puzzle=null,userRects=[],dragging=false,dragStart=null,dragEnd=null,gridEl=null;
+function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const SCORE_GAMES=['2048','dodge','memory','sorter'];
+
+async function getTop1(gameId){
+  try{
+    if(SCORE_GAMES.includes(gameId)){
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${gameId}&select=username,score&order=score.desc&limit=1`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      return data.length?data[0].username:null;
+    } else {
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/clears?game=eq.${gameId}&select=username`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      if(!data.length)return null;
+      const map={};
+      data.forEach(r=>{map[r.username]=(map[r.username]||0)+1;});
+      const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+      return sorted.length?sorted[0][0]:null;
+    }
+  }catch(e){return null;}
+}
+
+function renderHome(){
+const u=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+const lb=document.getElementById('login-btn');
+if(lb) lb.textContent=u?'👤 '+u.username:'로그인';
+  const g=document.getElementById('game-grid');g.innerHTML='';
+  GAMES.forEach(game=>{
+    const div=document.createElement('div');
+    div.className='game-card'+(game.available?'':' coming');
+    const hasClear=game.id==='shikaku'&&cleared.size>0;
+    div.innerHTML=`${hasClear?'<div class="cleared-dot"></div>':''}<div class="g-icon">${game.icon}</div><div class="g-name">${game.name}</div>${!game.available?'<div class="g-sub">준비중</div>':'<div class="g-top1" id="top1-'+game.id+'"></div>'}`;
+if(game.available){
+  div.onclick=()=>openGame(game);
+  getTop1(game.id).then(name=>{
+    const el=document.getElementById('top1-'+game.id);
+    if(el)el.innerHTML=name?'🥇<b>'+name+'</b>':'';
+  });
+}
+    g.appendChild(div);
+  });
+}
+function goHome(){renderHome();showScreen('home');}
+function openGame(game){
+  if(game.id==='sudoku'){ location.href='sudoku_stages.html'; return; }
+  if(game.id==='shikaku'){ location.href='shikaku_stages.html'; return; }
+if(game.id==='2048'){ location.href='2048.html'; return; }
+if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
+  if(game.id==='memory'){ location.href='memory.html'; return; }
+if(game.id==='sorter'){ location.href='sorter.html'; return; }
+if(game.id==='dodge'){ location.href='dodge.html'; return; }
+  document.getElementById('sel-title').textContent=game.name;
+  renderDiffs();showScreen('stage-select');
+}
+function renderDiffs(){
+  const wrap=document.getElementById('diff-sections');wrap.innerHTML='';
+  DIFFS.forEach(diff=>{
+    const sec=document.createElement('div');sec.className='diff-section';
+    sec.innerHTML=`<div class="diff-label"><span class="diff-dot" style="background:${diff.color}"></span>${diff.label} · 스테이지 ${diff.range[0]}~${diff.range[1]} · ${diff.n}×${diff.n}</div>`;
+    const row=document.createElement('div');row.className='stage-row';
+    for(let i=diff.range[0];i<=diff.range[1];i++){
+      const isCleared=cleared.has(i),isOpen=i===1||cleared.has(i-1);
+      const tile=document.createElement('div');
+      tile.className=`stage-tile diff-${diff.id}`+(isCleared?' cleared':'')+(isOpen?'':' locked');
+      tile.innerHTML=`<div class="s-num">${i}</div>${isCleared?'<div class="s-check">✓</div>':''}`;
+      if(isOpen)tile.onclick=()=>startStage(i);
+      row.appendChild(tile);
+    }
+    sec.appendChild(row);wrap.appendChild(sec);
+  });
+}
+function goStageSelect(){
+  try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s).map(Number));}catch(e){}
+  renderDiffs();showScreen('stage-select');
+  document.getElementById('next-btn').style.display='none';
+}
+function startStage(stageNum){
+  curStage=stageNum;const diff=getDiff(stageNum);N=diff.n;
+  if(diff.id==='medium'){const p=(stageNum-diff.range[0])/(diff.range[1]-diff.range[0]);N=p<0.5?6:7;}
+  if(diff.id==='hard'){const p=(stageNum-diff.range[0])/(diff.range[1]-diff.range[0]);N=p<0.5?8:9;}
+  const maxW=Math.min(window.innerWidth-32,380);
+  CELL=Math.floor(maxW/N);
+  puzzle=generateShikaku(N,stageNum,diff.maxArea);
+  userRects=[];dragging=false;dragStart=null;dragEnd=null;
+  document.getElementById('game-title-bar').textContent='스테이지 '+stageNum;
+  document.getElementById('grid-size-lbl').textContent=N+'×'+N;
+  document.getElementById('diff-lbl').textContent=diff.label;
+  document.getElementById('diff-lbl').style.color=diff.color;
+  showMsg('드래그로 영역을 선택하세요','info');
+  document.getElementById('next-btn').style.display='none';
+  updateProgress();renderGrid();showScreen('game-screen');
+}
+function renderGrid(){
+  gridEl=document.getElementById('grid');gridEl.innerHTML='';
+  gridEl.style.gridTemplateColumns=`repeat(${N},${CELL}px)`;
+  gridEl.style.gridTemplateRows=`repeat(${N},${CELL}px)`;
+  gridEl.style.width=(CELL*N)+'px';gridEl.style.height=(CELL*N)+'px';
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const cell=document.createElement('div');cell.className='cell';
+    if(r===N-1)cell.style.borderBottom='none';if(c===N-1)cell.style.borderRight='none';
+    const clue=puzzle.clues.find(cl=>cl[0]===r&&cl[1]===c);
+    if(clue){cell.textContent=clue[2];cell.classList.add('numbered');}
+    gridEl.appendChild(cell);
+  }
+  gridEl.onmousedown=startDrag;gridEl.onmousemove=moveDrag;gridEl.onmouseup=endDrag;
+  gridEl.ontouchstart=e=>{e.preventDefault();startDrag(e.touches[0]);};
+  gridEl.ontouchmove=e=>{e.preventDefault();moveDrag(e.touches[0]);};
+  gridEl.ontouchend=e=>{e.preventDefault();endDrag(e.changedTouches[0]);};
+  redrawAll();
+}
+function getCellFromPoint(x,y){
+  const r0=gridEl.getBoundingClientRect();
+  const c=Math.floor((x-r0.left)/CELL),r=Math.floor((y-r0.top)/CELL);
+  if(r<0||r>=N||c<0||c>=N)return null;return{r,c};
+}
+function startDrag(e){
+  const pos=getCellFromPoint(e.clientX,e.clientY);if(!pos)return;
+  const idx=userRects.findIndex(rect=>pos.r>=rect.r&&pos.r<rect.r+rect.h&&pos.c>=rect.c&&pos.c<rect.c+rect.w);
+  if(idx!==-1){userRects.splice(idx,1);redrawAll();updateProgress();return;}
+  dragging=true;dragStart=pos;dragEnd=pos;redrawAll();
+}
+function moveDrag(e){if(!dragging)return;const pos=getCellFromPoint(e.clientX,e.clientY);if(pos){dragEnd=pos;redrawAll();}}
+function endDrag(e){
+  if(!dragging)return;dragging=false;
+  const pos=getCellFromPoint(e.clientX,e.clientY)||dragEnd;
+  if(dragStart&&pos){
+    const r=Math.min(dragStart.r,pos.r),c=Math.min(dragStart.c,pos.c);
+    const h=Math.abs(pos.r-dragStart.r)+1,w=Math.abs(pos.c-dragStart.c)+1,area=h*w;
+    const matchingClues=puzzle.clues.filter(cl=>cl[0]>=r&&cl[0]<r+h&&cl[1]>=c&&cl[1]<c+w);
+    const isValid=matchingClues.length===1&&matchingClues[0][2]===area;
+    const noOverlap=!userRects.some(ur=>!(r+h<=ur.r||ur.r+ur.h<=r||c+w<=ur.c||ur.c+ur.w<=c));
+    if(isValid&&noOverlap)userRects.push({r,c,h,w});
+  }
+  dragStart=null;dragEnd=null;redrawAll();updateProgress();autoCheck();
+}
+function redrawAll(){
+  gridEl.querySelectorAll('.cell').forEach(c=>c.style.background='');
+  userRects.forEach((rect,idx)=>{
+    const col=getRectColor(idx);
+    for(let r=rect.r;r<rect.r+rect.h;r++)for(let c=rect.c;c<rect.c+rect.w;c++){const cellEl=gridEl.children[r*N+c];if(cellEl)cellEl.style.background=col.bg;}
+  });
+  gridEl.querySelectorAll('.rect-overlay').forEach(el=>el.remove());
+  userRects.forEach((rect,idx)=>{
+    const col=getRectColor(idx);
+    const div=document.createElement('div');div.className='rect-overlay';
+    div.style.cssText=`left:${rect.c*CELL+1}px;top:${rect.r*CELL+1}px;width:${rect.w*CELL-2}px;height:${rect.h*CELL-2}px;border-color:${col.border};`;
+    gridEl.appendChild(div);
+  });
+  if(dragging&&dragStart&&dragEnd){
+    const r=Math.min(dragStart.r,dragEnd.r),c=Math.min(dragStart.c,dragEnd.c);
+    const h=Math.abs(dragEnd.r-dragStart.r)+1,w=Math.abs(dragEnd.c-dragStart.c)+1;
+    const div=document.createElement('div');div.className='rect-overlay preview';
+    div.style.cssText=`left:${c*CELL+1}px;top:${r*CELL+1}px;width:${w*CELL-2}px;height:${h*CELL-2}px;`;
+    gridEl.appendChild(div);
+  }
+}
+function updateProgress(){document.getElementById('progress-lbl').textContent=userRects.length+'/'+puzzle.clues.length;}
+async function saveToSupabase(game,stage){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    await fetch(`${SUPABASE_URL}/rest/v1/clears`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Prefer':'resolution=ignore-duplicates'},
+      body:JSON.stringify({user_id:user.id,username:user.username,game,stage})
+    });
+  }catch(e){}
+}
+function autoCheck(){
+  const covered=new Array(N*N).fill(0);
+  userRects.forEach(rect=>{for(let r=rect.r;r<rect.r+rect.h;r++)for(let c=rect.c;c<rect.c+rect.w;c++)covered[r*N+c]++;});
+  if(userRects.length===puzzle.clues.length&&covered.every(v=>v===1)){
+    showMsg('🎉 정답! 훌륭해요!','success');
+    cleared.add(curStage);saveCleared();
+    if(curStage<100)document.getElementById('next-btn').style.display='';
+    renderDiffs();
+    saveToSupabase('shikaku',curStage);
+  }
+}
+function showMsg(txt,type){const el=document.getElementById('game-msg');el.textContent=txt;el.className='game-msg '+(type||'info');}
+function resetPuzzle(){userRects=[];dragStart=null;dragEnd=null;dragging=false;showMsg('드래그로 영역을 선택하세요','info');document.getElementById('next-btn').style.display='none';updateProgress();redrawAll();}
+function goNextStage(){startStage(curStage+1);}
+// URL에서 시카쿠 스테이지 직접 실행
+const _sp = new URLSearchParams(location.search);
+const _sn = parseInt(_sp.get('shikaku')||'0');
+if(_sn > 0){
+  try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s).map(Number));}catch(e){}
+  startStage(_sn);
+} else { renderHome(); }
+</script>
+</body>
+</html>

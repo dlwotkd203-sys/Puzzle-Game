@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>짝 맞추기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.75rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+
+.hud{display:flex;gap:8px;padding:0.75rem 1rem 0.5rem;flex-shrink:0;}
+.hud-box{flex:1;background:#f8f8f8;border-radius:10px;padding:8px 12px;text-align:center;}
+.hud-val{font-size:18px;font-weight:700;color:#111;font-variant-numeric:tabular-nums;}
+.hud-val.danger{color:#E24B4A;}
+.hud-val.accent{color:#378ADD;}
+.hud-lbl{font-size:10px;color:#888;margin-top:2px;letter-spacing:0.3px;}
+
+/* 타이머 바 */
+.timer-bar-wrap{padding:0 1rem 0.5rem;flex-shrink:0;}
+.timer-bar-bg{height:5px;background:#eee;border-radius:99px;overflow:hidden;}
+.timer-bar-fill{height:100%;border-radius:99px;transition:width 0.1s linear,background 0.3s;}
+
+/* 판 정보 */
+.round-info{text-align:center;font-size:12px;color:#aaa;padding:0 1rem 0.5rem;flex-shrink:0;}
+
+/* 카드 그리드 */
+.grid-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:0.5rem 1rem;}
+.grid{display:grid;gap:8px;}
+.card{border-radius:10px;cursor:pointer;transition:transform 0.15s;position:relative;aspect-ratio:1;user-select:none;-webkit-tap-highlight-color:transparent;}
+.card:active:not(.matched):not(.flipped){transform:scale(0.93);}
+.card-inner{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform 0.3s ease;}
+.card.flipped .card-inner{transform:rotateY(180deg);}
+.card.matched .card-inner{transform:rotateY(180deg);}
+.card-front,.card-back{position:absolute;inset:0;border-radius:10px;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;align-items:center;justify-content:center;}
+.card-front{background:#f0f0f0;border:1.5px solid #e0e0e0;}
+.card-front-dot{width:10px;height:10px;border-radius:50%;background:#ddd;}
+.card-back{background:#fff;border:1.5px solid #eee;transform:rotateY(180deg);font-size:28px;}
+.card.matched .card-front{background:#E1F5EE;border-color:#1D9E75;}
+.card.matched .card-back{background:#E1F5EE;border-color:#1D9E75;}
+.card.wrong .card-inner{animation:shake 0.35s ease;}
+@keyframes shake{0%{transform:rotateY(180deg) translateX(0);}20%{transform:rotateY(180deg) translateX(-5px);}40%{transform:rotateY(180deg) translateX(5px);}60%{transform:rotateY(180deg) translateX(-3px);}80%{transform:rotateY(180deg) translateX(3px);}100%{transform:rotateY(180deg) translateX(0);}}
+
+/* 점수 팝업 */
+.score-pop{position:fixed;pointer-events:none;font-size:18px;font-weight:700;z-index:50;opacity:0;transition:none;}
+
+/* 오버레이 */
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:30;}
+.ov-emoji{font-size:48px;}
+.ov-title{font-size:26px;font-weight:700;color:#111;}
+.ov-score{font-size:20px;font-weight:700;color:#378ADD;}
+.ov-best{font-size:13px;color:#aaa;}
+.ov-new{font-size:13px;color:#1D9E75;font-weight:600;}
+.ov-btn{margin-top:8px;padding:12px 36px;border-radius:10px;border:none;background:#111;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;}
+.ov-btn:active{background:#333;}
+.ov-divider{width:40px;height:1px;background:#eee;}
+
+/* 라운드 클리어 팝업 */
+.round-clear{position:absolute;inset:0;background:rgba(255,255,255,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:25;display:none;}
+.rc-title{font-size:24px;font-weight:700;color:#1D9E75;}
+.rc-bonus{font-size:15px;color:#378ADD;font-weight:600;}
+.rc-next{font-size:13px;color:#aaa;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">짝 맞추기</span>
+  </div>
+
+  <div class="hud">
+    <div class="hud-box">
+      <div class="hud-val" id="hud-score">0</div>
+      <div class="hud-lbl">점수</div>
+    </div>
+    <div class="hud-box">
+      <div class="hud-val danger" id="hud-time">60</div>
+      <div class="hud-lbl">남은 시간</div>
+    </div>
+    <div class="hud-box">
+      <div class="hud-val accent" id="hud-round">1</div>
+      <div class="hud-lbl">라운드</div>
+    </div>
+  </div>
+
+  <div class="timer-bar-wrap">
+    <div class="timer-bar-bg">
+      <div class="timer-bar-fill" id="timer-bar" style="width:100%;background:#1D9E75;"></div>
+    </div>
+  </div>
+
+  <div class="round-info" id="round-info"></div>
+
+  <div class="grid-wrap">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <!-- 라운드 클리어 -->
+  <div class="round-clear" id="round-clear">
+    <div class="rc-title" id="rc-title">🎉 클리어!</div>
+    <div class="rc-bonus" id="rc-bonus"></div>
+    <div class="rc-next">다음 라운드 준비 중...</div>
+  </div>
+
+  <!-- 게임 오버 / 시작 오버레이 -->
+  <div class="overlay" id="overlay">
+    <div class="ov-emoji">🃏</div>
+    <div class="ov-title">짝 맞추기</div>
+    <div class="ov-best" id="ov-best-txt">최고 기록: 0점</div>
+    <div class="ov-divider"></div>
+    <button class="ov-btn" onclick="startGame()">시작</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+// 이모지 세트 (12쌍 충분히)
+const EMOJI_POOL=['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐸','🐮','🐷','🐙','🦋','🌸','⭐','🍎','🍕','🎸','🚀','💎','🌈'];
+
+// 라운드별 배열 설정
+const ROUNDS=[
+  {cols:4,rows:4,pairs:8},   // 1~3라운드: 4×4
+  {cols:4,rows:4,pairs:8},
+  {cols:4,rows:4,pairs:8},
+  {cols:5,rows:4,pairs:10},  // 4~6라운드: 5×4
+  {cols:5,rows:4,pairs:10},
+  {cols:5,rows:4,pairs:10},
+  {cols:6,rows:4,pairs:12},  // 7라운드~: 6×4
+  {cols:6,rows:4,pairs:12},
+  {cols:6,rows:4,pairs:12},
+  {cols:6,rows:4,pairs:12},
+];
+
+// 점수 설정
+const SCORE_MATCH=100;
+const SCORE_WRONG=-20;
+const SCORE_TIME_BONUS=5;      // 남은 시간 × 5
+const SCORE_SPEED_BONUS=200;   // 30초 안에 클리어
+
+let score=0,best=0,round=0;
+let timeLeft=60,timerInterval=null;
+let roundStartTime=0;
+let cards=[],flipped=[],matched=0,canFlip=true;
+let gameActive=false;
+
+function loadBest(){try{return parseInt(localStorage.getItem('memory_best')||'0');}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('memory_best',String(v));}catch(e){}}
+
+async function saveScore(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.memory&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'memory',score:sc})});
+    }
+  }catch(e){}
+}
+
+function startGame(){
+  document.getElementById('overlay').style.display='none';
+  score=0;round=0;
+  best=loadBest();
+  startRound();
+}
+
+function startRound(){
+  const cfg=ROUNDS[Math.min(round,ROUNDS.length-1)];
+  flipped=[];matched=0;canFlip=true;
+  timeLeft=60;roundStartTime=Date.now();
+  gameActive=true;
+
+  document.getElementById('round-clear').style.display='none';
+  document.getElementById('hud-round').textContent=round+1;
+  updateHUD();
+  updateTimerBar();
+
+  // 라운드 정보
+  document.getElementById('round-info').textContent=
+    `${cfg.cols}×${cfg.rows} · ${cfg.pairs}쌍 · 30초 안에 클리어하면 보너스!`;
+
+  buildGrid(cfg);
+  previewCards();
+}
+
+function previewCards(){
+  // 미리보기: 카드 전부 오픈
+  canFlip=false;
+  gameActive=false;
+  document.getElementById('hud-time').textContent='준비';
+  document.getElementById('hud-time').className='hud-val accent';
+  document.getElementById('timer-bar').style.width='100%';
+  document.getElementById('timer-bar').style.background='#378ADD';
+
+  // 모든 카드 앞면 보이기
+  const allCards=document.querySelectorAll('.card');
+  allCards.forEach(el=>el.classList.add('flipped'));
+
+  // 카드 수에 따라 미리보기 시간 조절 (쌍 수 * 0.2초, 최소 2초 최대 4초)
+  const pairCount=cards.length/2;
+  const previewTime=Math.min(Math.max(pairCount*200, 2000), 4000);
+
+  // 카운트다운 표시
+  let remaining=Math.ceil(previewTime/1000);
+  document.getElementById('round-info').textContent=`카드를 외우세요! ${remaining}초 후 시작`;
+  const countInterval=setInterval(()=>{
+    remaining--;
+    if(remaining>0){
+      document.getElementById('round-info').textContent=`카드를 외우세요! ${remaining}초 후 시작`;
+    }
+  },1000);
+
+  setTimeout(()=>{
+    clearInterval(countInterval);
+    // 카드 전부 뒤집기
+    allCards.forEach(el=>{
+      cards[parseInt(el.id.replace('card-',''))].isFlipped=false;
+      el.classList.remove('flipped');
+    });
+    document.getElementById('round-info').textContent=
+      `${Math.round(cards.length/2*2/cards.length*4)}×${Math.round(cards.length/2)} · 30초 안에 클리어하면 보너스!`;
+
+    // 게임 시작
+    canFlip=true;
+    gameActive=true;
+    timeLeft=60;
+    roundStartTime=Date.now();
+    document.getElementById('hud-time').textContent='60';
+    document.getElementById('hud-time').className='hud-val';
+    updateTimerBar();
+    clearInterval(timerInterval);
+    timerInterval=setInterval(tickTimer,100);
+
+    // round-info 원래대로
+    const cfg=ROUNDS[Math.min(round,ROUNDS.length-1)];
+    document.getElementById('round-info').textContent=
+      `${cfg.cols}×${cfg.rows} · ${cfg.pairs}쌍 · 30초 안에 클리어하면 보너스!`;
+  },previewTime);
+}
+
+function buildGrid(cfg){
+  const grid=document.getElementById('grid');
+  grid.innerHTML='';
+
+  // 카드 크기 계산
+  const maxW=Math.min(document.getElementById('app').clientWidth-32, 398);
+  const cellW=Math.floor((maxW-(cfg.cols-1)*8)/cfg.cols);
+  const cellH=Math.min(cellW,Math.floor((window.innerHeight*0.52)/(cfg.rows)));
+
+  grid.style.gridTemplateColumns=`repeat(${cfg.cols},${cellW}px)`;
+
+  // 이모지 선택 및 셔플
+  const emojis=EMOJI_POOL.slice(0,cfg.pairs);
+  const deck=[...emojis,...emojis];
+  shuffle(deck);
+
+  cards=deck.map((emoji,i)=>({emoji,id:i,isFlipped:false,isMatched:false}));
+
+  cards.forEach((card,i)=>{
+    const el=document.createElement('div');
+    el.className='card';
+    el.style.cssText=`width:${cellW}px;height:${cellH}px;`;
+    el.innerHTML=`
+      <div class="card-inner">
+        <div class="card-front"><div class="card-front-dot"></div></div>
+        <div class="card-back">${card.emoji}</div>
+      </div>`;
+    el.addEventListener('click',()=>flipCard(i,el));
+    el.id='card-'+i;
+    grid.appendChild(el);
+  });
+}
+
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}}
+
+function flipCard(idx,el){
+  if(!canFlip||!gameActive)return;
+  if(cards[idx].isFlipped||cards[idx].isMatched)return;
+  if(flipped.length>=2)return;
+
+  cards[idx].isFlipped=true;
+  el.classList.add('flipped');
+  flipped.push({idx,el});
+
+  if(flipped.length===2)checkMatch();
+}
+
+function checkMatch(){
+  canFlip=false;
+  const [a,b]=flipped;
+  const isMatch=cards[a.idx].emoji===cards[b.idx].emoji;
+
+  setTimeout(()=>{
+    if(isMatch){
+      cards[a.idx].isMatched=true;
+      cards[b.idx].isMatched=true;
+      a.el.classList.add('matched');
+      b.el.classList.add('matched');
+      matched+=2;
+
+      const gain=SCORE_MATCH;
+      score+=gain;
+      showScorePop(a.el,'+'+gain,'#1D9E75');
+
+      if(matched===cards.length)onRoundClear();
+    }else{
+      a.el.classList.add('wrong');b.el.classList.add('wrong');
+      setTimeout(()=>{
+        cards[a.idx].isFlipped=false;
+        cards[b.idx].isFlipped=false;
+        a.el.classList.remove('flipped','wrong');
+        b.el.classList.remove('flipped','wrong');
+      },400);
+      score=Math.max(0,score+SCORE_WRONG);
+      showScorePop(b.el,SCORE_WRONG,'#E24B4A');
+    }
+    flipped=[];
+    canFlip=true;
+    updateHUD();
+  },isMatch?300:600);
+}
+
+function onRoundClear(){
+  clearInterval(timerInterval);
+  gameActive=false;
+  const elapsed=(Date.now()-roundStartTime)/1000;
+  const isSpeed=elapsed<=30;
+  const timeBonus=Math.round(timeLeft*SCORE_TIME_BONUS);
+  const speedBonus=isSpeed?SCORE_SPEED_BONUS:0;
+  score+=timeBonus+speedBonus;
+  updateHUD();
+
+  const rc=document.getElementById('round-clear');
+  document.getElementById('rc-title').textContent=isSpeed?'⚡ 빠른 클리어!':'🎉 클리어!';
+  let bonusText=`시간 보너스 +${timeBonus}`;
+  if(isSpeed)bonusText+=` · 스피드 보너스 +${speedBonus}`;
+  document.getElementById('rc-bonus').textContent=bonusText;
+  rc.style.display='flex';
+
+  round++;
+  setTimeout(()=>startRound(),2000);
+}
+
+function tickTimer(){
+  timeLeft=Math.max(0,timeLeft-0.1);
+  updateTimerBar();
+  document.getElementById('hud-time').textContent=Math.ceil(timeLeft);
+  const timeEl=document.getElementById('hud-time');
+  timeEl.className='hud-val'+(timeLeft<=10?' danger':'');
+  if(timeLeft<=0)onTimeOut();
+}
+
+function onTimeOut(){
+  clearInterval(timerInterval);
+  gameActive=false;
+  const isNew=score>best;
+  if(isNew){best=score;saveBest(best);}
+  saveScore(score);
+
+  const ov=document.getElementById('overlay');
+  ov.querySelector('.ov-emoji').textContent='⏰';
+  ov.querySelector('.ov-title').textContent='시간 초과!';
+  ov.querySelector('.ov-score')?.remove();
+
+  // 점수 표시 추가
+  let scoreEl=document.createElement('div');
+  scoreEl.className='ov-score';
+  scoreEl.textContent='최종 점수: '+score+'점';
+  ov.querySelector('.ov-divider').before(scoreEl);
+
+  document.getElementById('ov-best-txt').textContent=
+    isNew?'🏆 새 최고 기록!':'최고 기록: '+best+'점';
+  ov.querySelector('.ov-btn').textContent='다시 시작';
+  ov.style.display='flex';
+}
+
+function updateTimerBar(){
+  const pct=timeLeft/60*100;
+  const bar=document.getElementById('timer-bar');
+  bar.style.width=pct+'%';
+  bar.style.background=timeLeft>30?'#1D9E75':timeLeft>10?'#EF9F27':'#E24B4A';
+}
+
+function updateHUD(){
+  document.getElementById('hud-score').textContent=score.toLocaleString();
+}
+
+function showScorePop(el,text,color){
+  const rect=el.getBoundingClientRect();
+  const pop=document.createElement('div');
+  pop.className='score-pop';
+  pop.textContent=text;
+  pop.style.cssText=`left:${rect.left+rect.width/2}px;top:${rect.top}px;color:${color};transform:translateX(-50%);`;
+  document.body.appendChild(pop);
+  pop.animate([
+    {opacity:1,transform:'translateX(-50%) translateY(0)'},
+    {opacity:0,transform:'translateX(-50%) translateY(-30px)'}
+  ],{duration:700,easing:'ease-out'}).onfinish=()=>pop.remove();
+}
+
+// 초기 best 로드
+best=loadBest();
+document.getElementById('ov-best-txt').textContent='최고 기록: '+best+'점';
+</script>
+</body>
+</html>
