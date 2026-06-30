@@ -6,33 +6,33 @@
 <title>벽돌깨기</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow:hidden;background:#0d0d0d;}
-#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;}
+html,body{height:100%;overflow:hidden;background:#fef9f0;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;background:linear-gradient(180deg,#fff8ec,#fef2e0);}
 
-.hud{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(13,13,13,0.95);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;z-index:10;}
-.back-btn{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:18px;padding:4px 6px;line-height:1;}
+.hud{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#fff;border-bottom:2px solid #ffe1a8;flex-shrink:0;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,0.04);}
+.back-btn{background:none;border:none;cursor:pointer;color:#bbb;font-size:18px;padding:4px 6px;line-height:1;}
 .hud-center{text-align:center;}
-.hud-score{font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;}
-.hud-label{font-size:9px;color:rgba(255,255,255,0.35);margin-top:1px;letter-spacing:0.5px;text-transform:uppercase;}
+.hud-score{font-size:21px;font-weight:800;color:#FF6B35;font-variant-numeric:tabular-nums;}
+.hud-label{font-size:9px;color:#bbb;margin-top:1px;letter-spacing:0.5px;text-transform:uppercase;font-weight:700;}
 .hud-right{display:flex;gap:3px;align-items:center;}
 .heart{font-size:16px;}
-.hud-wave{font-size:12px;color:rgba(255,255,255,0.5);font-weight:600;}
-.wave-timer-bg{position:absolute;top:48px;left:0;right:0;height:3px;background:rgba(255,255,255,0.06);z-index:8;}
+.hud-wave{font-size:12px;color:#9c8a6e;font-weight:700;}
+.wave-timer-bg{position:absolute;top:48px;left:0;right:0;height:4px;background:#ffe9c7;z-index:8;}
 .wave-timer-fill{height:100%;transition:width 0.1s linear,background 0.3s;}
-.descend-warning{position:absolute;top:55px;left:50%;transform:translateX(-50%);background:rgba(226,75,74,0.9);color:#fff;font-size:11px;font-weight:700;padding:3px 12px;border-radius:99px;z-index:9;display:none;animation:pulse-warn 0.5s ease infinite alternate;}
+.descend-warning{position:absolute;top:57px;left:50%;transform:translateX(-50%);background:#FF4757;color:#fff;font-size:11px;font-weight:800;padding:3px 12px;border-radius:99px;z-index:9;display:none;animation:pulse-warn 0.5s ease infinite alternate;box-shadow:0 2px 8px rgba(255,71,87,0.4);}
 @keyframes pulse-warn{0%{opacity:0.7;}100%{opacity:1;}}
 
 #canvas{display:block;flex:1;width:100%;touch-action:none;}
 
-.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:20;background:rgba(13,13,13,0.96);}
-.ov-title{font-size:30px;font-weight:700;color:#fff;letter-spacing:-0.5px;}
-.ov-sub{font-size:13px;color:rgba(255,255,255,0.4);text-align:center;padding:0 2rem;line-height:1.5;}
-.ov-score{font-size:22px;font-weight:700;color:#fff;}
-.ov-record{font-size:13px;color:rgba(255,255,255,0.4);}
-.ov-new{font-size:13px;color:#60a5fa;font-weight:600;}
-.ov-btn{margin-top:6px;padding:12px 38px;border-radius:10px;border:none;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;background:#fff;color:#0d0d0d;}
-.ov-btn:active{background:rgba(255,255,255,0.85);}
-.ov-divider{width:36px;height:1px;background:rgba(255,255,255,0.08);}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:20;background:rgba(255,250,240,0.97);}
+.ov-title{font-size:30px;font-weight:800;color:#FF6B35;letter-spacing:-0.5px;}
+.ov-sub{font-size:13px;color:#8a7a60;text-align:center;padding:0 2rem;line-height:1.5;}
+.ov-score{font-size:22px;font-weight:800;color:#333;}
+.ov-record{font-size:13px;color:#999;}
+.ov-new{font-size:13px;color:#FF6B35;font-weight:700;}
+.ov-btn{margin-top:6px;padding:12px 38px;border-radius:14px;border:none;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;background:linear-gradient(135deg,#FF6B35,#FF9248);color:#fff;box-shadow:0 4px 12px rgba(255,107,53,0.35);}
+.ov-btn:active{transform:scale(0.97);}
+.ov-divider{width:36px;height:3px;background:#ffe1a8;border-radius:99px;}
 .combo-pop{position:absolute;pointer-events:none;font-weight:800;z-index:15;font-size:16px;}
 </style>
 </head>
@@ -59,7 +59,7 @@ html,body{height:100%;overflow:hidden;background:#0d0d0d;}
   <div class="ov-sub">패들을 움직여 공을 튕기고<br>위쪽 블록을 모두 깨보세요</div>
   <div class="ov-divider"></div>
   <button class="ov-btn" onclick="startGame()">시작</button>
-  <div class="ov-sub" style="font-size:11px;">드래그 또는 ←→ 키로 패들 조작</div>
+  <div class="ov-sub" style="font-size:11px;">드래그(끌기) 또는 ←→ 키로 패들 조작</div>
 </div>
 
 <div class="overlay" id="ov-dead" style="display:none">
@@ -87,14 +87,15 @@ let combo=0,comboTimer=0;
 
 // 블록 타입 정의
 const BRICK_TYPES={
-  normal:{hp:1,color:'#378ADD',points:10},
-  hard:{hp:2,color:'#EF9F27',points:20},
-  veryhard:{hp:3,color:'#E24B4A',points:35},
-  explosive:{hp:1,color:'#9c27b0',points:15,explosive:true},
-  power_wide:{hp:1,color:'#1D9E75',points:10,power:'wide'},
-  power_multi:{hp:1,color:'#FFD200',points:10,power:'multi'},
-  power_slow:{hp:1,color:'#60a5fa',points:10,power:'slow'},
-  indestructible:{hp:Infinity,color:'#555',points:0,indestructible:true},
+  normal:{hp:1,color:'#4FC3F7',points:10},
+  hard:{hp:2,color:'#FFA726',points:20},
+  veryhard:{hp:3,color:'#FF5C5C',points:35},
+  explosive:{hp:1,color:'#BA68C8',points:15,explosive:true},
+  power_wide:{hp:1,color:'#66BB6A',points:10,power:'wide'},
+  power_multi:{hp:1,color:'#FFD93D',points:10,power:'multi'},
+  power_slow:{hp:1,color:'#5C9EFF',points:10,power:'slow'},
+  power_pierce:{hp:1,color:'#FF8A65',points:10,power:'pierce'},
+  indestructible:{hp:Infinity,color:'#9e9e9e',points:0,indestructible:true},
 };
 
 let waveTimeLimit=20,waveTimeLeft=20; // 웨이브당 제한시간(초)
@@ -106,7 +107,7 @@ let particles=[];
 let powerups=[]; // 떨어지는 파워업 아이템 {x,y,vy,type}
 let activePowerTimers={wide:0,slow:0,shrink:0};
 
-const BRICK_ROWS=6,BRICK_COLS=8;
+const BRICK_ROWS=10,BRICK_COLS=9;
 const BRICK_GAP=4,BRICK_TOP=25;
 let brickW=0,brickH=18;
 
@@ -149,26 +150,33 @@ function buildWave(){
   // 웨이브 진행에 따라 단단한 블록/특수블록 비율 증가
   const hardChance=Math.min(0.1+wave*0.04,0.4);
   const explosiveChance=Math.min(0.04+wave*0.01,0.12);
-  const powerChance=0.1;
+  const powerChance=0.16; // 파워업 전체 확률 상향
+  const multiBoost=0.09;  // 멀티볼 추가 확률 (더 상향)
+  const pierceBoost=0.04; // 관통 아이템 확률
 
-  // 웨이브마다 일부 행은 빈 공간 생성 (패턴 다양화)
-  const activeRows=Math.min(BRICK_ROWS,3+Math.floor(wave/2));
+  // 첫 웨이브부터 블록 꽉 채워서 시작 (도파민 위해 행 수 대폭 증가)
+  const activeRows=Math.min(BRICK_ROWS,7+Math.floor(wave/2));
 
   for(let r=0;r<activeRows;r++){
     for(let c=0;c<BRICK_COLS;c++){
       // 가끔 블록 비우기 (체커보드 느낌 패턴 가능성)
-      if(Math.random()<0.06)continue;
+      if(Math.random()<0.03)continue;
 
       let type='normal';
       const roll=Math.random();
       const indestructibleChance=wave>=2?Math.min(0.05+wave*0.005,0.08):0;
-      if(roll<indestructibleChance)type='indestructible';
-      else if(roll<indestructibleChance+explosiveChance)type='explosive';
-      else if(roll<indestructibleChance+explosiveChance+powerChance*0.33)type='power_wide';
-      else if(roll<indestructibleChance+explosiveChance+powerChance*0.66)type='power_multi';
-      else if(roll<indestructibleChance+explosiveChance+powerChance)type='power_slow';
-      else if(roll<indestructibleChance+explosiveChance+powerChance+hardChance*0.6)type='hard';
-      else if(roll<indestructibleChance+explosiveChance+powerChance+hardChance)type='veryhard';
+      // 슬로우는 70% 이상 감소 (powerChance*0.33 -> powerChance*0.08 수준으로)
+      const slowChance=powerChance*0.08;
+      const wideChance=powerChance*0.30;
+      let cum=indestructibleChance;
+      if(roll<cum)type='indestructible';
+      else if(roll<(cum+=explosiveChance))type='explosive';
+      else if(roll<(cum+=multiBoost))type='power_multi';
+      else if(roll<(cum+=pierceBoost))type='power_pierce';
+      else if(roll<(cum+=wideChance))type='power_wide';
+      else if(roll<(cum+=slowChance))type='power_slow';
+      else if(roll<(cum+=hardChance*0.6))type='hard';
+      else if(roll<(cum+=hardChance*0.4))type='veryhard';
 
       const def=BRICK_TYPES[type];
       bricks.push({
@@ -185,7 +193,7 @@ function resetBallAndPaddle(){
   paddle.w=paddle.baseW;
   paddle.x=W/2-paddle.w/2;
   paddle.y=H*0.62;
-  balls=[{x:W/2,y:paddle.y-15,vx:170*(Math.random()<0.5?-1:1),vy:-320,r:6,stuck:true}];
+  balls=[{x:W/2,y:paddle.y-15,vx:204*(Math.random()<0.5?-1:1),vy:-384,r:6,stuck:true}];
 }
 
 function startGame(){
@@ -304,6 +312,8 @@ function applyPower(type){
     balls.push(...extra);
   } else if(type==='slow'){
     activePowerTimers.slow=6;
+  } else if(type==='pierce'){
+    activePowerTimers.pierce=5;
   } else if(type==='bad'){
     // 나쁜 효과: 패들 작아짐 + 공 빨라짐
     paddle.w=Math.max(36,paddle.w*0.65);
@@ -328,7 +338,7 @@ function updateWaveTimerBar(){
 }
 
 function descendBricks(){
-  const dropAmount=brickH+BRICK_GAP;
+  const dropAmount=(brickH+BRICK_GAP)*2; // 2배 속도로 하강
   bricks.forEach(b=>{b.y+=dropAmount;});
   spawnParticles(W/2,BRICK_TOP,'#E24B4A',6);
 
@@ -372,6 +382,7 @@ function update(dt){
     activePowerTimers.shrink-=dt;
     if(activePowerTimers.shrink<=0)paddle.w=paddle.baseW;
   }
+  if(activePowerTimers.pierce>0)activePowerTimers.pierce-=dt;
 
   const slowFactor=activePowerTimers.slow>0?0.55:1;
 
@@ -410,9 +421,16 @@ function update(dt){
     if(ball.y-ball.r>H){lostCount++;return false;}
 
     // 블록 충돌
+    const piercing=activePowerTimers.pierce>0;
     for(const brick of bricks){
       if(!brick.alive)continue;
       if(ball.x+ball.r>brick.x&&ball.x-ball.r<brick.x+brick.w&&ball.y+ball.r>brick.y&&ball.y-ball.r<brick.y+brick.h){
+        const def=BRICK_TYPES[brick.type];
+        if(piercing&&!def.indestructible){
+          // 관통: 튕기지 않고 그대로 직진하면서 파괴
+          hitBrick(brick,ball.x,ball.y);
+          continue;
+        }
         // 충돌 방향 추정 (단순화: 이전 위치 기반)
         const overlapLeft=(ball.x+ball.r)-brick.x;
         const overlapRight=(brick.x+brick.w)-(ball.x-ball.r);
@@ -488,18 +506,22 @@ function roundRectPath(x,y,w,h,r){
 }
 
 function draw(){
-  ctx.fillStyle='#0d0d0d';
+  ctx.fillStyle='#fffdf8';
   ctx.fillRect(0,0,W,H);
+  // 게임 영역 테두리 (화사한 톤)
+  ctx.strokeStyle='#FFD9A0';
+  ctx.lineWidth=3;
+  ctx.strokeRect(1.5,1.5,W-3,H-3);
 
   // 블록 - 깔끔한 카드 스타일 (둥근 모서리 + 하이라이트 + 그림자)
   bricks.forEach(b=>{
     const def=BRICK_TYPES[b.type];
     if(def.indestructible){
       ctx.save();
-      ctx.fillStyle='#3a3a3e';
+      ctx.fillStyle='#bdbdbd';
       roundRectPath(b.x,b.y,b.w,b.h,4);
       ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,0.15)';
+      ctx.strokeStyle='rgba(0,0,0,0.12)';
       ctx.lineWidth=1;
       roundRectPath(b.x+1,b.y+1,b.w-2,b.h-2,3);
       ctx.stroke();
@@ -508,7 +530,7 @@ function draw(){
       ctx.beginPath();
       roundRectPath(b.x,b.y,b.w,b.h,4);
       ctx.clip();
-      ctx.strokeStyle='rgba(255,255,255,0.08)';
+      ctx.strokeStyle='rgba(255,255,255,0.5)';
       ctx.lineWidth=3;
       for(let i=-b.h;i<b.w+b.h;i+=8){
         ctx.beginPath();
@@ -579,7 +601,7 @@ function draw(){
   // 낙하 아이템 (좋은 파워업 / 나쁜 디버프)
   powerups.forEach(p=>{
     const isBad=p.bad;
-    const color=isBad?'#E24B4A':p.type==='wide'?BRICK_TYPES.power_wide.color:p.type==='multi'?BRICK_TYPES.power_multi.color:BRICK_TYPES.power_slow.color;
+    const color=isBad?'#E24B4A':p.type==='wide'?BRICK_TYPES.power_wide.color:p.type==='multi'?BRICK_TYPES.power_multi.color:p.type==='pierce'?BRICK_TYPES.power_pierce.color:BRICK_TYPES.power_slow.color;
 
     if(isBad){
       // 경고 느낌 - 점멸 테두리
@@ -597,7 +619,7 @@ function draw(){
       ctx.fillStyle=color;
       ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='#fff';ctx.font='9px sans-serif';ctx.textAlign='center';
-      const icon=p.type==='wide'?'↔':p.type==='multi'?'●':'⏱';
+      const icon=p.type==='wide'?'↔':p.type==='multi'?'●':p.type==='pierce'?'⚡':'⏱';
       ctx.fillText(icon,p.x,p.y+3);
     }
     ctx.textAlign='start';
@@ -611,56 +633,74 @@ function draw(){
   });
   ctx.globalAlpha=1;
 
-  // 패들 - 그라데이션 + 둥근 처리
-  const paddleBase=activePowerTimers.wide>0?'#1D9E75':'#e8e8e8';
+  // 패들 - 밝고 화사한 그라데이션
+  const paddleBase=activePowerTimers.pierce>0?'#FF7043':activePowerTimers.wide>0?'#66BB6A':activePowerTimers.shrink>0?'#FF5C5C':'#FF6B35';
   const pGrad=ctx.createLinearGradient(paddle.x,paddle.y,paddle.x,paddle.y+paddle.h);
-  pGrad.addColorStop(0,'#ffffff');
+  pGrad.addColorStop(0,'#FFB088');
   pGrad.addColorStop(1,paddleBase);
+  ctx.save();
+  ctx.shadowColor='rgba(255,107,53,0.4)';
+  ctx.shadowBlur=8;
   ctx.fillStyle=pGrad;
-  roundRectPath(paddle.x,paddle.y,paddle.w,paddle.h,5);
+  roundRectPath(paddle.x,paddle.y,paddle.w,paddle.h,6);
   ctx.fill();
+  ctx.restore();
 
-  // 공
+  // 공 - 화사한 색 + 살짝 그림자
   balls.forEach(ball=>{
-    ctx.fillStyle=activePowerTimers.slow>0?'#60a5fa':'#FFD200';
+    ctx.save();
+    ctx.shadowColor='rgba(0,0,0,0.15)';
+    ctx.shadowBlur=4;
+    ctx.shadowOffsetY=2;
+    ctx.fillStyle=activePowerTimers.pierce>0?'#FF7043':activePowerTimers.slow>0?'#5C9EFF':'#FFB300';
     ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    // 하이라이트
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.beginPath();ctx.arc(ball.x-ball.r*0.3,ball.y-ball.r*0.3,ball.r*0.35,0,Math.PI*2);ctx.fill();
   });
 
   // 콤보 표시
   if(combo>=2){
-    ctx.font='700 13px -apple-system,sans-serif';
-    ctx.fillStyle='rgba(255,210,0,0.6)';
+    ctx.font='800 13px -apple-system,sans-serif';
+    ctx.fillStyle='#FF6B35';
     ctx.textAlign='right';
     ctx.fillText(combo+'x 콤보',W-12,20);
     ctx.textAlign='start';
   }
 }
 
-// 패들 조작 - 터치/마우스 드래그
-function setPaddleX(clientX){
-  const rect=canvas.getBoundingClientRect();
-  const x=clientX-rect.left;
-  paddle.x=x-paddle.w/2;
+// 패들 조작 - 상대 드래그 방식 (탭으로 순간이동 불가, 끌어야만 움직임)
+let dragActive=false;
+let dragStartX=0,paddleStartX=0;
+
+function beginDrag(clientX){
+  dragActive=true;
+  dragStartX=clientX;
+  paddleStartX=paddle.x;
+  if(balls.some(b=>b.stuck))launchBall();
 }
+function moveDrag(clientX){
+  if(!dragActive)return;
+  const delta=clientX-dragStartX;
+  paddle.x=paddleStartX+delta;
+}
+function endDrag(){dragActive=false;}
 
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();
-  setPaddleX(e.touches[0].clientX);
-  if(balls.some(b=>b.stuck))launchBall();
+  beginDrag(e.touches[0].clientX);
 },{passive:false});
 canvas.addEventListener('touchmove',e=>{
   e.preventDefault();
-  setPaddleX(e.touches[0].clientX);
+  moveDrag(e.touches[0].clientX);
 },{passive:false});
+canvas.addEventListener('touchend',e=>{e.preventDefault();endDrag();},{passive:false});
+canvas.addEventListener('touchcancel',endDrag);
 
-canvas.addEventListener('mousedown',e=>{
-  setPaddleX(e.clientX);
-  if(balls.some(b=>b.stuck))launchBall();
-});
-let mouseDown=false;
-canvas.addEventListener('mousedown',()=>mouseDown=true);
-window.addEventListener('mouseup',()=>mouseDown=false);
-canvas.addEventListener('mousemove',e=>{if(mouseDown)setPaddleX(e.clientX);});
+canvas.addEventListener('mousedown',e=>{beginDrag(e.clientX);});
+window.addEventListener('mousemove',e=>{moveDrag(e.clientX);});
+window.addEventListener('mouseup',endDrag);
 
 // 키보드
 const K={};
