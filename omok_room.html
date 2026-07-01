@@ -50,6 +50,7 @@ function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE
 document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
 
 let room=null,role='spectator',myColor=0;
+let lastMove=null;
 let N=15,CELL=23,PAD=16,SIZE=PAD*2+CELL*(N-1);
 let canvas=null,ctx=null,preview=null,winLine=null,applyingResult=false;
 let pollTimer=null;
@@ -62,8 +63,18 @@ async function fetchRoom(){
     room=data[0];
     role = currentUser&&String(room.host_user_id)===String(currentUser.id) ? 'host' : (currentUser&&String(room.guest_user_id)===String(currentUser.id)?'guest':'spectator');
     myColor = role==='host'?1:(role==='guest'?2:0);
+    await fetchLastMove();
     render();
   }catch(e){}
+}
+
+async function fetchLastMove(){
+  if(!room||!room.move_count){ lastMove=null; return; }
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/omok_moves?room_id=eq.${room.id}&order=move_index.desc&limit=1`,{headers:headers()});
+    const data=await r.json();
+    lastMove=data.length?{x:data[0].x,y:data[0].y}:null;
+  }catch(e){ lastMove=null; }
 }
 
 async function loadEloFor(username,userId,elId,elDetailId){
@@ -321,7 +332,7 @@ function drawFinalBoardIfAny(wrap){
   wrap.insertBefore(c,wrap.firstChild.nextSibling);
   const cx2=c.getContext('2d');
   const bd=boardFromRoom();
-  drawBoardTo(cx2,bd,null,null);
+  drawBoardTo(cx2,bd,null,null,lastMove);
 }
 
 async function leaveRoom(){
@@ -348,9 +359,9 @@ function drawBoard(){
       }
     }
   }
-  drawBoardTo(ctx,bd,preview,wl);
+  drawBoardTo(ctx,bd,preview,wl,lastMove);
 }
-function drawBoardTo(c,bd,prev,wl){
+function drawBoardTo(c,bd,prev,wl,lm){
   c.fillStyle='#e8c48a'; c.fillRect(0,0,SIZE,SIZE);
   c.strokeStyle='rgba(90,60,20,0.6)'; c.lineWidth=1;
   for(let i=0;i<N;i++){
@@ -362,6 +373,11 @@ function drawBoardTo(c,bd,prev,wl){
     c.beginPath();c.arc(PAD+ix*CELL,PAD+iy*CELL,2.8,0,Math.PI*2);c.fill();
   }); });
   for(let x=0;x<N;x++)for(let y=0;y<N;y++){ if(bd[x][y]!==0) drawStoneTo(c,x,y,bd[x][y],1); }
+  if(lm){
+    const lcx=PAD+lm.x*CELL,lcy=PAD+lm.y*CELL;
+    c.fillStyle='#e53935';
+    c.beginPath();c.arc(lcx,lcy,3,0,Math.PI*2);c.fill();
+  }
   if(prev){ drawStoneTo(c,prev.x,prev.y,myColor,0.45); }
   if(wl){
     c.strokeStyle='rgba(224,66,42,0.85)'; c.lineWidth=3;

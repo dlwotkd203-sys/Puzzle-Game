@@ -253,6 +253,12 @@ function drawBoard(){
     ctx.beginPath();ctx.arc(PAD+ix*CELL,PAD+iy*CELL,2.8,0,Math.PI*2);ctx.fill();
   }); });
   for(var x=0;x<N;x++)for(var y=0;y<N;y++){ if(board[x][y]!==0) drawStone(x,y,board[x][y],1); }
+  if(history.length){
+    var lm=history[history.length-1];
+    var lcx=PAD+lm.x*CELL,lcy=PAD+lm.y*CELL;
+    ctx.fillStyle='#e53935';
+    ctx.beginPath();ctx.arc(lcx,lcy,3,0,Math.PI*2);ctx.fill();
+  }
   if(preview&&!gameOver&&turn===1){ drawStone(preview.x,preview.y,1,0.45); }
   if(winLine){
     ctx.strokeStyle='rgba(224,66,42,0.85)'; ctx.lineWidth=3;
