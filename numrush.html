@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>숫자순서터치</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.best-badge{font-size:12px;color:#7c5cff;font-weight:700;}
+#game-wrap{display:flex;justify-content:center;padding:1.2rem 1rem;}
+#phone{position:relative;width:100%;max-width:340px;}
+#timerBox{text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:32px;color:#1a1a2e;margin-bottom:14px;font-variant-numeric:tabular-nums;}
+#nextHint{text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#8a8a9a;margin-bottom:10px;}
+#grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;}
+.cell{aspect-ratio:1;border-radius:12px;background:#eef1f5;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:20px;color:#3a3a4a;cursor:pointer;user-select:none;transition:transform 0.08s,background 0.15s,opacity 0.15s;box-shadow:0 2px 4px rgba(0,0,0,0.06);}
+.cell.done{background:#7c5cff;color:#fff;opacity:0.35;transform:scale(0.9);}
+.cell.wrong{animation:shake 0.25s;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
+#startScreen,#overScreen{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0;}
+#overScreen{display:none;}
+.title-txt{font-family:-apple-system,sans-serif;font-weight:800;font-size:22px;color:#1a1a2e;}
+.high-txt{font-family:-apple-system,sans-serif;font-size:12px;color:#7c5cff;font-weight:700;}
+.start-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;color:#fff;background:#7c5cff;padding:11px 22px;border-radius:22px;cursor:pointer;box-shadow:0 3px 8px rgba(124,92,255,0.4);}
+.desc-txt{font-family:-apple-system,sans-serif;font-size:11px;color:#8a8a9a;text-align:center;padding:0 24px;line-height:1.7;}
+.final-time{font-family:-apple-system,sans-serif;font-weight:800;font-size:38px;color:#7c5cff;}
+.login-hint{font-family:-apple-system,sans-serif;font-size:10px;color:#aaa;text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">숫자순서터치</span>
+    <span class="best-badge" id="best-badge"></span>
+  </div>
+  <div id="game-wrap">
+    <div id="phone">
+      <div id="startScreen">
+        <div class="title-txt">숫자순서터치</div>
+        <div class="high-txt" id="startHigh">BEST -</div>
+        <div class="start-btn" id="startBtn">시작하기</div>
+        <div class="desc-txt">1부터 25까지<br/>순서대로 최대한 빠르게 탭하세요!</div>
+        <div class="login-hint" id="login-hint"></div>
+      </div>
+      <div id="playScreen" style="display:none;">
+        <div id="timerBox">0.00</div>
+        <div id="nextHint">다음: <b id="nextNum">1</b></div>
+        <div id="grid"></div>
+      </div>
+      <div id="overScreen">
+        <div class="title-txt" style="font-size:18px;">완료!</div>
+        <div class="final-time" id="finalTime">0.00초</div>
+        <div class="high-txt" id="overHigh">BEST -</div>
+        <div class="start-btn" id="retryBtn" style="background:#ffd166;color:#1a1a2e;margin-top:4px;">다시하기</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+document.getElementById('login-hint').textContent=currentUser?'':'로그인하면 랭킹에 기록돼요';
+
+const BASE=1000000;
+async function saveScore(elapsedMs){
+  try{
+    if(!currentUser||elapsedMs<=0)return;
+    const scoreVal=Math.round(BASE-elapsedMs);
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${currentUser.id}&game=eq.numrush&select=id,score`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+    });
+    const ex=await r.json();
+    if(ex.length>0){
+      if(scoreVal>ex[0].score){
+        await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{
+          method:'PATCH',
+          headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+          body:JSON.stringify({score:scoreVal})
+        });
+      }
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+        body:JSON.stringify({user_id:currentUser.id,username:currentUser.username,game:'numrush',score:scoreVal})
+      });
+    }
+  }catch(e){}
+}
+
+(function(){
+let best=null;
+try{ const b=localStorage.getItem('numrush_best'); if(b) best=parseFloat(b); }catch(e){}
+function fmt(ms){ return (ms/1000).toFixed(2)+'초'; }
+function updateHighDisplays(){
+  document.getElementById('startHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
+  document.getElementById('overHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
+  document.getElementById('best-badge').textContent = best!=null ? '🏆 '+fmt(best) : '';
+}
+updateHighDisplays();
+
+let order=[],next=1,startTime=0,rafId=null,playing=false;
+const grid=document.getElementById('grid');
+const timerBox=document.getElementById('timerBox');
+const nextNumEl=document.getElementById('nextNum');
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+function buildGrid(){
+  order=shuffle(Array.from({length:25},(_,i)=>i+1));
+  grid.innerHTML='';
+  order.forEach(n=>{
+    const c=document.createElement('div');
+    c.className='cell';
+    c.textContent=n;
+    c.dataset.n=n;
+    c.addEventListener('pointerdown',()=>onTap(c,n));
+    grid.appendChild(c);
+  });
+}
+
+function onTap(cell,n){
+  if(!playing) return;
+  if(n===next){
+    cell.classList.add('done');
+    next++;
+    nextNumEl.textContent=next<=25?next:'-';
+    if(next>25){ finish(); }
+  } else if(!cell.classList.contains('done')){
+    cell.classList.remove('wrong');
+    void cell.offsetWidth;
+    cell.classList.add('wrong');
+  }
+}
+
+function tick(){
+  if(!playing) return;
+  const elapsed=performance.now()-startTime;
+  timerBox.textContent=(elapsed/1000).toFixed(2);
+  rafId=requestAnimationFrame(tick);
+}
+
+function startGame(){
+  next=1;
+  document.getElementById('startScreen').style.display='none';
+  document.getElementById('overScreen').style.display='none';
+  document.getElementById('playScreen').style.display='block';
+  buildGrid();
+  nextNumEl.textContent='1';
+  timerBox.textContent='0.00';
+  playing=true;
+  startTime=performance.now();
+  rafId=requestAnimationFrame(tick);
+}
+
+function finish(){
+  playing=false;
+  if(rafId) cancelAnimationFrame(rafId);
+  const elapsed=performance.now()-startTime;
+  if(best==null||elapsed<best){
+    best=elapsed;
+    try{ localStorage.setItem('numrush_best',String(best)); }catch(e){}
+  }
+  saveScore(elapsed);
+  updateHighDisplays();
+  document.getElementById('finalTime').textContent=fmt(elapsed);
+  setTimeout(()=>{
+    document.getElementById('playScreen').style.display='none';
+    document.getElementById('overScreen').style.display='flex';
+  },400);
+}
+
+document.getElementById('startBtn').addEventListener('pointerdown',startGame);
+document.getElementById('retryBtn').addEventListener('pointerdown',startGame);
+})();
+</script>
+</body>
+</html>
