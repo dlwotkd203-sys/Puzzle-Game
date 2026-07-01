@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>오목 - 컴퓨터 대전</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.wrap{padding:14px;display:flex;justify-content:center;}
+#gameWrap{max-width:340px;width:100%;}
+.diffBtn{font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;padding:10px 16px;border-radius:10px;background:#eef5ea;color:#3a3a4a;cursor:pointer;}
+.actionBtn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:8px 14px;border-radius:18px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='omok.html'">←</button>
+    <span class="top-title">오목 - 컴퓨터 대전</span>
+  </div>
+  <div class="wrap"><div id="gameWrap">
+    <div id="startScreen" style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:30px 0;">
+      <div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:20px;color:#1a1a2e;">난이도 선택</div>
+      <div style="display:flex;gap:8px;">
+        <div class="diffBtn" data-d="easy">하수</div>
+        <div class="diffBtn" data-d="mid">중수</div>
+        <div class="diffBtn" data-d="hard">고수</div>
+      </div>
+    </div>
+    <div id="gameScreen" style="display:none;flex-direction:column;align-items:center;gap:10px;">
+      <div id="statusTxt" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;color:#1a1a2e;">내 차례 (흑)</div>
+      <canvas id="board" style="touch-action:none;"></canvas>
+      <div style="display:flex;gap:8px;">
+        <div id="confirmBtn" class="actionBtn" style="background:#378ADD;color:#fff;opacity:0.4;">착수</div>
+        <div id="undoBtn" class="actionBtn" style="background:#ffd166;color:#1a1a2e;">무르기</div>
+        <div id="resignBtn" class="actionBtn" style="background:#f0f0f0;color:#888;">기권</div>
+      </div>
+    </div>
+    <div id="overBox" style="display:none;flex-direction:column;align-items:center;gap:10px;padding:30px 0;">
+      <div id="overTxt" style="font-family:-apple-system,sans-serif;font-weight:800;font-size:18px;color:#1a1a2e;"></div>
+      <div id="restartBtn" class="actionBtn" style="background:#ff5e3a;color:#fff;padding:10px 20px;">다시하기</div>
+    </div>
+  </div></div>
+</div>
+<script>
+(function(){
+var N=15,CELL=18,PAD=14;
+var SIZE=PAD*2+CELL*(N-1);
+var canvas=document.getElementById('board');
+canvas.width=SIZE;canvas.height=SIZE;
+canvas.style.width=SIZE+'px';canvas.style.height=SIZE+'px';
+var ctx=canvas.getContext('2d');
+
+var board,history,turn,preview,gameOver,winner,winLine,difficulty,thinking;
+
+function emptyBoard(){ var b=[]; for(var i=0;i<N;i++){ b.push(new Array(N).fill(0)); } return b; }
+function inB(x,y){ return x>=0&&x<N&&y>=0&&y<N; }
+
+document.querySelectorAll('.diffBtn').forEach(function(btn){
+  btn.addEventListener('pointerdown',function(){ difficulty=btn.getAttribute('data-d'); startGame(); });
+});
+
+function startGame(){
+  board=emptyBoard(); history=[]; turn=1; preview=null;
+  gameOver=false;winner=0;winLine=null;thinking=false;
+  document.getElementById('startScreen').style.display='none';
+  document.getElementById('overBox').style.display='none';
+  document.getElementById('gameScreen').style.display='flex';
+  updateStatus(); drawBoard();
+}
+document.getElementById('restartBtn').addEventListener('pointerdown',function(){
+  document.getElementById('overBox').style.display='none';
+  document.getElementById('startScreen').style.display='flex';
+});
+
+function updateStatus(){
+  var el=document.getElementById('statusTxt');
+  if(thinking){ el.textContent='컴퓨터 생각 중...'; return; }
+  el.textContent=turn===1?'내 차례 (흑)':'컴퓨터 차례 (백)';
+}
+
+function runInfo(bd,x,y,dx,dy,color){
+  var len=1; var cx=x+dx,cy=y+dy;
+  while(inB(cx,cy)&&bd[cx][cy]===color){len++;cx+=dx;cy+=dy;}
+  var rightOpen=inB(cx,cy)&&bd[cx][cy]===0;
+  var cx2=x-dx,cy2=y-dy;
+  while(inB(cx2,cy2)&&bd[cx2][cy2]===color){len++;cx2-=dx;cy2-=dy;}
+  var leftOpen=inB(cx2,cy2)&&bd[cx2][cy2]===0;
+  return {len:len,leftOpen:leftOpen,rightOpen:rightOpen};
+}
+var DIRS=[[1,0],[0,1],[1,1],[1,-1]];
+function checkWin(bd,x,y,color){
+  for(var i=0;i<DIRS.length;i++){
+    var info=runInfo(bd,x,y,DIRS[i][0],DIRS[i][1],color);
+    if(info.len>=5){ return {win:true,dir:DIRS[i]}; }
+  }
+  return {win:false};
+}
+function getWinLine(bd,x,y,color,dir){
+  var pts=[[x,y]];
+  var cx=x+dir[0],cy=y+dir[1];
+  while(inB(cx,cy)&&bd[cx][cy]===color){pts.push([cx,cy]);cx+=dir[0];cy+=dir[1];}
+  cx=x-dir[0];cy=y-dir[1];
+  while(inB(cx,cy)&&bd[cx][cy]===color){pts.unshift([cx,cy]);cx-=dir[0];cy-=dir[1];}
+  return pts;
+}
+function isDoubleThree(bd,x,y,color){
+  bd[x][y]=color; var openCount=0;
+  for(var i=0;i<DIRS.length;i++){
+    var info=runInfo(bd,x,y,DIRS[i][0],DIRS[i][1],color);
+    if(info.len===3&&info.leftOpen&&info.rightOpen) openCount++;
+  }
+  bd[x][y]=0;
+  return openCount>=2;
+}
+function scoreForColor(bd,x,y,color){
+  bd[x][y]=color; var total=0;
+  for(var i=0;i<DIRS.length;i++){
+    var info=runInfo(bd,x,y,DIRS[i][0],DIRS[i][1],color);
+    var s=0;
+    if(info.len>=5) s=100000;
+    else if(info.len===4&&(info.leftOpen||info.rightOpen)) s=10000;
+    else if(info.len===4) s=200;
+    else if(info.len===3&&info.leftOpen&&info.rightOpen) s=1200;
+    else if(info.len===3&&(info.leftOpen||info.rightOpen)) s=150;
+    else if(info.len===2&&info.leftOpen&&info.rightOpen) s=80;
+    else if(info.len===2&&(info.leftOpen||info.rightOpen)) s=20;
+    else s=3;
+    total+=s;
+  }
+  bd[x][y]=0;
+  return total;
+}
+function getCandidates(bd){
+  var set={},any=false;
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++){
+    if(bd[x][y]!==0){
+      any=true;
+      for(var dx=-2;dx<=2;dx++)for(var dy=-2;dy<=2;dy++){
+        var nx=x+dx,ny=y+dy;
+        if(inB(nx,ny)&&bd[nx][ny]===0){ set[nx+'_'+ny]={x:nx,y:ny}; }
+      }
+    }
+  }
+  if(!any) return [{x:7,y:7}];
+  return Object.values(set);
+}
+function aiMove(){
+  var cands=getCandidates(board);
+  cands=cands.filter(function(c){ return !(turn===1&&isDoubleThree(board,c.x,c.y,1)); });
+  var scored=cands.map(function(c){
+    var off=scoreForColor(board,c.x,c.y,2);
+    var def=scoreForColor(board,c.x,c.y,1);
+    return {c:c,off:off,def:def,combo:off+def*0.9};
+  });
+  scored.sort(function(a,b){ return b.combo-a.combo; });
+  var pick;
+  if(difficulty==='easy'){
+    if(Math.random()<0.55){ pick=cands[Math.floor(Math.random()*cands.length)]; }
+    else { var topN=scored.slice(0,Math.min(5,scored.length)); pick=topN[Math.floor(Math.random()*topN.length)].c; }
+  } else if(difficulty==='mid'){
+    pick=scored[0].c;
+  } else {
+    var top=scored.slice(0,Math.min(6,scored.length));
+    var best=null,bestVal=-Infinity;
+    top.forEach(function(item){
+      board[item.c.x][item.c.y]=2;
+      var oppCands=getCandidates(board);
+      var oppBest=0;
+      oppCands.forEach(function(oc){ var s=scoreForColor(board,oc.x,oc.y,1); if(s>oppBest) oppBest=s; });
+      board[item.c.x][item.c.y]=0;
+      var val=item.off-oppBest*0.55;
+      if(val>bestVal){ bestVal=val; best=item.c; }
+    });
+    pick=best;
+  }
+  return pick;
+}
+function placeStone(x,y,color){
+  board[x][y]=color;
+  history.push({x:x,y:y,color:color});
+  var wr=checkWin(board,x,y,color);
+  if(wr.win){ gameOver=true;winner=color; winLine=getWinLine(board,x,y,color,wr.dir); }
+}
+function afterMove(){
+  drawBoard();
+  if(gameOver){ showOver(); return; }
+  turn=turn===1?2:1;
+  updateStatus(); drawBoard();
+  if(turn===2&&!gameOver){
+    thinking=true;updateStatus();
+    setTimeout(function(){
+      var mv=aiMove();
+      if(mv){ placeStone(mv.x,mv.y,2); }
+      thinking=false; drawBoard();
+      if(gameOver){ showOver(); } else { turn=1; updateStatus(); }
+    },420);
+  }
+}
+function showOver(){
+  document.getElementById('gameScreen').style.display='none';
+  document.getElementById('overBox').style.display='flex';
+  var txt=winner===1?'승리했습니다! 🎉':(winner===2?'패배했습니다...':'게임 종료');
+  if(winner===0) txt='기권했습니다';
+  document.getElementById('overTxt').textContent=txt;
+}
+canvas.addEventListener('pointerdown',function(e){
+  if(gameOver||thinking||turn!==1) return;
+  var rect=canvas.getBoundingClientRect();
+  var mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  var gx=Math.round((mx-PAD)/CELL),gy=Math.round((my-PAD)/CELL);
+  if(!inB(gx,gy)||board[gx][gy]!==0) return;
+  preview={x:gx,y:gy}; drawBoard();
+  document.getElementById('confirmBtn').style.opacity='1';
+});
+document.getElementById('confirmBtn').addEventListener('pointerdown',function(){
+  if(!preview||gameOver||turn!==1) return;
+  if(isDoubleThree(board,preview.x,preview.y,1)){
+    var el=document.getElementById('statusTxt');
+    el.textContent='33 금지! 다른 자리를 선택하세요'; el.style.color='#e0422a';
+    setTimeout(function(){ el.style.color='#1a1a2e'; updateStatus(); },1200);
+    return;
+  }
+  placeStone(preview.x,preview.y,1); preview=null;
+  document.getElementById('confirmBtn').style.opacity='0.4';
+  afterMove();
+});
+document.getElementById('undoBtn').addEventListener('pointerdown',function(){
+  if(gameOver||thinking||turn!==1||history.length<2) return;
+  var last=history.pop(); board[last.x][last.y]=0;
+  var last2=history.pop(); board[last2.x][last2.y]=0;
+  preview=null; document.getElementById('confirmBtn').style.opacity='0.4';
+  updateStatus(); drawBoard();
+});
+document.getElementById('resignBtn').addEventListener('pointerdown',function(){
+  if(gameOver) return;
+  gameOver=true;winner=0; showOver();
+});
+function drawBoard(){
+  ctx.fillStyle='#e8c48a'; ctx.fillRect(0,0,SIZE,SIZE);
+  ctx.strokeStyle='rgba(90,60,20,0.6)'; ctx.lineWidth=1;
+  for(var i=0;i<N;i++){
+    ctx.beginPath();ctx.moveTo(PAD,PAD+i*CELL);ctx.lineTo(PAD+(N-1)*CELL,PAD+i*CELL);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(PAD+i*CELL,PAD);ctx.lineTo(PAD+i*CELL,PAD+(N-1)*CELL);ctx.stroke();
+  }
+  [3,7,11].forEach(function(ix){ [3,7,11].forEach(function(iy){
+    ctx.fillStyle='rgba(90,60,20,0.6)';
+    ctx.beginPath();ctx.arc(PAD+ix*CELL,PAD+iy*CELL,2.2,0,Math.PI*2);ctx.fill();
+  }); });
+  for(var x=0;x<N;x++)for(var y=0;y<N;y++){ if(board[x][y]!==0) drawStone(x,y,board[x][y],1); }
+  if(preview&&!gameOver&&turn===1){ drawStone(preview.x,preview.y,1,0.45); }
+  if(winLine){
+    ctx.strokeStyle='rgba(224,66,42,0.85)'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(PAD+winLine[0][0]*CELL,PAD+winLine[0][1]*CELL);
+    var last=winLine[winLine.length-1];
+    ctx.lineTo(PAD+last[0]*CELL,PAD+last[1]*CELL);
+    ctx.stroke();
+  }
+}
+function drawStone(x,y,color,alpha){
+  var cx=PAD+x*CELL,cy=PAD+y*CELL;
+  ctx.globalAlpha=alpha;
+  var g=ctx.createRadialGradient(cx-2.5,cy-2.5,1,cx,cy,CELL*0.42);
+  if(color===1){ g.addColorStop(0,'#5a5a5a'); g.addColorStop(1,'#0a0a0a'); }
+  else { g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#c9c9c9'); }
+  ctx.fillStyle=g;
+  ctx.beginPath();ctx.arc(cx,cy,CELL*0.42,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+}
+})();
+</script>
+</body>
+</html>
