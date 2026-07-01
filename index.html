@@ -228,6 +228,10 @@ function showScreen(id){
 }
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+// XSS 방지: 사용자가 입력한 값(닉네임 등)을 HTML에 넣기 전에 특수문자를 이스케이프
+function esc(str){
+  return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
 const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
 const STAGE_GAMES=['shikaku','sudoku','nonogram','flow'];
 const RANK_POINTS=[3,2,1];
@@ -279,7 +283,7 @@ async function renderLeaderboardWidget(){
       const crown=rk===3?'👑 ':'';
       const div=document.createElement('div');
       div.className='lb-item'+rkClass;
-      div.innerHTML=`${sparkles}<div class="lb-rank">TOP ${rk}</div><div class="lb-name">${crown}${row.username}</div><div class="lb-pts">${row.points}pt</div>`;
+      div.innerHTML=`${sparkles}<div class="lb-rank">TOP ${rk}</div><div class="lb-name">${crown}${esc(row.username)}</div><div class="lb-pts">${row.points}pt</div>`;
       listEl.appendChild(div);
     });
   }catch(e){
@@ -370,7 +374,7 @@ if(game.available&&!isMaintenance){
     if(!el)return;
     if(!name){el.innerHTML='';return;}
     const title=TITLES[game.id];
-    el.innerHTML=(title?`<div class="g-top1-title">👑 ${title}</div>`:'')+`<div class="g-top1-name">🥇<b>${name}</b></div>`;
+    el.innerHTML=(title?`<div class="g-top1-title">👑 ${title}</div>`:'')+`<div class="g-top1-name">🥇<b>${esc(name)}</b></div>`;
   });
 }
     g.appendChild(div);

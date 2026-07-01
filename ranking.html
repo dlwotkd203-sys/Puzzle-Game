@@ -74,6 +74,10 @@ const HEADERS={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
 const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
 const STAGE_GAMES=['shikaku','sudoku','nonogram','flow'];
 const RANK_POINTS=[3,2,1];
+// XSS 방지: 사용자가 입력한 값(닉네임 등)을 HTML에 넣기 전에 특수문자를 이스케이프
+function esc(str){
+  return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
 let currentTab='total';
 let currentUser=null;
 try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
@@ -148,7 +152,7 @@ async function loadRanking(){
         div.innerHTML=`
           <div class="rank-num ${numClass}">${medal}</div>
           <div class="rank-info">
-            <div class="rank-name">${row.username}${isMe?'<span class="me-badge">나</span>':''}${row.bestCount>0?'<span class="title-badge">🏅1위 '+row.bestCount+'개</span>':''}</div>
+            <div class="rank-name">${esc(row.username)}${isMe?'<span class="me-badge">나</span>':''}${row.bestCount>0?'<span class="title-badge">🏅1위 '+row.bestCount+'개</span>':''}</div>
             <div class="rank-sub">${row.gameCount}개 게임 순위권</div>
           </div>
           <div class="rank-score">${row.points}<small>pt</small></div>
@@ -173,7 +177,7 @@ async function loadRanking(){
         div.innerHTML=`
           <div class="rank-num ${numClass}">${medal}</div>
           <div class="rank-info">
-            <div class="rank-name">${row.username}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES.omok?'<span class="title-badge">🏅'+TITLES.omok+'</span>':''}</div>
+            <div class="rank-name">${esc(row.username)}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES.omok?'<span class="title-badge">🏅'+TITLES.omok+'</span>':''}</div>
             <div class="rank-sub">${row.wins}승 ${row.losses}패 (${winrate}%)</div>
           </div>
           <div class="rank-score">${row.rating}<small>점</small></div>
@@ -208,7 +212,7 @@ async function loadRanking(){
         div.innerHTML=`
           <div class="rank-num ${numClass}">${medal}</div>
           <div class="rank-info">
-            <div class="rank-name">${row.username}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
+            <div class="rank-name">${esc(row.username)}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
             <div class="rank-sub">${scoreLabel}</div>
           </div>
           <div class="rank-score">${displayScore}<small>${scoreUnit}</small></div>
@@ -234,7 +238,7 @@ async function loadRanking(){
         div.innerHTML=`
           <div class="rank-num ${numClass}">${medal}</div>
           <div class="rank-info">
-            <div class="rank-name">${name}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
+            <div class="rank-name">${esc(name)}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
             <div class="rank-sub">${gameLabel[currentTab]||''} 클리어</div>
           </div>
           <div class="rank-score">${count}<small>스테이지</small></div>
