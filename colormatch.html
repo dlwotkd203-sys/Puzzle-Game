@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>색감 맞추기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.best-badge{font-size:12px;color:#378ADD;font-weight:700;}
+#game-wrap{display:flex;justify-content:center;padding:1rem;}
+#phone{position:relative;width:100%;max-width:340px;aspect-ratio:9/16;background:#ffffff;border-radius:18px;overflow:hidden;box-sizing:border-box;box-shadow:0 2px 10px rgba(0,0,0,0.12);}
+#gameArea{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;padding:14px 14px 0;}
+#titleTxt{font-family:-apple-system,sans-serif;font-weight:800;font-size:18px;color:#1a1a2e;text-align:center;}
+#pctTxt{font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#378ADD;text-align:center;margin-top:2px;height:20px;visibility:hidden;}
+#timerBox{margin-top:6px;background:#f2f2f5;border-radius:10px;padding:6px 16px;display:flex;align-items:baseline;gap:5px;}
+#timerNum{font-family:-apple-system,sans-serif;font-weight:800;font-size:17px;color:#1a1a2e;}
+.swatchRow{display:flex;gap:24px;margin-top:10px;}
+.swatchLabel{font-family:-apple-system,sans-serif;font-size:10px;color:#aaa;font-weight:600;margin-bottom:4px;text-align:center;}
+.swatchBox{width:52px;height:52px;border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,0.12);}
+#fieldWrap{position:relative;width:100%;flex:1;margin-top:12px;min-height:0;}
+#field{width:100%;height:100%;border-radius:16px;display:block;touch-action:none;box-shadow:0 2px 10px rgba(0,0,0,0.1);}
+#reticle{position:absolute;left:50%;top:50%;width:14px;height:14px;margin-left:-7px;margin-top:-7px;pointer-events:none;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.3px rgba(0,0,0,0.55),0 1px 3px rgba(0,0,0,0.3);}
+#confirmBtn{margin:10px 0 12px;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;color:#fff;background:#378ADD;padding:9px 26px;border-radius:20px;cursor:pointer;box-shadow:0 2px 6px rgba(55,138,221,0.4);}
+#startScreen,#overScreen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(255,255,255,0.97);}
+#overScreen{display:none;}
+.title-txt2{font-family:-apple-system,sans-serif;font-weight:800;font-size:22px;color:#1a1a2e;}
+.high-txt{font-family:-apple-system,sans-serif;font-size:12px;color:#378ADD;font-weight:700;}
+.start-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;color:#fff;background:#378ADD;padding:11px 22px;border-radius:22px;cursor:pointer;box-shadow:0 3px 8px rgba(55,138,221,0.4);}
+.desc-txt{font-family:-apple-system,sans-serif;font-size:11px;color:#8a8a9a;text-align:center;padding:0 24px;line-height:1.7;}
+.final-pct{font-family:-apple-system,sans-serif;font-weight:800;font-size:34px;color:#378ADD;}
+.round-break{font-family:-apple-system,sans-serif;font-size:11px;color:#999;padding:0 12px;line-height:1.6;text-align:center;}
+.login-hint{font-family:-apple-system,sans-serif;font-size:10px;color:#aaa;text-align:center;padding:0 20px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">색감 맞추기</span>
+    <span class="best-badge" id="best-badge"></span>
+  </div>
+  <div id="game-wrap">
+    <div id="phone">
+      <div id="gameArea">
+        <div id="titleTxt">1라운드</div>
+        <div id="pctTxt">0.00%</div>
+        <div id="timerBox"><span id="timerNum">7</span><span style="font-family:-apple-system,sans-serif;font-size:11px;color:#888;">초</span></div>
+        <div class="swatchRow">
+          <div><div class="swatchLabel">정답</div><div id="targetSwatch" class="swatchBox"></div></div>
+          <div><div class="swatchLabel">선택</div><div id="pickSwatch" class="swatchBox" style="background:#e8e8ec;"></div></div>
+        </div>
+        <div id="fieldWrap">
+          <canvas id="field"></canvas>
+          <div id="reticle"></div>
+        </div>
+        <div id="confirmBtn">확정!</div>
+      </div>
+      <div id="startScreen">
+        <div class="title-txt2">색감 맞추기</div>
+        <div class="high-txt" id="startHigh">BEST 0.00%</div>
+        <div class="start-btn" id="startBtn">시작하기</div>
+        <div class="desc-txt">드래그로 이동, 휠/핀치로 확대·축소<br/>가운데 점을 목표 색 위로 맞추세요<br/>5라운드 · 라운드당 7초<br/>지도는 상하좌우 끝없이 이어져요</div>
+        <div class="login-hint" id="login-hint"></div>
+      </div>
+      <div id="overScreen">
+        <div class="title-txt2" style="font-size:18px;">결과</div>
+        <div class="final-pct" id="finalPct">0.00%</div>
+        <div class="round-break" id="roundBreak"></div>
+        <div class="high-txt" id="overHigh" style="margin-top:4px;">BEST 0.00%</div>
+        <div class="start-btn" id="retryBtn" style="background:#ffd166;color:#1a1a2e;margin-top:6px;">다시하기</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+document.getElementById('login-hint').textContent=currentUser?'':'로그인하면 랭킹에 기록돼요';
+
+async function saveScore(scoreInt){
+  try{
+    if(!currentUser||scoreInt<=0)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${currentUser.id}&game=eq.colormatch&select=id,score`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+    });
+    const ex=await r.json();
+    if(ex.length>0){
+      if(scoreInt>ex[0].score){
+        await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{
+          method:'PATCH',
+          headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+          body:JSON.stringify({score:scoreInt})
+        });
+      }
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
+        body:JSON.stringify({user_id:currentUser.id,username:currentUser.username,game:'colormatch',score:scoreInt})
+      });
+    }
+  }catch(e){}
+}
+
+(function(){
+var startScreen=document.getElementById('startScreen');
+var overScreen=document.getElementById('overScreen');
+var titleTxt=document.getElementById('titleTxt');
+var pctTxt=document.getElementById('pctTxt');
+var timerBox=document.getElementById('timerBox');
+var timerNum=document.getElementById('timerNum');
+var targetSwatch=document.getElementById('targetSwatch');
+var pickSwatch=document.getElementById('pickSwatch');
+var canvas=document.getElementById('field');
+var ctx=canvas.getContext('2d');
+var confirmBtn=document.getElementById('confirmBtn');
+
+var TOTAL_ROUNDS=5,ROUND_TIME=7000;
+var TILE_W=480,TILE_H=480;
+var state='ready';
+var round=0,results=[];
+var target=null;
+var timeLeft=ROUND_TIME;
+var lastTime=0;
+var W=0,H=0,panX=0,panY=0;
+var zoom=1,MIN_ZOOM=0.5,MAX_ZOOM=4;
+var viewW=0,viewH=0;
+var dragging=false,lastPt=null;
+var pointers={};
+var pinchStartDist=0,pinchStartZoom=1;
+var offCanvas=document.createElement('canvas');
+var offCtx=offCanvas.getContext('2d');
+var pattern=null;
+var best=0;
+try{best=parseFloat(localStorage.getItem('colormatch_best')||'0')||0;}catch(e){}
+
+function updateHighDisplays(){
+  document.getElementById('startHigh').textContent='BEST '+best.toFixed(2)+'%';
+  document.getElementById('overHigh').textContent='BEST '+best.toFixed(2)+'%';
+  document.getElementById('best-badge').textContent=best>0?('🏆 '+best.toFixed(1)+'%'):'';
+}
+updateHighDisplays();
+
+function rgbStr(c){ return 'rgb('+Math.round(c[0])+','+Math.round(c[1])+','+Math.round(c[2])+')'; }
+
+function hsl2rgb(h,s,l){
+  s/=100;l/=100;
+  var c=(1-Math.abs(2*l-1))*s;
+  var hp=h/60;
+  var x=c*(1-Math.abs(hp%2-1));
+  var r=0,g=0,b=0;
+  if(hp>=0&&hp<1){r=c;g=x;b=0;}
+  else if(hp<2){r=x;g=c;b=0;}
+  else if(hp<3){r=0;g=c;b=x;}
+  else if(hp<4){r=0;g=x;b=c;}
+  else if(hp<5){r=x;g=0;b=c;}
+  else {r=c;g=0;b=x;}
+  var m=l-c/2;
+  return [(r+m)*255,(g+m)*255,(b+m)*255];
+}
+function hslStr(h,s,l){ return 'hsl('+h+','+s+'%,'+l+'%)'; }
+function wrap(v,t){ return ((v%t)+t)%t; }
+
+function fieldColorAt(x,y){
+  var xf=wrap(x,TILE_W)/TILE_W;
+  var yf=wrap(y,TILE_H)/TILE_H;
+  var hue=xf*360;
+  var L=100*(1-Math.abs(2*yf-1));
+  return hsl2rgb(hue,100,L);
+}
+
+function renderTile(){
+  offCanvas.width=TILE_W;offCanvas.height=TILE_H;
+  var hueGrad=offCtx.createLinearGradient(0,0,TILE_W,0);
+  for(var i=0;i<=6;i++){ hueGrad.addColorStop(i/6,hslStr(i*60,100,50)); }
+  offCtx.fillStyle=hueGrad;offCtx.fillRect(0,0,TILE_W,TILE_H);
+  var whiteGrad=offCtx.createLinearGradient(0,0,0,TILE_H);
+  whiteGrad.addColorStop(0,'rgba(255,255,255,0)');
+  whiteGrad.addColorStop(0.25,'rgba(255,255,255,0)');
+  whiteGrad.addColorStop(0.5,'rgba(255,255,255,1)');
+  whiteGrad.addColorStop(0.75,'rgba(255,255,255,0)');
+  whiteGrad.addColorStop(1,'rgba(255,255,255,0)');
+  offCtx.fillStyle=whiteGrad;offCtx.fillRect(0,0,TILE_W,TILE_H);
+  var blackGrad=offCtx.createLinearGradient(0,0,0,TILE_H);
+  blackGrad.addColorStop(0,'rgba(0,0,0,1)');
+  blackGrad.addColorStop(0.25,'rgba(0,0,0,0)');
+  blackGrad.addColorStop(0.5,'rgba(0,0,0,0)');
+  blackGrad.addColorStop(0.75,'rgba(0,0,0,0)');
+  blackGrad.addColorStop(1,'rgba(0,0,0,1)');
+  offCtx.fillStyle=blackGrad;offCtx.fillRect(0,0,TILE_W,TILE_H);
+  pattern=ctx.createPattern(offCanvas,'repeat');
+}
+
+function redmean(a,b){
+  var rmean=(a[0]+b[0])/2;
+  var dr=a[0]-b[0],dg=a[1]-b[1],db=a[2]-b[2];
+  return Math.sqrt((2+rmean/256)*dr*dr+4*dg*dg+(2+(255-rmean)/256)*db*db);
+}
+var MAXD=redmean([0,0,0],[255,255,255]);
+function pctFromDist(d){ return Math.max(0,100-(d/MAXD*100)); }
+function feedbackText(p){
+  if(p>=97) return '완벽해요!';
+  if(p>=90) return '거의 다 왔어요!';
+  if(p>=75) return '이거 아깝다';
+  if(p>=55) return '쉽지 않네요';
+  return '다음엔 더 잘할 수 있어요';
+}
+
+function updateViewSize(){ viewW=W/zoom; viewH=H/zoom; }
+function clampZoom(){ zoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,zoom)); }
+function applyZoom(newZoom){
+  var cx=panX+viewW/2,cy=panY+viewH/2;
+  zoom=newZoom;clampZoom();
+  updateViewSize();
+  panX=cx-viewW/2;panY=cy-viewH/2;
+}
+
+function resizeCanvas(){
+  var r=canvas.getBoundingClientRect();
+  W=Math.round(r.width);H=Math.round(r.height);
+  canvas.width=W;canvas.height=H;
+  updateViewSize();
+}
+
+function centerColor(){ return fieldColorAt(panX+viewW/2,panY+viewH/2); }
+
+function genField(){
+  zoom=1;updateViewSize();
+  var tx=Math.random()*TILE_W,ty=Math.random()*TILE_H;
+  target=fieldColorAt(tx,ty);
+  panX=Math.random()*TILE_W;
+  panY=Math.random()*TILE_H;
+}
+
+function startGame(){
+  round=0;results=[];
+  state='playing';
+  startScreen.style.display='none';
+  overScreen.style.display='none';
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round>TOTAL_ROUNDS){ endGame(); return; }
+  resizeCanvas();
+  if(!pattern) renderTile();
+  genField();
+  targetSwatch.style.background=rgbStr(target);
+  timeLeft=ROUND_TIME;
+  titleTxt.textContent=round+'라운드';
+  titleTxt.style.color='#1a1a2e';
+  pctTxt.style.visibility='hidden';
+  timerBox.style.display='flex';
+  confirmBtn.style.display='block';
+  state='playing';
+}
+
+function finalizeRound(){
+  if(state!=='playing') return;
+  state='result';
+  var c=centerColor();
+  var p=pctFromDist(redmean(c,target));
+  results.push(p);
+  titleTxt.textContent=feedbackText(p);
+  titleTxt.style.color='#1a1a2e';
+  pctTxt.textContent=p.toFixed(2)+'%';
+  pctTxt.style.visibility='visible';
+  pctTxt.style.fontSize='24px';
+  timerBox.style.display='none';
+  confirmBtn.style.display='none';
+  setTimeout(function(){
+    pctTxt.style.fontSize='16px';
+    nextRound();
+  },1500);
+}
+
+function endGame(){
+  state='over';
+  var avg=results.reduce(function(a,b){return a+b;},0)/results.length;
+  if(avg>best){ best=avg; try{localStorage.setItem('colormatch_best',String(best));}catch(e){} }
+  saveScore(Math.round(avg*100));
+  document.getElementById('finalPct').textContent=avg.toFixed(2)+'%';
+  document.getElementById('roundBreak').textContent=results.map(function(r,i){return (i+1)+'R '+r.toFixed(1)+'%';}).join('  ·  ');
+  updateHighDisplays();
+  overScreen.style.display='flex';
+}
+
+function getPt(e){ return {x:e.clientX,y:e.clientY}; }
+
+canvas.addEventListener('pointerdown',function(e){
+  if(state!=='playing') return;
+  canvas.setPointerCapture(e.pointerId);
+  pointers[e.pointerId]=getPt(e);
+  var ids=Object.keys(pointers);
+  if(ids.length===1){ dragging=true;lastPt=pointers[ids[0]]; }
+  else if(ids.length===2){
+    dragging=false;
+    var p1=pointers[ids[0]],p2=pointers[ids[1]];
+    pinchStartDist=Math.hypot(p2.x-p1.x,p2.y-p1.y);
+    pinchStartZoom=zoom;
+  }
+});
+window.addEventListener('pointermove',function(e){
+  if(!(e.pointerId in pointers)) return;
+  pointers[e.pointerId]=getPt(e);
+  var ids=Object.keys(pointers);
+  if(ids.length===2){
+    var p1=pointers[ids[0]],p2=pointers[ids[1]];
+    var d=Math.hypot(p2.x-p1.x,p2.y-p1.y);
+    if(pinchStartDist>0){ applyZoom(pinchStartZoom*(d/pinchStartDist)); }
+  } else if(ids.length===1&&dragging&&state==='playing'){
+    var p=pointers[ids[0]];
+    panX-=(p.x-lastPt.x)/zoom;
+    panY-=(p.y-lastPt.y)/zoom;
+    lastPt=p;
+  }
+});
+function endPointer(e){
+  delete pointers[e.pointerId];
+  var ids=Object.keys(pointers);
+  if(ids.length===1){ dragging=true;lastPt=pointers[ids[0]]; }
+  else { dragging=false; }
+}
+window.addEventListener('pointerup',endPointer);
+window.addEventListener('pointercancel',endPointer);
+
+canvas.addEventListener('wheel',function(e){
+  if(state!=='playing') return;
+  e.preventDefault();
+  applyZoom(zoom*(e.deltaY<0?1.12:0.89));
+},{passive:false});
+
+confirmBtn.addEventListener('pointerdown',function(e){ e.preventDefault();e.stopPropagation(); finalizeRound(); });
+document.getElementById('startBtn').addEventListener('pointerdown',function(e){e.stopPropagation();startGame();});
+document.getElementById('retryBtn').addEventListener('pointerdown',function(e){e.stopPropagation();startGame();});
+
+function drawCanvas(){
+  if(!pattern) return;
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.fillStyle=pattern;
+  var m=new DOMMatrix([zoom,0,0,zoom,-zoom*panX,-zoom*panY]);
+  pattern.setTransform(m);
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
+function loop(ts){
+  if(!lastTime) lastTime=ts;
+  var dt=ts-lastTime;
+  lastTime=ts;
+  if(state==='playing'){
+    timeLeft-=dt;
+    if(timeLeft<=0){
+      timeLeft=0;
+      timerNum.textContent='0';
+      finalizeRound();
+    } else {
+      timerNum.textContent=String(Math.ceil(timeLeft/1000));
+    }
+    pickSwatch.style.background=rgbStr(centerColor());
+    drawCanvas();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

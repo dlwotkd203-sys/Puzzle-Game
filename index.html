@@ -163,6 +163,7 @@ const GAMES=[
   {id:'reaction', name:'반응속도', icon:'⚡', available:true},
   {id:'olla', name:'올라올라', icon:'🪜', available:true},
   {id:'snake', name:'스네이크', icon:'🐍', available:true},
+  {id:'colormatch', name:'색감 맞추기', icon:'🎨', available:true},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
 let cleared=new Set();
@@ -172,7 +173,7 @@ let curStage=1,N=4,CELL=68,puzzle=null,userRects=[],dragging=false,dragStart=nul
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
-const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake'];
+const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch'];
 
 async function getTop1(gameId){
   try{
@@ -200,7 +201,7 @@ const TITLES={
   shikaku:'식하쿠', sudoku:'수독후', nonogram:'픽셀장인', '2048':'16384',
   dodge:'공이 나를 피한다', memory:'타짜', sorter:'왼쪽 오른쪽', minesweeper:'지뢰탐지견',
   breakout:'파괴본능', flow:'뭘로하지', rps:'눈보다 빠른 손', reaction:'빠른 시냅스',
-  olla:'어디까지 올라가', snake:'뱀~신'
+  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이'
 };
 let gameEnabledMap={};
 
@@ -268,6 +269,7 @@ if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
   if(game.id==='reaction'){ location.href='reaction.html'; return; }
   if(game.id==='olla'){ location.href='olla.html'; return; }
   if(game.id==='snake'){ location.href='snake.html'; return; }
+  if(game.id==='colormatch'){ location.href='colormatch.html'; return; }
   if(game.id==='memory'){ location.href='memory.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
 if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }
