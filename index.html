@@ -160,6 +160,7 @@ const GAMES=[
   {id:'rps', name:'가위바위보', icon:'✊', available:true},
   {id:'reaction', name:'반응속도', icon:'⚡', available:true},
   {id:'olla', name:'올라올라', icon:'🪜', available:true},
+  {id:'snake', name:'스네이크', icon:'🐍', available:true},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
 let cleared=new Set();
@@ -169,7 +170,7 @@ let curStage=1,N=4,CELL=68,puzzle=null,userRects=[],dragging=false,dragStart=nul
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
-const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla'];
+const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake'];
 
 async function getTop1(gameId){
   try{
@@ -193,6 +194,12 @@ async function getTop1(gameId){
   }catch(e){return null;}
 }
 
+const TITLES={
+  shikaku:'도형왕', sudoku:'수독신', nonogram:'픽셀장인', '2048':'숫자왕',
+  dodge:'회피달인', memory:'기억력천재', sorter:'분류달인', minesweeper:'지뢰박사',
+  breakout:'벽돌파괴자', flow:'물길장인', rps:'가위바위보신', reaction:'번개손',
+  olla:'등산왕', snake:'뱀신'
+};
 let gameEnabledMap={};
 
 async function loadSettingsAndNotice(){
@@ -238,7 +245,7 @@ if(game.available&&!isMaintenance){
   div.onclick=()=>openGame(game);
   getTop1(game.id).then(name=>{
     const el=document.getElementById('top1-'+game.id);
-    if(el)el.innerHTML=name?'🥇<b>'+name+'</b>':'';
+    if(el)el.innerHTML=name?'🥇<b>'+name+'</b>'+(TITLES[game.id]?' · '+TITLES[game.id]:''):'';
   });
 }
     g.appendChild(div);
@@ -255,6 +262,7 @@ if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
   if(game.id==='rps'){ location.href='rps.html'; return; }
   if(game.id==='reaction'){ location.href='reaction.html'; return; }
   if(game.id==='olla'){ location.href='olla.html'; return; }
+  if(game.id==='snake'){ location.href='snake.html'; return; }
   if(game.id==='memory'){ location.href='memory.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
 if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }
