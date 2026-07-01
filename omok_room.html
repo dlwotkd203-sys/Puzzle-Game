@@ -50,7 +50,7 @@ function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE
 document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
 
 let room=null,role='spectator',myColor=0;
-let N=15,CELL=18,PAD=14,SIZE=PAD*2+CELL*(N-1);
+let N=15,CELL=23,PAD=16,SIZE=PAD*2+CELL*(N-1);
 let canvas=null,ctx=null,preview=null,winLine=null,applyingResult=false;
 let pollTimer=null;
 
@@ -60,7 +60,7 @@ async function fetchRoom(){
     const data=await r.json();
     if(!data.length){ document.getElementById('wrap').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
     room=data[0];
-    role = currentUser&&room.host_user_id===currentUser.id ? 'host' : (currentUser&&room.guest_user_id===currentUser.id?'guest':'spectator');
+    role = currentUser&&String(room.host_user_id)===String(currentUser.id) ? 'host' : (currentUser&&String(room.guest_user_id)===String(currentUser.id)?'guest':'spectator');
     myColor = role==='host'?1:(role==='guest'?2:0);
     render();
   }catch(e){}
@@ -359,7 +359,7 @@ function drawBoardTo(c,bd,prev,wl){
   }
   [3,7,11].forEach(ix=>{ [3,7,11].forEach(iy=>{
     c.fillStyle='rgba(90,60,20,0.6)';
-    c.beginPath();c.arc(PAD+ix*CELL,PAD+iy*CELL,2.2,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(PAD+ix*CELL,PAD+iy*CELL,2.8,0,Math.PI*2);c.fill();
   }); });
   for(let x=0;x<N;x++)for(let y=0;y<N;y++){ if(bd[x][y]!==0) drawStoneTo(c,x,y,bd[x][y],1); }
   if(prev){ drawStoneTo(c,prev.x,prev.y,myColor,0.45); }

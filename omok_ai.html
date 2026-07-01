@@ -49,7 +49,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 <script>
 (function(){
-var N=15,CELL=18,PAD=14;
+var N=15,CELL=23,PAD=16;
 var SIZE=PAD*2+CELL*(N-1);
 var canvas=document.getElementById('board');
 canvas.width=SIZE;canvas.height=SIZE;
@@ -250,7 +250,7 @@ function drawBoard(){
   }
   [3,7,11].forEach(function(ix){ [3,7,11].forEach(function(iy){
     ctx.fillStyle='rgba(90,60,20,0.6)';
-    ctx.beginPath();ctx.arc(PAD+ix*CELL,PAD+iy*CELL,2.2,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(PAD+ix*CELL,PAD+iy*CELL,2.8,0,Math.PI*2);ctx.fill();
   }); });
   for(var x=0;x<N;x++)for(var y=0;y<N;y++){ if(board[x][y]!==0) drawStone(x,y,board[x][y],1); }
   if(preview&&!gameOver&&turn===1){ drawStone(preview.x,preview.y,1,0.45); }

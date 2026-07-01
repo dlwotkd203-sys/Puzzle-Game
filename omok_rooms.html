@@ -91,8 +91,8 @@ function renderRooms(){
 
     let actionHtml='';
     if(selectedId===room.id){
-      const isHost=currentUser&&room.host_user_id===currentUser.id;
-      const isGuest=currentUser&&room.guest_user_id===currentUser.id;
+      const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+      const isGuest=currentUser&&String(room.guest_user_id)===String(currentUser.id);
       let label='',enabled=true;
       if(isHost||isGuest){ label='이어하기'; }
       else if(room.status==='playing'){ label='관람하기'; }
@@ -130,8 +130,8 @@ function renderRooms(){
 
 async function joinOrEnter(room){
   if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
-  const isHost=room.host_user_id===currentUser.id;
-  const isGuest=room.guest_user_id===currentUser.id;
+  const isHost=String(room.host_user_id)===String(currentUser.id);
+  const isGuest=String(room.guest_user_id)===String(currentUser.id);
   if(isHost||isGuest||room.status==='playing'){
     location.href='omok_room.html?id='+room.id;
     return;
