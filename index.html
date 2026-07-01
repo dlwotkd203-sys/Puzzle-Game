@@ -9,8 +9,45 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
-#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+#page-wrap{display:flex;flex-direction:column;max-width:430px;margin:0 auto;}
+#app{width:100%;background:#fff;min-height:100vh;}
 .screen{display:none;}.screen.active{display:block;}
+
+/* ===== 전체 랭킹 위젯 ===== */
+#leaderboard-widget{display:none;background:#fff;border-radius:16px;padding:12px 14px;margin-bottom:0.75rem;box-shadow:0 1px 4px rgba(0,0,0,0.06);border:1px solid #eee;}
+#leaderboard-widget.show{display:block;}
+.lb-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.lb-title{font-size:13px;font-weight:800;color:#111;display:flex;align-items:center;gap:4px;}
+.lb-more{font-size:11px;color:#aaa;font-weight:600;cursor:pointer;}
+.lb-list{display:flex;flex-direction:column;gap:6px;}
+.lb-item{position:relative;display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:10px;overflow:hidden;background:#f7f8fa;}
+.lb-rank{font-size:10px;font-weight:800;width:38px;flex-shrink:0;color:#aaa;letter-spacing:-0.3px;}
+.lb-name{font-size:12.5px;font-weight:600;color:#333;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lb-pts{font-size:11px;font-weight:800;color:#378ADD;flex-shrink:0;}
+.lb-empty{font-size:12px;color:#aaa;text-align:center;padding:8px 0;}
+
+.lb-item.rk1{background:linear-gradient(120deg,#FFF6D9,#FFE199,#FFD24C,#FFE199,#FFF6D9);background-size:300% 300%;animation:lbShine 2.2s ease-in-out infinite;border:1px solid #F5A623;box-shadow:0 2px 12px rgba(245,166,35,0.55);}
+.lb-item.rk1 .lb-rank{color:#B8720C;}
+.lb-item.rk1 .lb-name{color:#7a4400;font-weight:800;}
+.lb-item.rk1 .lb-pts{color:#B8720C;}
+.lb-item.rk2{background:linear-gradient(120deg,#F4F5F7,#E2E4E8,#EDEEF1,#E2E4E8,#F4F5F7);background-size:250% 250%;animation:lbShine 3.6s ease-in-out infinite;border:1px solid #B8BCC4;box-shadow:0 1px 8px rgba(150,155,165,0.35);}
+.lb-item.rk2 .lb-rank{color:#7c8087;}
+.lb-item.rk2 .lb-name{color:#484c52;font-weight:700;}
+.lb-item.rk3{background:#FCEFE3;border:1px solid #D9A066;}
+.lb-item.rk3 .lb-rank{color:#B0703A;}
+.sparkle{position:absolute;font-size:9px;line-height:1;pointer-events:none;animation:lbTwinkle 1.5s ease-in-out infinite;}
+.sparkle.s1{top:2px;left:4px;animation-delay:0s;}
+.sparkle.s2{top:3px;right:6px;animation-delay:0.35s;}
+.sparkle.s3{bottom:2px;left:34%;animation-delay:0.7s;}
+.sparkle.s4{bottom:3px;right:22%;animation-delay:1.05s;}
+@keyframes lbShine{0%,100%{background-position:0% 50%;}50%{background-position:100% 50%;}}
+@keyframes lbTwinkle{0%,100%{opacity:0;transform:scale(0.4);}50%{opacity:1;transform:scale(1.15);}}
+
+@media (min-width:960px){
+  #page-wrap{flex-direction:row;max-width:760px;align-items:flex-start;gap:20px;padding:20px 0;}
+  #leaderboard-widget{width:270px;flex-shrink:0;position:sticky;top:20px;margin-bottom:0;order:0;}
+  #app{order:1;box-shadow:0 1px 6px rgba(0,0,0,0.05);border-radius:16px;overflow:hidden;}
+}
 .top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
 .back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
 .back-btn:hover{background:#f0f0f0;}
@@ -68,6 +105,16 @@ button.gbtn.primary:active{background:#185FA5;}
 </style>
 </head>
 <body>
+<div id="page-wrap">
+<div id="leaderboard-widget">
+  <div class="lb-head">
+    <div class="lb-title">🏆 전체 랭킹</div>
+    <div class="lb-more" onclick="location.href='ranking.html'">더보기 ›</div>
+  </div>
+  <div class="lb-list" id="lb-list">
+    <div class="lb-empty">불러오는 중...</div>
+  </div>
+</div>
 <div id="app">
 <div id="home" class="screen active">
 <div class="notice-banner" id="notice-banner"><div class="notice-track" id="notice-track"></div></div>
@@ -102,6 +149,7 @@ button.gbtn.primary:active{background:#185FA5;}
     <button class="gbtn primary" onclick="goNextStage()" id="next-btn" style="display:none">다음 스테이지 →</button>
   </div>
   <div class="hint-txt">정확한 면적만 확정 · 틀리면 자동 취소</div>
+</div>
 </div>
 </div>
 <script>
@@ -172,10 +220,72 @@ let cleared=new Set();
 try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s));}catch(e){}
 function saveCleared(){try{localStorage.setItem('shikaku_v5',JSON.stringify([...cleared]));}catch(e){}}
 let curStage=1,N=4,CELL=68,puzzle=null,userRects=[],dragging=false,dragStart=null,dragEnd=null,gridEl=null;
-function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const lw=document.getElementById('leaderboard-widget');
+  if(lw) lw.classList.toggle('show',id==='home');
+}
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
+const STAGE_GAMES=['shikaku','sudoku','nonogram','flow'];
+const RANK_POINTS=[3,2,1];
+
+// 게임별 1~3위에게 3/2/1점을 주고 합산하는 종합 랭킹 (ranking.html의 '전체' 탭과 동일한 방식)
+async function computeTotalRanking(){
+  const points={},gameCount={};
+  function award(username,idx){
+    points[username]=(points[username]||0)+RANK_POINTS[idx];
+    gameCount[username]=(gameCount[username]||0)+1;
+  }
+  const headers={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
+  await Promise.all(SCORE_GAMES.map(async game=>{
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${game}&select=username,score&order=score.desc&limit=3`,{headers});
+      const data=await res.json();
+      data.forEach((row,idx)=>award(row.username,idx));
+    }catch(e){}
+  }));
+  await Promise.all(STAGE_GAMES.map(async game=>{
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/clears?game=eq.${game}&select=username`,{headers});
+      const data=await res.json();
+      const map={};
+      data.forEach(r=>{map[r.username]=(map[r.username]||0)+1;});
+      Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,3).forEach(([name],idx)=>award(name,idx));
+    }catch(e){}
+  }));
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/omok_elo?select=username,rating&order=rating.desc&limit=3`,{headers});
+    const data=await res.json();
+    data.forEach((row,idx)=>award(row.username,idx));
+  }catch(e){}
+  return Object.entries(points)
+    .sort((a,b)=>b[1]-a[1]||gameCount[b[0]]-gameCount[a[0]])
+    .map(([username,pts])=>({username,points:pts}));
+}
+
+async function renderLeaderboardWidget(){
+  const listEl=document.getElementById('lb-list');
+  try{
+    const ranked=await computeTotalRanking();
+    if(!ranked.length){listEl.innerHTML='<div class="lb-empty">아직 기록이 없어요!</div>';return;}
+    listEl.innerHTML='';
+    ranked.slice(0,5).forEach((row,idx)=>{
+      const rk=idx+1;
+      const rkClass=rk<=3?' rk'+rk:'';
+      const sparkles=rk===1?'<span class="sparkle s1">✨</span><span class="sparkle s2">✨</span><span class="sparkle s3">✨</span><span class="sparkle s4">✨</span>':'';
+      const crown=rk===3?'👑 ':'';
+      const div=document.createElement('div');
+      div.className='lb-item'+rkClass;
+      div.innerHTML=`${sparkles}<div class="lb-rank">TOP ${rk}</div><div class="lb-name">${crown}${row.username}</div><div class="lb-pts">${row.points}pt</div>`;
+      listEl.appendChild(div);
+    });
+  }catch(e){
+    listEl.innerHTML='<div class="lb-empty">불러올 수 없어요.</div>';
+  }
+}
 
 async function getTop1(gameId){
   try{
@@ -423,7 +533,11 @@ loadSettingsAndNotice().then(()=>{
   if(_sn > 0){
     try{const s=localStorage.getItem('shikaku_v5');if(s)cleared=new Set(JSON.parse(s).map(Number));}catch(e){}
     startStage(_sn);
-  } else { renderHome(); }
+  } else {
+    renderHome();
+    document.getElementById('leaderboard-widget').classList.add('show');
+    renderLeaderboardWidget();
+  }
 });
 </script>
 </body>

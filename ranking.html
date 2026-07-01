@@ -70,6 +70,10 @@ const TITLES={
   breakout:'파괴본능', flow:'흐름의 절대자', rps:'갓핸드', reaction:'빠른 시냅스',
   olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림'
 };
+const HEADERS={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
+const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
+const STAGE_GAMES=['shikaku','sudoku','nonogram','flow'];
+const RANK_POINTS=[3,2,1];
 let currentTab='total';
 let currentUser=null;
 try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
@@ -81,11 +85,77 @@ function setTab(tab){
   loadRanking();
 }
 
+// 게임마다 1위 3pt, 2위 2pt, 3위 1pt를 주고 전체 게임에 걸쳐 합산하는 종합 랭킹
+async function computeTotalRanking(){
+  const points={};   // username -> 누적 포인트
+  const gameCount={}; // username -> 순위권에 든 게임 수
+  const bestGames={}; // username -> [게임이름,...] (1위 한 게임들)
+
+  function award(username,game,idx){
+    points[username]=(points[username]||0)+RANK_POINTS[idx];
+    gameCount[username]=(gameCount[username]||0)+1;
+    if(idx===0){
+      if(!bestGames[username])bestGames[username]=[];
+      bestGames[username].push(game);
+    }
+  }
+
+  // 점수 기반 게임들 (score.desc 정렬 = 성적 좋은 순)
+  await Promise.all(SCORE_GAMES.map(async game=>{
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${game}&select=username,score&order=score.desc&limit=3`,{headers:HEADERS});
+      const data=await res.json();
+      data.forEach((row,idx)=>award(row.username,game,idx));
+    }catch(e){}
+  }));
+
+  // 스테이지 클리어 게임들 (클리어 수 많은 순)
+  await Promise.all(STAGE_GAMES.map(async game=>{
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/clears?game=eq.${game}&select=username`,{headers:HEADERS});
+      const data=await res.json();
+      const map={};
+      data.forEach(row=>{map[row.username]=(map[row.username]||0)+1;});
+      const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+      sorted.slice(0,3).forEach(([name],idx)=>award(name,game,idx));
+    }catch(e){}
+  }));
+
+  // 오목 (레이팅 높은 순)
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/omok_elo?select=username,rating&order=rating.desc&limit=3`,{headers:HEADERS});
+    const data=await res.json();
+    data.forEach((row,idx)=>award(row.username,'omok',idx));
+  }catch(e){}
+
+  const sorted=Object.entries(points).sort((a,b)=>b[1]-a[1]||gameCount[b[0]]-gameCount[a[0]]);
+  return sorted.map(([username,pts])=>({username,points:pts,gameCount:gameCount[username],bestCount:(bestGames[username]||[]).length}));
+}
+
 async function loadRanking(){
   const body=document.getElementById('ranking-body');
   body.innerHTML='<div class="loading">불러오는 중...</div>';
   try{
-    if(currentTab==='omok'){
+    if(currentTab==='total'){
+      const ranked=await computeTotalRanking();
+      if(!ranked.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
+      body.innerHTML='';
+      ranked.slice(0,50).forEach((row,idx)=>{
+        const isMe=currentUser&&currentUser.username===row.username;
+        const div=document.createElement('div');div.className='rank-item';
+        const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':idx+1;
+        const numClass=idx===0?'gold':idx===1?'silver':idx===2?'bronze':'';
+        div.innerHTML=`
+          <div class="rank-num ${numClass}">${medal}</div>
+          <div class="rank-info">
+            <div class="rank-name">${row.username}${isMe?'<span class="me-badge">나</span>':''}${row.bestCount>0?'<span class="title-badge">🏅1위 '+row.bestCount+'개</span>':''}</div>
+            <div class="rank-sub">${row.gameCount}개 게임 순위권</div>
+          </div>
+          <div class="rank-score">${row.points}<small>pt</small></div>
+        `;
+        body.appendChild(div);
+      });
+    } else if(currentTab==='omok'){
       // 오목 레이팅 기준 랭킹
       const res=await fetch(`${SUPABASE_URL}/rest/v1/omok_elo?select=username,rating,wins,losses&order=rating.desc&limit=50`,{
         headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
@@ -110,7 +180,7 @@ async function loadRanking(){
         `;
         body.appendChild(div);
       });
-    } else if(currentTab==='2048'||currentTab==='dodge'||currentTab==='memory'||currentTab==='sorter'||currentTab==='minesweeper'||currentTab==='breakout'||currentTab==='rps'||currentTab==='reaction'||currentTab==='olla'||currentTab==='snake'||currentTab==='colormatch'||currentTab==='numrush'){
+    } else if(SCORE_GAMES.includes(currentTab)){
       // 점수 기준 랭킹
       const game=currentTab;
       const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${game}&select=username,score&order=score.desc&limit=50`,{
@@ -146,17 +216,15 @@ async function loadRanking(){
         body.appendChild(div);
       });
     } else {
-      // 나머지는 클리어 스테이지 수 기준
-      const url=currentTab==='total'
-        ?`${SUPABASE_URL}/rest/v1/clears?select=username`
-        :`${SUPABASE_URL}/rest/v1/clears?game=eq.${currentTab}&select=username`;
+      // 나머지는 게임별 클리어 스테이지 수 기준
+      const url=`${SUPABASE_URL}/rest/v1/clears?game=eq.${currentTab}&select=username`;
       const res=await fetch(url,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
       const data=await res.json();
       const map={};
       data.forEach(row=>{if(!map[row.username])map[row.username]=0;map[row.username]++;});
       const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
       if(!sorted.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
-      const gameLabel={shikaku:'시카쿠',sudoku:'스도쿠',nonogram:'노노그램',flow:'플로우',total:'전체'};
+      const gameLabel={shikaku:'시카쿠',sudoku:'스도쿠',nonogram:'노노그램',flow:'플로우'};
       body.innerHTML='';
       sorted.slice(0,50).forEach(([name,count],idx)=>{
         const isMe=currentUser&&currentUser.username===name;
@@ -166,8 +234,8 @@ async function loadRanking(){
         div.innerHTML=`
           <div class="rank-num ${numClass}">${medal}</div>
           <div class="rank-info">
-            <div class="rank-name">${name}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&currentTab!=='total'&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
-            <div class="rank-sub">${gameLabel[currentTab]||'전체'} 클리어</div>
+            <div class="rank-name">${name}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES[currentTab]?'<span class="title-badge">🏅'+TITLES[currentTab]+'</span>':''}</div>
+            <div class="rank-sub">${gameLabel[currentTab]||''} 클리어</div>
           </div>
           <div class="rank-score">${count}<small>스테이지</small></div>
         `;
