@@ -21,31 +21,45 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .cell.done{opacity:0;pointer-events:none;box-shadow:none;transform:scale(0.7);}
 .cell.wrong{animation:shake 0.25s;}
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
-#startScreen,#overScreen{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0;}
-#overScreen{display:none;}
+#sizeScreen,#startScreen,#overScreen{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0;}
+#startScreen,#overScreen{display:none;}
 .title-txt{font-family:-apple-system,sans-serif;font-weight:800;font-size:22px;color:#1a1a2e;}
 .high-txt{font-family:-apple-system,sans-serif;font-size:12px;color:#7c5cff;font-weight:700;}
 .start-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;color:#fff;background:#7c5cff;padding:11px 22px;border-radius:22px;cursor:pointer;box-shadow:0 3px 8px rgba(124,92,255,0.4);}
 .desc-txt{font-family:-apple-system,sans-serif;font-size:11px;color:#8a8a9a;text-align:center;padding:0 24px;line-height:1.7;}
 .final-time{font-family:-apple-system,sans-serif;font-weight:800;font-size:38px;color:#7c5cff;}
 .login-hint{font-family:-apple-system,sans-serif;font-size:10px;color:#aaa;text-align:center;}
+.size-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:0 24px;width:100%;}
+.size-card{position:relative;background:#eef1f5;border-radius:16px;padding:18px 0;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:transform 0.08s,background 0.15s;}
+.size-card:active{transform:scale(0.94);background:#e2e6ee;}
+.size-num{font-family:-apple-system,sans-serif;font-weight:800;font-size:22px;color:#1a1a2e;}
+.size-label{font-family:-apple-system,sans-serif;font-size:10px;color:#9a9aa8;}
+.size-best{font-family:-apple-system,sans-serif;font-size:9px;color:#7c5cff;font-weight:700;}
+.ranking-tag{position:absolute;top:-8px;right:-6px;font-family:-apple-system,sans-serif;font-size:9px;font-weight:800;color:#fff;background:#ff8a3d;padding:2px 6px;border-radius:8px;box-shadow:0 2px 4px rgba(255,138,61,0.4);}
+.secondary-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;color:#7c5cff;background:#f1edff;padding:9px 18px;border-radius:20px;cursor:pointer;}
+.btn-row2{display:flex;gap:10px;}
 </style>
 </head>
 <body>
 <div id="app">
   <div class="top-bar">
-    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <button class="back-btn" id="topBackBtn">←</button>
     <span class="top-title">숫자순서터치</span>
     <span class="best-badge" id="best-badge"></span>
   </div>
   <div id="game-wrap">
     <div id="phone">
+      <div id="sizeScreen">
+        <div class="title-txt">몇 개까지 할까요?</div>
+        <div class="desc-txt">원하는 크기를 선택하고<br/>순서대로 최대한 빠르게 탭하세요!</div>
+        <div class="size-grid" id="sizeGrid"></div>
+        <div class="login-hint" id="login-hint"></div>
+      </div>
       <div id="startScreen">
-        <div class="title-txt">숫자순서터치</div>
+        <div class="title-txt" id="startTitle">숫자순서터치</div>
         <div class="high-txt" id="startHigh">BEST -</div>
         <div class="start-btn" id="startBtn">시작하기</div>
-        <div class="desc-txt">1부터 25까지<br/>순서대로 최대한 빠르게 탭하세요!</div>
-        <div class="login-hint" id="login-hint"></div>
+        <div class="desc-txt" id="startDesc">1부터 25까지<br/>순서대로 최대한 빠르게 탭하세요!</div>
       </div>
       <div id="playScreen" style="display:none;position:relative;">
         <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
@@ -60,7 +74,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="title-txt" style="font-size:18px;">완료!</div>
         <div class="final-time" id="finalTime">0.00초</div>
         <div class="high-txt" id="overHigh">BEST -</div>
-        <div class="start-btn" id="retryBtn" style="background:#ffd166;color:#1a1a2e;margin-top:4px;">다시하기</div>
+        <div class="btn-row2">
+          <div class="start-btn" id="retryBtn" style="background:#ffd166;color:#1a1a2e;">다시하기</div>
+          <div class="secondary-btn" id="changeSizeBtn">크기 변경</div>
+        </div>
       </div>
     </div>
   </div>
@@ -71,6 +88,9 @@ const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 let currentUser=null;
 try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
 document.getElementById('login-hint').textContent=currentUser?'':'로그인하면 랭킹에 기록돼요';
+
+const SIZES=[10,15,20,25,30,50];
+const RANKED_SIZE=25;
 
 const BASE=1000000;
 async function saveScore(elapsedMs){
@@ -100,15 +120,52 @@ async function saveScore(elapsedMs){
 }
 
 (function(){
-let best=null;
-try{ const b=localStorage.getItem('numrush_best'); if(b) best=parseFloat(b); }catch(e){}
-function fmt(ms){ return (ms/1000).toFixed(2)+'초'; }
-function updateHighDisplays(){
-  document.getElementById('startHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
-  document.getElementById('overHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
-  document.getElementById('best-badge').textContent = best!=null ? '🏆 '+fmt(best) : '';
+let curSize=RANKED_SIZE;
+function bestKey(size){ return size===RANKED_SIZE ? 'numrush_best' : ('numrush_best_'+size); }
+function getBest(size){
+  try{ const b=localStorage.getItem(bestKey(size)); if(b) return parseFloat(b); }catch(e){}
+  return null;
 }
-updateHighDisplays();
+function setBest(size,ms){
+  try{ localStorage.setItem(bestKey(size),String(ms)); }catch(e){}
+}
+function fmt(ms){ return (ms/1000).toFixed(2)+'초'; }
+
+function showScreen(name){
+  document.getElementById('sizeScreen').style.display = name==='size' ? 'flex' : 'none';
+  document.getElementById('startScreen').style.display = name==='start' ? 'flex' : 'none';
+  document.getElementById('playScreen').style.display = name==='play' ? 'block' : 'none';
+  document.getElementById('overScreen').style.display = name==='over' ? 'flex' : 'none';
+}
+
+function renderSizeGrid(){
+  const wrap=document.getElementById('sizeGrid');
+  wrap.innerHTML='';
+  SIZES.forEach(size=>{
+    const card=document.createElement('div');
+    card.className='size-card';
+    const best=getBest(size);
+    card.innerHTML=`
+      ${size===RANKED_SIZE?'<div class="ranking-tag">RANKING</div>':''}
+      <div class="size-num">${size}</div>
+      <div class="size-label">개</div>
+      <div class="size-best">${best!=null?'BEST '+fmt(best):''}</div>
+    `;
+    card.addEventListener('pointerdown',()=>selectSize(size));
+    wrap.appendChild(card);
+  });
+  document.getElementById('best-badge').textContent='';
+}
+
+function selectSize(size){
+  curSize=size;
+  const best=getBest(size);
+  document.getElementById('startTitle').textContent = '숫자순서터치 · '+size;
+  document.getElementById('startHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
+  document.getElementById('startDesc').innerHTML = '1부터 '+size+'까지<br/>순서대로 최대한 빠르게 탭하세요!'+(size===RANKED_SIZE?'<br/><span style="color:#ff8a3d;font-weight:700;">🏆 랭킹 반영</span>':'');
+  document.getElementById('best-badge').textContent = best!=null ? '🏆 '+fmt(best) : '';
+  showScreen('start');
+}
 
 let order=[],next=1,startTime=0,rafId=null,playing=false;
 const grid=document.getElementById('grid');
@@ -124,7 +181,7 @@ function shuffle(arr){
 }
 
 function buildGrid(){
-  order=shuffle(Array.from({length:25},(_,i)=>i+1));
+  order=shuffle(Array.from({length:curSize},(_,i)=>i+1));
   grid.innerHTML='';
   order.forEach(n=>{
     const c=document.createElement('div');
@@ -141,8 +198,8 @@ function onTap(cell,n){
   if(n===next){
     cell.classList.add('done');
     next++;
-    nextNumEl.textContent=next<=25?next:'-';
-    if(next>25){ finish(); }
+    nextNumEl.textContent=next<=curSize?next:'-';
+    if(next>curSize){ finish(); }
   } else if(!cell.classList.contains('done')){
     cell.classList.remove('wrong');
     void cell.offsetWidth;
@@ -161,16 +218,18 @@ function finish(){
   playing=false;
   if(rafId) cancelAnimationFrame(rafId);
   const elapsed=performance.now()-startTime;
+  const prevBest=getBest(curSize);
+  let best=prevBest;
   if(best==null||elapsed<best){
     best=elapsed;
-    try{ localStorage.setItem('numrush_best',String(best)); }catch(e){}
+    setBest(curSize,best);
   }
-  saveScore(elapsed);
-  updateHighDisplays();
+  if(curSize===RANKED_SIZE) saveScore(elapsed);
   document.getElementById('finalTime').textContent=fmt(elapsed);
+  document.getElementById('overHigh').textContent = best!=null ? 'BEST '+fmt(best) : 'BEST -';
+  document.getElementById('best-badge').textContent = best!=null ? '🏆 '+fmt(best) : '';
   setTimeout(()=>{
-    document.getElementById('playScreen').style.display='none';
-    document.getElementById('overScreen').style.display='flex';
+    showScreen('over');
   },400);
 }
 
@@ -178,9 +237,7 @@ function startGame(){
   next=1;
   playing=false;
   if(rafId) cancelAnimationFrame(rafId);
-  document.getElementById('startScreen').style.display='none';
-  document.getElementById('overScreen').style.display='none';
-  document.getElementById('playScreen').style.display='block';
+  showScreen('play');
   buildGrid();
   nextNumEl.textContent='1';
   timerBox.textContent='0.00';
@@ -207,6 +264,15 @@ function startGame(){
 document.getElementById('startBtn').addEventListener('pointerdown',startGame);
 document.getElementById('retryBtn').addEventListener('pointerdown',startGame);
 document.getElementById('restartTopBtn').addEventListener('pointerdown',startGame);
+document.getElementById('changeSizeBtn').addEventListener('pointerdown',()=>{ renderSizeGrid(); showScreen('size'); });
+document.getElementById('topBackBtn').addEventListener('click',()=>{
+  const sizeVisible=document.getElementById('sizeScreen').style.display!=='none';
+  if(sizeVisible){ location.href='index.html'; }
+  else { renderSizeGrid(); showScreen('size'); }
+});
+
+renderSizeGrid();
+showScreen('size');
 })();
 </script>
 </body>
