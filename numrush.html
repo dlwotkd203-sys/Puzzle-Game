@@ -18,7 +18,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 #nextHint{text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#8a8a9a;margin-bottom:10px;}
 #grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;}
 .cell{aspect-ratio:1;border-radius:12px;background:#eef1f5;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:20px;color:#3a3a4a;cursor:pointer;user-select:none;transition:transform 0.08s,background 0.15s,opacity 0.15s;box-shadow:0 2px 4px rgba(0,0,0,0.06);}
-.cell.done{background:#7c5cff;color:#fff;opacity:0.35;transform:scale(0.9);}
+.cell.done{opacity:0;pointer-events:none;box-shadow:none;transform:scale(0.7);}
 .cell.wrong{animation:shake 0.25s;}
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
 #startScreen,#overScreen{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0;}
@@ -47,10 +47,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="desc-txt">1부터 25까지<br/>순서대로 최대한 빠르게 탭하세요!</div>
         <div class="login-hint" id="login-hint"></div>
       </div>
-      <div id="playScreen" style="display:none;">
+      <div id="playScreen" style="display:none;position:relative;">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+          <div id="restartTopBtn" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;color:#7c5cff;background:#f1edff;padding:6px 12px;border-radius:14px;cursor:pointer;">🔄 다시하기</div>
+        </div>
         <div id="timerBox">0.00</div>
         <div id="nextHint">다음: <b id="nextNum">1</b></div>
         <div id="grid"></div>
+        <div id="countdownOverlay" style="display:none;position:absolute;inset:0;background:rgba(255,255,255,0.55);align-items:center;justify-content:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:64px;color:#7c5cff;border-radius:16px;text-shadow:0 2px 6px rgba(255,255,255,0.9);">3</div>
       </div>
       <div id="overScreen">
         <div class="title-txt" style="font-size:18px;">완료!</div>
@@ -153,19 +157,6 @@ function tick(){
   rafId=requestAnimationFrame(tick);
 }
 
-function startGame(){
-  next=1;
-  document.getElementById('startScreen').style.display='none';
-  document.getElementById('overScreen').style.display='none';
-  document.getElementById('playScreen').style.display='block';
-  buildGrid();
-  nextNumEl.textContent='1';
-  timerBox.textContent='0.00';
-  playing=true;
-  startTime=performance.now();
-  rafId=requestAnimationFrame(tick);
-}
-
 function finish(){
   playing=false;
   if(rafId) cancelAnimationFrame(rafId);
@@ -183,8 +174,39 @@ function finish(){
   },400);
 }
 
+function startGame(){
+  next=1;
+  playing=false;
+  if(rafId) cancelAnimationFrame(rafId);
+  document.getElementById('startScreen').style.display='none';
+  document.getElementById('overScreen').style.display='none';
+  document.getElementById('playScreen').style.display='block';
+  buildGrid();
+  nextNumEl.textContent='1';
+  timerBox.textContent='0.00';
+  const overlay=document.getElementById('countdownOverlay');
+  overlay.style.display='flex';
+  const seq=['3','2','1','시작!'];
+  let i=0;
+  overlay.textContent=seq[i];
+  const step=()=>{
+    i++;
+    if(i<seq.length){
+      overlay.textContent=seq[i];
+      setTimeout(step,600);
+    } else {
+      overlay.style.display='none';
+      playing=true;
+      startTime=performance.now();
+      rafId=requestAnimationFrame(tick);
+    }
+  };
+  setTimeout(step,600);
+}
+
 document.getElementById('startBtn').addEventListener('pointerdown',startGame);
 document.getElementById('retryBtn').addEventListener('pointerdown',startGame);
+document.getElementById('restartTopBtn').addEventListener('pointerdown',startGame);
 })();
 </script>
 </body>
