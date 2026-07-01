@@ -50,6 +50,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="tab" onclick="setTab('flow')" id="tab-flow">플로우</div>
     <div class="tab" onclick="setTab('rps')" id="tab-rps">가위바위보</div>
     <div class="tab" onclick="setTab('reaction')" id="tab-reaction">반응속도</div>
+    <div class="tab" onclick="setTab('olla')" id="tab-olla">올라올라</div>
   </div>
   <div class="ranking-body" id="ranking-body">
     <div class="loading">불러오는 중...</div>
@@ -73,7 +74,7 @@ async function loadRanking(){
   const body=document.getElementById('ranking-body');
   body.innerHTML='<div class="loading">불러오는 중...</div>';
   try{
-    if(currentTab==='2048'||currentTab==='dodge'||currentTab==='memory'||currentTab==='sorter'||currentTab==='minesweeper'||currentTab==='breakout'||currentTab==='rps'||currentTab==='reaction'){
+    if(currentTab==='2048'||currentTab==='dodge'||currentTab==='memory'||currentTab==='sorter'||currentTab==='minesweeper'||currentTab==='breakout'||currentTab==='rps'||currentTab==='reaction'||currentTab==='olla'){
       // 점수 기준 랭킹
       const game=currentTab;
       const res=await fetch(`${SUPABASE_URL}/rest/v1/scores?game=eq.${game}&select=username,score&order=score.desc&limit=50`,{
