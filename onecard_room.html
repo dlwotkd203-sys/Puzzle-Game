@@ -47,6 +47,7 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 
 let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
 let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false;
+let prevHandCounts=null;
 let oneCardBucket=-1,oneCardPosSeat=-1;
 let cardbackMap={};
 function cbShade(hex,amt){
@@ -155,6 +156,45 @@ function render(){
   if(room.status==='finished') return renderFinished(wrap);
 }
 
+function showRules(){
+  const wrap=document.getElementById('wrap');
+  const box=document.createElement('div');
+  box.id='rulesOverlay';
+  box.style.cssText='position:absolute;inset:0;background:rgba(20,18,30,0.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px;';
+  box.innerHTML=`<div style="background:#fff;border-radius:16px;padding:20px;max-height:85vh;overflow-y:auto;font-family:-apple-system,sans-serif;font-size:13px;line-height:1.8;color:#333;">
+    <div style="font-weight:800;font-size:16px;color:#1a1a2e;margin-bottom:10px;">📖 원카드 규칙</div>
+    <b>기본 진행</b><br/>
+    카드 52장+조커 2장(흑백/컬러)으로 시작하며, 각자 7장씩 나눠 가져요. 자기 차례에 버림패의 맨 위 카드와 <b>같은 무늬 또는 같은 숫자</b>인 카드를 낼 수 있어요. 낼 카드가 없으면 "카드 가져오기"로 한 장 뽑고 턴이 넘어가요.<br/><br/>
+    <b>특수카드</b><br/>
+    · <b>J</b> : 다음 사람 턴을 건너뜀<br/>
+    · <b>Q</b> : 순서가 반대로 바뀜<br/>
+    · <b>K</b> : 턴이 안 넘어가고 한 장 더 낼 수 있음<br/>
+    · <b>7</b> : 원하는 무늬를 자유롭게 선언 (선언 후 턴 넘어감)<br/><br/>
+    <b>공격카드</b><br/>
+    · <b>2</b> : 다음 사람이 2장 드로우<br/>
+    · <b>A</b> : 3장 드로우 (♠A는 5장)<br/>
+    · <b>흑백조커</b> : 5장 드로우<br/>
+    · <b>컬러조커</b> : 7장 드로우 (방어 불가)<br/><br/>
+    <b>공격 얹기(스택)</b><br/>
+    공격을 받으면 <b>2 → A → 흑백조커 → 컬러조커</b> 순서로만(같은 종류는 자유롭게) 더 강한 공격을 얹어서 다음 사람에게 넘길 수 있어요. ♠A는 특별히 흑백조커 위에도 얹을 수 있어요. 아무도 못 얹으면 그 시점 사람이 누적된 만큼 전부 드로우해요.<br/><br/>
+    <b>방어</b><br/>
+    <b>3</b>만 방어카드예요. 2 또는 A(♠A 제외) 공격을 완전히 무효화시켜요. 조커 단계 공격은 방어할 수 없어요.<br/><br/>
+    <b>ONE CARD</b><br/>
+    손에 카드가 1장 남으면 화면에 버튼이 랜덤한 위치에 떠요. 본인이 먼저 누르면 안전, 0.5초 뒤부터는 다른 사람이 "캐치"할 수 있어요. 5초 안에 아무도 안 누르면 자동으로 벌칙 드로우예요.<br/><br/>
+    <b>턴 제한시간</b><br/>
+    자기 차례에 10초 안에 행동하지 않으면 자동으로 카드를 뽑고 턴이 넘어가요.<br/><br/>
+    <b>승리와 순위</b><br/>
+    손패를 가장 먼저 다 낸 사람이 1등, 나머지는 남은 카드 수가 적을수록 높은 순위예요. 게임 도중 나가면 몰수패 처리되며, <b>먼저 나간 사람일수록 더 낮은 순위</b>로 기록돼요.<br/><br/>
+    <b>점수(레이팅)</b><br/>
+    순위 차이에 비례해서 점수를 주고받아요 (상대적으로 낮은 순위를 이기면 더 많이 얻어요).
+    <div id="rulesCloseBtn" style="margin-top:16px;text-align:center;font-weight:700;color:#fff;background:#7c5cff;padding:10px;border-radius:12px;cursor:pointer;">닫기</div>
+  </div>
+  </div>`;
+  wrap.appendChild(box);
+  box.addEventListener('click',(e)=>{ if(e.target===box) box.remove(); });
+  document.getElementById('rulesCloseBtn').addEventListener('click',()=>box.remove());
+}
+
 function renderLobby(wrap){
   const players=room.players||[];
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
@@ -172,9 +212,12 @@ function renderLobby(wrap){
     const myReady=players[mySeat].ready;
     html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#ffd166':'#7c5cff'};color:${myReady?'#1a1a2e':'#fff'};margin-top:10px;">${myReady?'준비 취소':'준비완료'}</div>`;
   }
-  if(isHost){
-    html+=`<div class="big-btn" id="startBtn" style="background:${allReady?'#ff5e3a':'#e2e2e2'};color:${allReady?'#fff':'#999'};margin-top:8px;">게임 시작${allReady?'':' (2명 이상 전원 준비 필요)'}</div>`;
+  if(isHost&&allReady){
+    html+=`<div class="big-btn" id="startBtn" style="background:${allReady?'#ff5e3a':'#e2e2e2'};color:#fff;margin-top:8px;">게임 시작</div>`;
+  } else if(isHost){
+    html+=`<div class="big-btn" style="background:#e2e2e2;color:#999;margin-top:8px;">게임 시작 (2명 이상 전원 준비 필요)</div>`;
   }
+  html+=`<div class="big-btn" id="rulesBtn" style="background:#eef1f5;color:#555;margin-top:14px;">📖 규칙 보기</div>`;
   wrap.innerHTML=html;
   if(mySeat>=0){
     document.getElementById('readyBtn').addEventListener('click',async()=>{
@@ -188,6 +231,7 @@ function renderLobby(wrap){
   if(isHost&&allReady){
     document.getElementById('startBtn').addEventListener('click',startGame);
   }
+  document.getElementById('rulesBtn').addEventListener('click',showRules);
 }
 
 async function startGame(){
@@ -319,7 +363,11 @@ async function playCard(cardId){
 }
 
 async function pickSuit(suit){
-  await patchState(s=>{ s.declaredSuit=suit; delete s._needSuitPick; });
+  await patchState(s=>{
+    s.declaredSuit=suit; delete s._needSuitPick;
+    const n=s.hands.length;
+    s.turn=nextSeat(s,n,false); s.turnStartedAt=Date.now();
+  });
   document.getElementById('suitOverlay')?.remove();
   render();
 }
@@ -437,6 +485,50 @@ async function applyEloResults(winnerSeat){
   }));
 }
 
+function getSeatTargetEl(seat){
+  if(!room) return null;
+  const n=room.players.length;
+  if(seat===mySeat) return document.getElementById('handRow');
+  const isPlayer=mySeat>=0;
+  const slots=slotsForCount(Math.min(isPlayer?n-1:n,5));
+  const startOffset=isPlayer?1:0;
+  const base=isPlayer?mySeat:0;
+  for(let i=0;i<slots.length;i++){
+    const s=(base+startOffset+i)%n;
+    if(s===seat) return document.getElementById('slot-'+slots[i]);
+  }
+  return document.getElementById('tableArea');
+}
+function flyCardBack(fromEl,toEl){
+  if(!fromEl||!toEl) return;
+  const fr=fromEl.getBoundingClientRect(), tr=toEl.getBoundingClientRect();
+  if(!fr.width||!tr.width) return;
+  const clone=makeCardBack(fr.width,fr.height);
+  clone.style.position='fixed'; clone.style.left=fr.left+'px'; clone.style.top=fr.top+'px'; clone.style.margin='0'; clone.style.zIndex='999';
+  clone.style.transition='left 0.4s ease,top 0.4s ease';
+  document.body.appendChild(clone);
+  requestAnimationFrame(()=>{
+    clone.style.left=(tr.left+(tr.width-fr.width)/2)+'px';
+    clone.style.top=(tr.top+(tr.height-fr.height)/2)+'px';
+  });
+  setTimeout(()=>clone.remove(),420);
+}
+function flyCardBackMulti(fromEl,toEl,count){
+  const capped=Math.max(1,Math.min(count,6));
+  for(let i=0;i<capped;i++){ setTimeout(()=>flyCardBack(fromEl,toEl),i*130); }
+}
+function checkDrawEffects(st){
+  const deckEl=document.getElementById('deckPile');
+  if(prevHandCounts){
+    for(let seat=0;seat<st.hands.length;seat++){
+      const prevC=prevHandCounts[seat]!==undefined?prevHandCounts[seat]:st.hands[seat].length;
+      const delta=st.hands[seat].length-prevC;
+      if(delta>0){ flyCardBackMulti(deckEl,getSeatTargetEl(seat),delta); }
+    }
+  }
+  prevHandCounts=st.hands.map(h=>h.length);
+}
+
 function checkEffects(st){
   const top=topCard(st);
   if(gameInited&&top.id!==prevTopId){
@@ -474,7 +566,7 @@ function renderGame(wrap){
 
   if(!document.getElementById('tableArea')){
     wrap.innerHTML=`
-    <div id="tableArea" style="display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto auto;gap:18px 10px;padding:16px 6px;background:#f8f7fc;border-radius:16px;margin:4px 0 10px;width:100%;">
+    <div id="tableArea" style="display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto auto;gap:34px 10px;padding:16px 6px;background:#f8f7fc;border-radius:16px;margin:4px 0 10px;width:100%;position:relative;">
       <div id="slot-tl" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
       <div id="slot-top" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
       <div id="slot-tr" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
@@ -495,11 +587,12 @@ function renderGame(wrap){
     <div id="handRow" style="display:flex;justify-content:center;align-items:flex-end;min-height:100px;padding:0 10px;flex-wrap:wrap;"></div>
     <div id="oneCardOverlay" style="display:none;position:absolute;z-index:25;"></div>
     `;
-    document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(myTurn) drawCard(); });
-    document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(myTurn) drawCard(); });
+    document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
+    document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
     if(!tickTimer) tickTimer=setInterval(tick,300);
     const t0=topCard(st);
     prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
+    prevHandCounts=st.hands.map(h=>h.length);
   }
   checkEffects(st);
   if(currentUser){
@@ -518,7 +611,7 @@ function renderGame(wrap){
     const cnt=Math.min(3,(st.hands[seat]||[]).length);
     const cbBg=cardbackStyleFor(p.user_id);
     let fan='<div style="display:flex;">';
-    for(let k=0;k<cnt;k++){ fan+=`<div style="width:24px;height:33px;margin-left:${k===0?0:-13}px;border-radius:5px;background:${cbBg};border:1px solid rgba(0,0,0,0.15);transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`; }
+    for(let k=0;k<cnt;k++){ fan+=`<div style="width:30px;height:42px;margin-left:${k===0?0:-16}px;border-radius:6px;background:${cbBg};border:1px solid rgba(0,0,0,0.15);transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 4px rgba(0,0,0,0.25);"></div>`; }
     fan+='</div>';
     const isSeatTurn=st.turn===seat;
     const isLeftSeat=(st.leftSeats||[]).includes(seat);
@@ -528,6 +621,7 @@ function renderGame(wrap){
        <div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:#666;opacity:${isLeftSeat?0.4:1};">${(st.hands[seat]||[]).length}장</div>
        ${isLeftSeat?'':fan}`;
   }
+  checkDrawEffects(st);
 
   const top=topCard(st);
   const dp=document.getElementById('discardPile'); dp.innerHTML=''; dp.appendChild(makeCardFace(top,62,86));
