@@ -157,10 +157,10 @@ function render(){
 }
 
 function showRules(){
-  const wrap=document.getElementById('wrap');
+  if(document.getElementById('rulesOverlay')) return;
   const box=document.createElement('div');
   box.id='rulesOverlay';
-  box.style.cssText='position:absolute;inset:0;background:rgba(20,18,30,0.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px;';
+  box.style.cssText='position:fixed;inset:0;background:rgba(20,18,30,0.5);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;';
   box.innerHTML=`<div style="background:#fff;border-radius:16px;padding:20px;max-height:85vh;overflow-y:auto;font-family:-apple-system,sans-serif;font-size:13px;line-height:1.8;color:#333;">
     <div style="font-weight:800;font-size:16px;color:#1a1a2e;margin-bottom:10px;">📖 원카드 규칙</div>
     <b>기본 진행</b><br/>
@@ -190,7 +190,7 @@ function showRules(){
     <div id="rulesCloseBtn" style="margin-top:16px;text-align:center;font-weight:700;color:#fff;background:#7c5cff;padding:10px;border-radius:12px;cursor:pointer;">닫기</div>
   </div>
   </div>`;
-  wrap.appendChild(box);
+  document.body.appendChild(box);
   box.addEventListener('click',(e)=>{ if(e.target===box) box.remove(); });
   document.getElementById('rulesCloseBtn').addEventListener('click',()=>box.remove());
 }

@@ -38,6 +38,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="header-row">
     <div class="my-record" id="myRecord">전적 불러오는 중...</div>
     <div style="display:flex;gap:6px;">
+      <div class="create-btn" id="rulesBtnRooms" style="background:#eef1f5;color:#555;">📖 규칙</div>
       <div class="create-btn" id="designBtn" style="background:#eef1f5;color:#555;">🎨 카드 디자인</div>
       <div class="create-btn" id="createBtn">방 만들기</div>
     </div>
@@ -152,6 +153,45 @@ async function joinOrEnter(room){
     }catch(e){ alert('입장에 실패했어요.'); }
   }
 }
+
+function showRules(){
+  if(document.getElementById('rulesOverlay')) return;
+  const box=document.createElement('div');
+  box.id='rulesOverlay';
+  box.style.cssText='position:fixed;inset:0;background:rgba(20,18,30,0.5);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;';
+  box.innerHTML=`<div style="background:#fff;border-radius:16px;padding:20px;max-height:85vh;overflow-y:auto;font-family:-apple-system,sans-serif;font-size:13px;line-height:1.8;color:#333;">
+    <div style="font-weight:800;font-size:16px;color:#1a1a2e;margin-bottom:10px;">📖 원카드 규칙</div>
+    <b>기본 진행</b><br/>
+    카드 52장+조커 2장(흑백/컬러)으로 시작하며, 각자 7장씩 나눠 가져요. 자기 차례에 버림패의 맨 위 카드와 <b>같은 무늬 또는 같은 숫자</b>인 카드를 낼 수 있어요. 낼 카드가 없으면 "카드 가져오기"로 한 장 뽑고 턴이 넘어가요.<br/><br/>
+    <b>특수카드</b><br/>
+    · <b>J</b> : 다음 사람 턴을 건너뜀<br/>
+    · <b>Q</b> : 순서가 반대로 바뀜<br/>
+    · <b>K</b> : 턴이 안 넘어가고 한 장 더 낼 수 있음<br/>
+    · <b>7</b> : 원하는 무늬를 자유롭게 선언 (선언 후 턴 넘어감)<br/><br/>
+    <b>공격카드</b><br/>
+    · <b>2</b> : 다음 사람이 2장 드로우<br/>
+    · <b>A</b> : 3장 드로우 (♠A는 5장)<br/>
+    · <b>흑백조커</b> : 5장 드로우<br/>
+    · <b>컬러조커</b> : 7장 드로우 (방어 불가)<br/><br/>
+    <b>공격 얹기(스택)</b><br/>
+    공격을 받으면 <b>2 → A → 흑백조커 → 컬러조커</b> 순서로만(같은 종류는 자유롭게) 더 강한 공격을 얹어서 다음 사람에게 넘길 수 있어요. ♠A는 특별히 흑백조커 위에도 얹을 수 있어요. 아무도 못 얹으면 그 시점 사람이 누적된 만큼 전부 드로우해요.<br/><br/>
+    <b>방어</b><br/>
+    <b>3</b>만 방어카드예요. 2 또는 A(♠A 제외) 공격을 완전히 무효화시켜요. 조커 단계 공격은 방어할 수 없어요.<br/><br/>
+    <b>ONE CARD</b><br/>
+    손에 카드가 1장 남으면 화면에 버튼이 랜덤한 위치에 떠요. 본인이 먼저 누르면 안전, 0.5초 뒤부터는 다른 사람이 "캐치"할 수 있어요. 5초 안에 아무도 안 누르면 자동으로 벌칙 드로우예요.<br/><br/>
+    <b>턴 제한시간</b><br/>
+    자기 차례에 10초 안에 행동하지 않으면 자동으로 카드를 뽑고 턴이 넘어가요.<br/><br/>
+    <b>승리와 순위</b><br/>
+    손패를 가장 먼저 다 낸 사람이 1등, 나머지는 남은 카드 수가 적을수록 높은 순위예요. 게임 도중 나가면 몰수패 처리되며, <b>먼저 나간 사람일수록 더 낮은 순위</b>로 기록돼요.<br/><br/>
+    <b>점수(레이팅)</b><br/>
+    순위 차이에 비례해서 점수를 주고받아요 (상대적으로 낮은 순위를 이기면 더 많이 얻어요).
+    <div id="rulesCloseBtn" style="margin-top:16px;text-align:center;font-weight:700;color:#fff;background:#7c5cff;padding:10px;border-radius:12px;cursor:pointer;">닫기</div>
+  </div>`;
+  document.body.appendChild(box);
+  box.addEventListener('click',(e)=>{ if(e.target===box) box.remove(); });
+  document.getElementById('rulesCloseBtn').addEventListener('click',()=>box.remove());
+}
+document.getElementById('rulesBtnRooms').addEventListener('click',showRules);
 
 document.getElementById('designBtn').addEventListener('click',()=>{ location.href='onecard_cardback.html'; });
 
