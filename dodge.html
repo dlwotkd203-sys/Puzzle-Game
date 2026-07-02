@@ -183,7 +183,7 @@ async function saveScore(t){
 
 function spawnBullet(){
   const diff=Math.min(elapsed/25,1);
-  const speed=(160+diff*320)*(0.75+Math.random()*0.5);
+  const speed=(160+diff*250)*(0.75+Math.random()*0.5);
   const r=3.5+Math.random()*3.5;
   const side=Math.floor(Math.random()*4);
   let x,y,ang;
@@ -191,7 +191,7 @@ function spawnBullet(){
   else if(side===1){x=W+r;y=Math.random()*H;ang=Math.PI+(-0.35+Math.random()*0.7);}
   else if(side===2){x=Math.random()*W;y=H+r;ang=-Math.PI/2+(-0.35+Math.random()*0.7);}
   else{x=-r;y=Math.random()*H;ang=(-0.35+Math.random()*0.7);}
-  if(Math.random()<0.3+diff*0.2)ang=Math.atan2(P.y-y,P.x-x)+(Math.random()-0.5)*0.3;
+  if(Math.random()<0.2+diff*0.15)ang=Math.atan2(P.y-y,P.x-x)+(Math.random()-0.5)*0.3;
   bullets.push({x,y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,r});
 }
 
@@ -298,7 +298,7 @@ function update(dt){
 
   // 총알 스폰
   const diff=Math.min(elapsed/25,1);
-  const interval=Math.max(0.1,0.5-diff*0.34);
+  const interval=Math.max(0.08,0.45-diff*0.37);
   spawnAcc+=dt;
   while(spawnAcc>=interval){spawnAcc-=interval;spawnBullet();}
 
