@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>길건너친구들</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;background:#bfe0f5;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;box-shadow:0 0 0 1px rgba(255,255,255,0.06);}
+
+.hud{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;background:rgba(13,17,23,0.95);
+  border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;z-index:10;
+}
+.back-btn{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:18px;padding:4px 6px;line-height:1;border-radius:6px;}
+.back-btn:hover{color:rgba(255,255,255,0.8);}
+.hud-score{font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;}
+.hud-label{font-size:10px;color:rgba(255,255,255,0.35);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase;}
+.hud-center{text-align:center;}
+.hud-right{text-align:right;}
+.hud-best-val{font-size:14px;font-weight:600;color:rgba(255,255,255,0.5);font-variant-numeric:tabular-nums;}
+
+#canvas{display:block;flex:1;width:100%;}
+
+.pad-area{
+  height:170px;flex-shrink:0;position:relative;
+  background:rgba(13,17,23,0.95);
+  border-top:1px solid rgba(255,255,255,0.06);
+  display:flex;align-items:center;justify-content:center;
+}
+.pad{
+  width:150px;height:150px;position:relative;
+}
+.pad-btn{
+  position:absolute;width:48px;height:48px;border-radius:12px;
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  color:rgba(255,255,255,0.55);font-size:20px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;user-select:none;
+}
+.pad-btn:active,.pad-btn.pressed{background:rgba(96,165,250,0.28);border-color:#60a5fa;color:#fff;}
+.pad-up{top:0;left:51px;}
+.pad-down{bottom:0;left:51px;}
+.pad-left{left:0;top:51px;}
+.pad-right{right:0;top:51px;}
+
+.overlay{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:20;
+  background:rgba(8,12,16,0.55);
+}
+.popup-card{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  background:#161c24;border:1px solid rgba(255,255,255,0.08);
+  border-radius:20px;padding:28px 26px;
+  box-shadow:0 20px 50px rgba(0,0,0,0.5);
+  max-width:88%;
+}
+.ov-title{font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;}
+.ov-sub{font-size:13px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;text-align:center;}
+.ov-score{font-size:20px;font-weight:600;color:#fff;font-variant-numeric:tabular-nums;}
+.ov-record{font-size:13px;color:rgba(255,255,255,0.4);}
+.ov-new{font-size:13px;color:#60a5fa;font-weight:500;}
+.ov-btn{
+  margin-top:4px;
+  padding:12px 40px;border-radius:10px;border:none;
+  font-size:15px;font-weight:600;cursor:pointer;
+  font-family:inherit;letter-spacing:0.2px;
+  background:#fff;color:#0d0d0d;
+}
+.ov-btn:hover{background:rgba(255,255,255,0.9);}
+.ov-divider{width:40px;height:1px;background:rgba(255,255,255,0.1);}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <div class="hud-center">
+      <div class="hud-score" id="hud-score">0</div>
+      <div class="hud-label">칸</div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-best-val" id="hud-best">0</div>
+      <div class="hud-label">최고</div>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <div class="pad-area">
+    <div class="pad">
+      <div class="pad-btn pad-up" data-dr="1" data-dc="0">↑</div>
+      <div class="pad-btn pad-down" data-dr="-1" data-dc="0">↓</div>
+      <div class="pad-btn pad-left" data-dr="0" data-dc="-1">←</div>
+      <div class="pad-btn pad-right" data-dr="0" data-dc="1">→</div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-start">
+  <div class="popup-card">
+    <div class="ov-title">길건너친구들</div>
+    <div class="ov-sub">차와 강을 피해서 계속 앞으로!<br/>강에서는 통나무를 밟고 건너세요</div>
+    <div class="ov-divider"></div>
+    <button class="ov-btn" onclick="startGame()">시작</button>
+  </div>
+</div>
+
+<div class="overlay" id="ov-dead" style="display:none">
+  <div class="popup-card">
+    <div class="ov-title">게임 종료</div>
+    <div class="ov-score" id="ov-score-val"></div>
+    <div class="ov-record" id="ov-record"></div>
+    <div class="ov-new" id="ov-new" style="display:none">새 최고 기록</div>
+    <div class="ov-divider"></div>
+    <button class="ov-btn" onclick="startGame()">다시 시작</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+let W=0,H=0;
+function resize(){ W=canvas.width=canvas.offsetWidth; H=canvas.height=canvas.offsetHeight; recomputeViewRange(); }
+
+// 위아래(깊이) 렌더링 범위를 화면 크기에 맞춰 동적으로 계산.
+// 고정값(예: +13)을 쓰면 화면이 크거나 세로로 길 때 실제 보여야 할 먼 줄이
+// 아직 안 그려진 채로 있다가 카메라가 움직이며 갑자기 나타나 끊겨 보인다.
+let AHEAD_ROWS=20, BEHIND_ROWS=6;
+function recomputeViewRange(){
+  if(!H){ AHEAD_ROWS=20; BEHIND_ROWS=6; return; }
+  const margin=110;
+  const depthMax=(H*0.62+margin)/(TH/2);      // 화면 맨 위까지 필요한 깊이
+  const depthMin=-(H*0.4+margin)/(TH/2);      // 화면 맨 아래(플레이어 뒤)까지 필요한 깊이
+  AHEAD_ROWS=Math.ceil(depthMax)+4;
+  BEHIND_ROWS=Math.ceil(-depthMin)+2;
+}
+
+// ---- 아이소메트릭 투영 ----
+const TW=64, TH=32; // 타일 가로/세로 절반 크기
+const LANE_ANGLE=Math.atan2(TH/2,TW/2); // 레인이 화면에서 기울어진 각도
+function laneHeading(dir){ return dir>0?LANE_ANGLE:LANE_ANGLE+Math.PI; }
+function roundRectPath(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function shadeColor(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return '#'+(r<<16|g<<8|b).toString(16).padStart(6,'0');
+}
+// depth: 플레이어 기준 앞으로 간 정도(row 차이), lateral: 좌우 위치(col 차이)
+// depth가 커질수록 화면 위-오른쪽으로, lateral이 커질수록 화면 아래-오른쪽으로 이동
+function toScreen(depth,lateral){
+  return {
+    x: W/2 + lateral*(TW/2) + depth*(TW/2),
+    y: H*0.62 - depth*(TH/2) + lateral*(TH/2)
+  };
+}
+
+// ---- 게임 상태 ----
+let running=false,raf=null,lastTs=0;
+let maxRow=0,best=0;
+const HOP_DUR=0.16;
+
+const P={
+  row:0,col:0,floatCol:0,
+  animFrom:{row:0,col:0},animTo:{row:0,col:0},animT:1,jumping:false,
+  alive:true
+};
+let camRow=0,camCol=0;
+
+const laneMap=new Map();
+const LANE_RANGE=16; // 장애물이 존재하는 좌우 범위(칸)
+const COL_LIMIT=12; // 실제로 이동 가능한 좌우 한계 (LANE_RANGE보다 여유를 둬서 경계에서도 장애물이 항상 존재하게)
+let waterPhase=0;
+
+function loadBest(){ try{return parseInt(localStorage.getItem('crossy_best')||'0');}catch(e){return 0;} }
+function saveBest(v){ try{localStorage.setItem('crossy_best',String(v));}catch(e){} }
+
+function updateHUD(){
+  document.getElementById('hud-score').textContent=maxRow;
+  document.getElementById('hud-best').textContent=best;
+}
+
+async function saveScore(sc){
+  try{
+    const user=JSON.parse(localStorage.getItem('puzzle_user')||'null');
+    if(!user)return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/scores?user_id=eq.${user.id}&game=eq.crossy&select=id,score`,{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const ex=await r.json();
+    if(ex.length>0){
+      if(sc>ex[0].score)await fetch(`${SUPABASE_URL}/rest/v1/scores?id=eq.${ex[0].id}`,{method:'PATCH',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({score:sc})});
+    }else{
+      await fetch(`${SUPABASE_URL}/rest/v1/scores`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({user_id:user.id,username:user.username,game:'crossy',score:sc})});
+    }
+  }catch(e){}
+}
+
+// ---- 레인(줄) 생성 ----
+const VEHICLE_TYPES=[
+  {type:'car',w:1.3,weight:0.5,colors:['#e0555c','#5c9be0','#e0b955','#7fc98a','#c17fe0']},
+  {type:'moto',w:0.7,weight:0.25,colors:['#26292f','#7a4bcf','#e0555c']},
+  {type:'truck',w:2.3,weight:0.25,colors:['#c96a2e','#557a99','#4a4f58']}
+];
+const RAFT_TYPES=[
+  {type:'log',w:1.6,weight:0.6},
+  {type:'raft',w:2.9,weight:0.4}
+];
+function pickWeighted(arr){
+  const r=Math.random(); let acc=0;
+  for(const v of arr){ acc+=v.weight; if(r<=acc) return v; }
+  return arr[0];
+}
+
+// ---- 안전 통로 보장 ----
+// corridorCol: 줄마다 최대 ±1칸씩만 움직이는 "항상 지나갈 수 있는 통로" 기준점.
+// 이 값을 기준으로 도로엔 확실한 빈틈을, 강엔 확실한 뗏목을 보장해서
+// 매 줄 통로가 이어지게 만든다 (완전히 직선은 아니지만 반드시 이어져 있음).
+let corridorCol=0;
+function stepCorridor(){
+  corridorCol+=Math.floor(Math.random()*3)-1; // -1,0,1
+  corridorCol=Math.max(-9,Math.min(9,corridorCol));
+  return corridorCol;
+}
+function ensureRoadGap(obstacles,col){
+  const half=0.62;
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o=obstacles[i];
+    if(col+half>o.x-o.w/2 && col-half<o.x+o.w/2) obstacles.splice(i,1);
+  }
+}
+function ensureRaftAt(obstacles,col){
+  const covered=obstacles.some(o=>col+0.42>o.x-o.w/2 && col-0.42<o.x+o.w/2);
+  if(covered) return;
+  if(obstacles.length){
+    let nearest=obstacles[0];
+    obstacles.forEach(o=>{ if(Math.abs(o.x-col)<Math.abs(nearest.x-col)) nearest=o; });
+    nearest.x=col;
+  } else {
+    obstacles.push({x:col,w:1.8,ltype:'log'});
+  }
+}
+
+function makeLane(row){
+  if(row<=2){ return {row,type:'grass',dir:1,speed:0,obstacles:[]}; } // 시작 구간은 항상 안전
+  // 점근적으로 계속 증가(끝까지 완전히 멈추지 않음). row=40에서 약 0.63, row=100에서 약 0.86, row=200에서 약 0.97
+  const diff=1-Math.exp(-row/55);
+  const roll=Math.random();
+  // 후반으로 갈수록 잔디는 줄고 도로/강 비중이 늘어남
+  const grassP=Math.max(0.16,0.42-diff*0.26);
+  const roadP=grassP+(0.33+diff*0.05);
+  let type = roll<grassP?'grass' : roll<roadP?'road' : 'river';
+  const dir = Math.random()<0.5?1:-1;
+  const obstacles=[];
+
+  if(type==='road'){
+    const speed=1.1+diff*2.4;
+    const count=2+Math.floor(diff*4)+Math.floor(Math.random()*2);
+    let x=-LANE_RANGE;
+    for(let i=0;i<count;i++){
+      const vt=pickWeighted(VEHICLE_TYPES);
+      x+=vt.w+Math.max(1.3,1.9-diff*0.7)+Math.random()*2.1;
+      obstacles.push({x,w:vt.w,vtype:vt.type,color:vt.colors[Math.floor(Math.random()*vt.colors.length)]});
+    }
+    ensureRoadGap(obstacles,stepCorridor());
+    return {row,type,dir,speed,obstacles};
+  }
+  if(type==='river'){
+    const speed=0.7+diff*1.2;
+    const count=3+Math.floor(diff*2.5);
+    let x=-LANE_RANGE;
+    for(let i=0;i<count;i++){
+      const lt=pickWeighted(RAFT_TYPES);
+      x+=lt.w+1.4+Math.random()*1.6;
+      obstacles.push({x,w:lt.w,ltype:lt.type});
+    }
+    ensureRaftAt(obstacles,stepCorridor());
+    return {row,type,dir,speed,obstacles};
+  }
+  // grass: 가끔 나무 하나 (이동을 막는 장애물) - 통로 칸만은 피해서 배치
+  if(row>3 && Math.random()<0.22){
+    let tx=Math.round(Math.random()*10-5);
+    if(Math.abs(tx-corridorCol)<1) tx=corridorCol+(Math.random()<0.5?-2:2);
+    obstacles.push({x:tx,w:1,tree:true});
+  }
+  return {row,type:'grass',dir:1,speed:0,obstacles};
+}
+function laneAt(row){
+  if(row<0) return {row,type:'grass',dir:1,speed:0,obstacles:[]};
+  if(!laneMap.has(row)) laneMap.set(row,makeLane(row));
+  return laneMap.get(row);
+}
+function ensureLanes(){
+  for(let r=P.row-BEHIND_ROWS;r<=P.row+AHEAD_ROWS+4;r++) laneAt(r);
+  for(const r of [...laneMap.keys()]) if(r<P.row-BEHIND_ROWS-2) laneMap.delete(r);
+}
+
+function obstacleAtCol(lane,col){
+  return lane.obstacles.find(o=> col+0.48>o.x-o.w/2 && col-0.48<o.x+o.w/2 );
+}
+
+// ---- 이동 ----
+function attemptMove(dr,dc){
+  if(!running||!P.alive||P.jumping) return;
+  const targetRow=P.row+dr;
+  const targetCol=P.col+dc;
+  if(targetRow<0) return;
+  if(targetCol>COL_LIMIT||targetCol<-COL_LIMIT) return; // 좌우 경계 밖으로는 못 감
+  const destLane=laneAt(targetRow);
+  if(destLane.type==='grass' && obstacleAtCol(destLane,targetCol)) return; // 나무에 막힘
+
+  P.animFrom={row:P.row,col:P.floatCol};
+  P.animTo={row:targetRow,col:targetCol};
+  P.animT=0;P.jumping=true;
+  P.row=targetRow;P.col=targetCol;
+  if(P.row>maxRow){maxRow=P.row;updateHUD();}
+  ensureLanes();
+}
+
+// 키보드
+document.addEventListener('keydown',e=>{
+  const map={ArrowUp:[1,0],ArrowDown:[-1,0],ArrowLeft:[0,-1],ArrowRight:[0,1],w:[1,0],W:[1,0],s:[-1,0],S:[-1,0],a:[0,-1],A:[0,-1],d:[0,1],D:[0,1]};
+  if(map[e.key]){ e.preventDefault(); if(!running)return; attemptMove(map[e.key][0],map[e.key][1]); }
+  if(e.key===' '&&!running) startGame();
+});
+
+// 방향 버튼
+document.querySelectorAll('.pad-btn').forEach(btn=>{
+  const dr=parseInt(btn.dataset.dr),dc=parseInt(btn.dataset.dc);
+  const fire=e=>{ e.preventDefault(); btn.classList.add('pressed'); attemptMove(dr,dc); setTimeout(()=>btn.classList.remove('pressed'),100); };
+  btn.addEventListener('pointerdown',fire);
+});
+
+// ---- 시작/종료 ----
+function startGame(){
+  document.getElementById('ov-start').style.display='none';
+  document.getElementById('ov-dead').style.display='none';
+  resize();
+  best=loadBest();
+  laneMap.clear();
+  corridorCol=0;
+  P.row=0;P.col=0;P.floatCol=0;P.alive=true;P.jumping=false;P.animT=1;
+  camRow=0;camCol=0;maxRow=0;
+  ensureLanes();
+  updateHUD();
+  running=true;
+  lastTs=performance.now();
+  if(raf)cancelAnimationFrame(raf);
+  raf=requestAnimationFrame(loop);
+}
+
+function die(){
+  if(!P.alive) return;
+  P.alive=false;running=false;
+  setTimeout(()=>{
+    const isNew=maxRow>best;
+    if(isNew){best=maxRow;saveBest(best);}
+    saveScore(maxRow);
+    document.getElementById('ov-score-val').textContent=maxRow+'칸 전진';
+    document.getElementById('ov-record').textContent='최고 기록 '+best+'칸';
+    document.getElementById('ov-new').style.display=isNew?'block':'none';
+    document.getElementById('ov-dead').style.display='flex';
+    updateHUD();
+  },300);
+}
+
+// ---- 업데이트 ----
+function update(dt){
+  waterPhase+=dt;
+  // 장애물 이동 (플레이어 근처 레인만)
+  for(let r=P.row-2;r<=P.row+16;r++){
+    const lane=laneAt(r);
+    if(lane.speed===0) continue;
+    lane.obstacles.forEach(o=>{
+      o.x+=lane.speed*lane.dir*dt;
+      if(lane.dir>0 && o.x>LANE_RANGE+o.w) o.x=-LANE_RANGE-o.w;
+      if(lane.dir<0 && o.x<-LANE_RANGE-o.w) o.x=LANE_RANGE+o.w;
+    });
+  }
+
+  // 점프 애니메이션
+  if(P.jumping){
+    P.animT+=dt/HOP_DUR;
+    if(P.animT>=1){
+      P.animT=1;P.jumping=false;
+      P.floatCol=P.animTo.col;
+    } else {
+      P.floatCol=P.animFrom.col+(P.animTo.col-P.animFrom.col)*P.animT;
+    }
+  }
+
+  if(!P.jumping && P.alive){
+    const lane=laneAt(P.row);
+    if(lane.type==='road'){
+      if(obstacleAtCol(lane,P.col)){ die(); }
+    } else if(lane.type==='river'){
+      const log=obstacleAtCol(lane,P.floatCol);
+      if(log){
+        P.floatCol+=lane.speed*lane.dir*dt;
+        P.col=Math.round(P.floatCol);
+      } else {
+        die();
+      }
+    }
+  }
+
+  // 카메라 부드럽게 따라가기
+  const camTargetRow=P.jumping?(P.animFrom.row+(P.animTo.row-P.animFrom.row)*P.animT):P.row;
+  camRow+=(camTargetRow-camRow)*Math.min(1,10*dt);
+  camCol+=(P.floatCol-camCol)*Math.min(1,10*dt);
+}
+
+// ---- 드로우 ----
+function drawDiamond(cx,cy,fill){
+  ctx.beginPath();
+  ctx.moveTo(cx,cy-TH/2);
+  ctx.lineTo(cx+TW/2,cy);
+  ctx.lineTo(cx,cy+TH/2);
+  ctx.lineTo(cx-TW/2,cy);
+  ctx.closePath();
+  ctx.fillStyle=fill;
+  ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.08)';
+  ctx.lineWidth=1;
+  ctx.stroke();
+}
+
+// 2번: 지형이 잘 보이도록 좀 더 선명하고 밝은 팔레트
+const LANE_COLOR={
+  grass:['#6cc06f','#5fb763'],
+  road:['#565c66','#4d525b']
+};
+
+function drawRoadTile(cx,cy,r,c,fillColor,dir){
+  drawDiamond(cx,cy,fillColor);
+  // 3번: 차선 마킹 - 레인 방향을 따라 기울어진 노란 대시
+  if((r+c)%2===0){
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(LANE_ANGLE*(dir>0?1:-1));
+    ctx.fillStyle='rgba(255,214,0,0.55)';
+    ctx.fillRect(-9,-1.5,18,3);
+    ctx.restore();
+  }
+}
+
+function drawWaterTile(cx,cy,lane){
+  drawDiamond(cx,cy,'#2f7fb8');
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx,cy-TH/2);
+  ctx.lineTo(cx+TW/2,cy);
+  ctx.lineTo(cx,cy+TH/2);
+  ctx.lineTo(cx-TW/2,cy);
+  ctx.closePath();
+  ctx.clip();
+  // 5번: 물결 애니메이션 - 흐름 방향을 따라 이동하는 밝은 리플
+  ctx.strokeStyle='rgba(255,255,255,0.45)';
+  ctx.lineWidth=2;
+  const flow=(waterPhase*lane.dir*36)%24;
+  for(let i=-2;i<3;i++){
+    const off=i*24+flow;
+    ctx.beginPath();
+    ctx.moveTo(cx-TW/2+off,cy-8);
+    ctx.quadraticCurveTo(cx-TW/2+off+8,cy,cx-TW/2+off+16,cy-8);
+    ctx.stroke();
+  }
+  ctx.fillStyle='rgba(255,255,255,0.12)';
+  ctx.fillRect(cx-TW/2,cy+2,TW,TH/2);
+  ctx.restore();
+}
+
+function drawGrassTile(cx,cy,fillColor){
+  drawDiamond(cx,cy,fillColor);
+  // 2번: 잔디 결 표현 - 짧은 획 몇 개로 질감 추가
+  ctx.strokeStyle='rgba(255,255,255,0.18)';
+  ctx.lineWidth=1.5;
+  const seed=(cx*13+cy*7)%10;
+  for(let i=0;i<3;i++){
+    const ox=((seed+i*3)%9-4);
+    ctx.beginPath();
+    ctx.moveTo(cx+ox,cy+4);
+    ctx.lineTo(cx+ox,cy-2);
+    ctx.stroke();
+  }
+}
+
+// 2번: depth(깊이)에 따라 화면에 실제 보이는 좌우(lateral) 범위를 계산.
+// depth가 클수록 화면 x가 오른쪽으로 밀리기 때문에, 고정폭 컬럼 범위를 쓰면
+// 먼 줄에서는 실제 보여야 할 타일을 놓치거나 안 보이는 타일을 그리게 되어
+// 화면 가장자리에서 타일이 늦게 나타나는(팝인) 문제가 생긴다.
+function colRangeForDepth(depth){
+  const margin=90;
+  const latMin=(-margin-W/2-depth*(TW/2))/(TW/2)+camCol;
+  const latMax=(W+margin-W/2-depth*(TW/2))/(TW/2)+camCol;
+  return {min:Math.floor(latMin)-1,max:Math.ceil(latMax)+1};
+}
+
+function draw(){
+  // 6번: 밝은 하늘색 배경
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#bfe0f5');
+  sky.addColorStop(1,'#e8f6ff');
+  ctx.fillStyle=sky;
+  ctx.fillRect(0,0,W,H);
+
+  const rowStart=Math.floor(camRow)-BEHIND_ROWS, rowEnd=Math.floor(camRow)+AHEAD_ROWS;
+
+  // 타일 배경 - 줄(depth)마다 실제로 화면에 보이는 좌우 범위를 따로 계산
+  for(let r=rowStart;r<=rowEnd;r++){
+    if(r<0) continue;
+    const lane=laneAt(r);
+    const colors=LANE_COLOR[lane.type];
+    const depth=r-camRow;
+    const {min:colStart,max:colEnd}=colRangeForDepth(depth);
+    for(let c=colStart;c<=colEnd;c++){
+      const lateral=c-camCol;
+      const pt=toScreen(depth,lateral);
+      if(pt.y<-40||pt.y>H+40) continue;
+      if(lane.type==='river'){
+        drawWaterTile(pt.x,pt.y,lane);
+      } else if(lane.type==='road'){
+        drawRoadTile(pt.x,pt.y,r,c,colors[(r+c)%2===0?0:1],lane.dir);
+      } else {
+        drawGrassTile(pt.x,pt.y,colors[(r+c)%2===0?0:1]);
+      }
+    }
+  }
+
+  // 오브젝트(장애물+플레이어) - 뒤에서 앞 순서로 정렬해서 그리기
+  const drawList=[];
+  for(let r=rowStart;r<=rowEnd;r++){
+    if(r<0) continue;
+    const lane=laneAt(r);
+    if(lane.type==='grass'){
+      lane.obstacles.forEach(o=>{
+        drawList.push({row:r,col:o.x,kind:'tree'});
+      });
+    } else if(lane.type==='road'){
+      lane.obstacles.forEach(o=>{
+        drawList.push({row:r,col:o.x,kind:'vehicle',o,dir:lane.dir});
+      });
+    } else if(lane.type==='river'){
+      lane.obstacles.forEach(o=>{
+        drawList.push({row:r,col:o.x,kind:'raft',o,dir:lane.dir});
+      });
+    }
+  }
+  const playerRow=P.jumping?(P.animFrom.row+(P.animTo.row-P.animFrom.row)*P.animT):P.row;
+  drawList.push({row:playerRow,col:P.floatCol,kind:'player'});
+
+  drawList.sort((a,b)=>(a.col-a.row)-(b.col-b.row));
+
+  drawList.forEach(item=>{
+    const depth=item.row-camRow, lateral=item.col-camCol;
+    const pt=toScreen(depth,lateral);
+    if(pt.x<-70||pt.x>W+70||pt.y<-70||pt.y>H+70) return;
+
+    if(item.kind==='tree'){
+      ctx.fillStyle='rgba(0,0,0,0.25)';
+      ctx.beginPath();ctx.ellipse(pt.x,pt.y+6,11,4,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#6b4226';
+      ctx.fillRect(pt.x-4,pt.y-6,8,12);
+      ctx.fillStyle='#2f6b3a';
+      ctx.beginPath();ctx.arc(pt.x,pt.y-16,15,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#3d8a4a';
+      ctx.beginPath();ctx.arc(pt.x-5,pt.y-20,8,0,Math.PI*2);ctx.fill();
+    } else if(item.kind==='vehicle'){
+      // 1번: 옆면(어두운색, 바닥에 붙음) + 윗면(밝은색, 위로 띄움)으로 나눠서 그려서
+      // 바닥에 붙은 스티커가 아니라 "떠 있는 블록"처럼 보이게 함
+      const o=item.o;
+      const ang=laneHeading(item.dir);
+      const HGT=11; // 차량 높이(px)
+      ctx.save();
+      ctx.translate(pt.x,pt.y);
+      ctx.fillStyle='rgba(0,0,0,0.24)';
+      ctx.beginPath();ctx.ellipse(0,7,o.w*TW*0.42,5,ang,0,Math.PI*2);ctx.fill();
+
+      const len=o.w*TW*0.9;
+      const wid=o.vtype==='moto'?12:o.vtype==='truck'?20:16;
+
+      // 옆면(측면) - 바닥에 붙어있는 어두운 블록 + 바퀴
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.fillStyle=shadeColor(o.color,-35);
+      roundRectPath(-len/2,-wid/2,len,wid+HGT,5);
+      ctx.fill();
+      // 바퀴 (검은 원, 측면 아래쪽에 붙어서 자동차/트럭/오토바이 느낌 강조)
+      ctx.fillStyle='#161616';
+      const wheelY=wid/2+HGT-3;
+      if(o.vtype==='moto'){
+        ctx.beginPath();ctx.arc(-len/2+4,wheelY,4,0,Math.PI*2);ctx.arc(len/2-4,wheelY,4,0,Math.PI*2);ctx.fill();
+      } else if(o.vtype==='truck'){
+        [-len/2+7,-len/2+7+len*0.28,len/2-7].forEach(wx=>{
+          ctx.beginPath();ctx.arc(wx,wheelY,3.6,0,Math.PI*2);ctx.fill();
+        });
+      } else {
+        ctx.beginPath();ctx.arc(-len/2+6,wheelY,3.6,0,Math.PI*2);ctx.arc(len/2-6,wheelY,3.6,0,Math.PI*2);ctx.fill();
+      }
+      ctx.restore();
+
+      // 윗면 - 높이만큼 위로 띄운 밝은 면 (실제 차체 색)
+      ctx.save();
+      ctx.translate(0,-HGT);
+      ctx.rotate(ang);
+      ctx.fillStyle=o.color;
+      roundRectPath(-len/2,-wid/2,len,wid,5);
+      ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.lineWidth=1.5;ctx.stroke();
+      // 헤드라이트(진행방향 앞쪽) / 테일라이트(뒤쪽)
+      ctx.fillStyle='#fff6c9';
+      ctx.fillRect(len/2-2.5,-wid/2+1.5,2.5,3);
+      ctx.fillRect(len/2-2.5,wid/2-4.5,2.5,3);
+      ctx.fillStyle='#e0454f';
+      ctx.fillRect(-len/2,-wid/2+1.5,2.5,3);
+      ctx.fillRect(-len/2,wid/2-4.5,2.5,3);
+      if(o.vtype==='truck'){
+        ctx.fillStyle='rgba(0,0,0,0.3)';
+        roundRectPath(len/2-11,-wid/2,11,wid,4);
+        ctx.fill();
+        ctx.fillStyle='rgba(200,230,255,0.7)';
+        ctx.fillRect(len/2-9,-wid/2+3,5,wid-6);
+        // 화물칸 패널 라인
+        ctx.strokeStyle='rgba(0,0,0,0.15)';ctx.lineWidth=1;
+        for(let k=1;k<4;k++){ ctx.beginPath();ctx.moveTo(-len/2+len*0.55*k/4,-wid/2+2);ctx.lineTo(-len/2+len*0.55*k/4,wid/2-2);ctx.stroke(); }
+      } else if(o.vtype==='car'){
+        ctx.fillStyle='rgba(200,230,255,0.8)';
+        roundRectPath(-len*0.12,-wid/2+3,len*0.32,wid-6,2);
+        ctx.fill();
+        ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(0,-wid/2+3);ctx.lineTo(0,wid/2-3);ctx.stroke();
+      } else if(o.vtype==='moto'){
+        ctx.fillStyle='#1a1a1a';
+        ctx.beginPath();ctx.ellipse(-1,0,4,3,0,0,Math.PI*2);ctx.fill(); // 몸체
+        ctx.fillStyle='#e8c15a';
+        ctx.beginPath();ctx.arc(len/2-4,-1,2.6,0,Math.PI*2);ctx.fill(); // 탑승자 헬멧
+      }
+      ctx.restore();
+      ctx.restore();
+    } else if(item.kind==='raft'){
+      // 4번: 뗏목/통나무도 흐름 방향에 맞춰 회전 + 살짝 두께감 + 통나무 끝단/묶은 밧줄
+      const o=item.o;
+      const ang=laneHeading(item.dir);
+      const HGT=5; // 물 위에 낮게 뜨는 정도
+      ctx.save();
+      ctx.translate(pt.x,pt.y);
+      ctx.fillStyle='rgba(0,0,0,0.18)';
+      ctx.beginPath();ctx.ellipse(0,6,o.w*TW*0.45,4,ang,0,Math.PI*2);ctx.fill();
+
+      const len=o.w*TW*0.95;
+      const wid=o.ltype==='raft'?22:14;
+      const logCount=o.ltype==='raft'?3:1;
+      const logW=wid/logCount;
+
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.fillStyle='#6d4a28';
+      roundRectPath(-len/2,-wid/2,len,wid+HGT,6);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(0,-HGT);
+      ctx.rotate(ang);
+      // 통나무를 한 줄씩 개별적으로 그려서 원통형 느낌(끝단 타원 + 결)을 표현
+      for(let i=0;i<logCount;i++){
+        const ly=-wid/2+logW*(i+0.5);
+        const grad=ctx.createLinearGradient(0,ly-logW/2,0,ly+logW/2);
+        grad.addColorStop(0,'#c99461');
+        grad.addColorStop(0.5,'#a97a45');
+        grad.addColorStop(1,'#8a5f35');
+        ctx.fillStyle=grad;
+        roundRectPath(-len/2,ly-logW/2+1,len,logW-2,logW/2-1);
+        ctx.fill();
+        ctx.strokeStyle='rgba(0,0,0,0.28)';ctx.lineWidth=1;ctx.stroke();
+        // 나무 끝단 (원형 단면)
+        ['#8a5f35','#c99461'].forEach((c,side)=>{
+          ctx.fillStyle=c;
+          ctx.beginPath();ctx.ellipse(side===0?-len/2+3:len/2-3,ly,4,logW/2-2,0,0,Math.PI*2);ctx.fill();
+          ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.stroke();
+        });
+      }
+      // 통나무를 묶은 밧줄 (교차 지점마다)
+      if(logCount>1){
+        ctx.strokeStyle='#5a3d22';ctx.lineWidth=2;
+        for(let k=1;k<4;k++){
+          const rx=-len/2+len*k/4;
+          ctx.beginPath();ctx.moveTo(rx,-wid/2+2);ctx.lineTo(rx,wid/2-2);ctx.stroke();
+        }
+      }
+      ctx.restore();
+      ctx.restore();
+    } else if(item.kind==='player'){
+      const hop=P.jumping?Math.sin(P.animT*Math.PI)*14:0;
+      const HGT=9;
+      ctx.fillStyle='rgba(0,0,0,0.28)';
+      ctx.beginPath();ctx.ellipse(pt.x,pt.y+4,10,4,0,0,Math.PI*2);ctx.fill();
+      // 옆면(어두운 아래쪽)
+      ctx.fillStyle=P.alive?'#c99a1e':'#555';
+      ctx.beginPath();ctx.arc(pt.x,pt.y-HGT-hop,11,0,Math.PI*2);ctx.fill();
+      // 윗면(밝은 몸통) - 점프 중엔 더 높이 뜸
+      const py=pt.y-HGT-hop-6;
+      ctx.fillStyle=P.alive?'#ffd23f':'#888';
+      ctx.beginPath();ctx.arc(pt.x,py,11,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#1a1a1a';
+      ctx.beginPath();ctx.arc(pt.x-4,py-2,1.8,0,Math.PI*2);ctx.arc(pt.x+4,py-2,1.8,0,Math.PI*2);ctx.fill();
+    }
+  });
+
+  // 1번: 이동 가능한 좌우 경계를 점선 펜스로 표시
+  drawBoundary(COL_LIMIT+0.5,rowStart,rowEnd);
+  drawBoundary(-COL_LIMIT-0.5,rowStart,rowEnd);
+}
+
+function drawBoundary(col,rowStart,rowEnd){
+  ctx.save();
+  ctx.setLineDash([9,7]);
+  ctx.lineWidth=3;
+  ctx.strokeStyle='rgba(40,30,20,0.5)';
+  ctx.beginPath();
+  for(let r=rowStart;r<=rowEnd+1;r++){
+    const depth=r-camRow, lateral=col-camCol;
+    const pt=toScreen(depth,lateral);
+    if(r===rowStart) ctx.moveTo(pt.x,pt.y); else ctx.lineTo(pt.x,pt.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+
+function loop(ts){
+  const dt=Math.min((ts-lastTs)/1000,0.05);
+  lastTs=ts;
+  if(running) update(dt);
+  draw();
+  raf=requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize',()=>{resize();});
+resize();
+best=loadBest();
+updateHUD();
+ensureLanes();
+lastTs=performance.now();
+raf=requestAnimationFrame(loop);
+</script>
+</body>
+</html>
