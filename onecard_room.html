@@ -48,6 +48,39 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
 let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false;
 let oneCardBucket=-1,oneCardPosSeat=-1;
+let cardbackMap={};
+function cbShade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return '#'+(r<<16|g<<8|b).toString(16).padStart(6,'0');
+}
+function cbBgCss(color,pattern){
+  if(pattern==='solid') return color;
+  if(pattern==='dots') return `radial-gradient(${cbShade(color,-15)} 22%,transparent 23%) 0 0/10px 10px, ${color}`;
+  if(pattern==='grid') return `repeating-linear-gradient(0deg,${cbShade(color,-15)},${cbShade(color,-15)} 1px,transparent 1px,transparent 9px),repeating-linear-gradient(90deg,${cbShade(color,-15)},${cbShade(color,-15)} 1px,transparent 1px,transparent 9px),${color}`;
+  return `repeating-linear-gradient(45deg,${color},${color} 5px,${cbShade(color,-18)} 5px,${cbShade(color,-18)} 10px)`;
+}
+function cardbackStyleFor(userId){
+  const d=cardbackMap[userId];
+  if(!d) return 'repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px)';
+  if(d.custom_image) return `url('${d.custom_image}') center/cover no-repeat`;
+  if(d.bg_color) return cbBgCss(d.bg_color,d.pattern||'stripe');
+  return 'repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px)';
+}
+async function ensureCardbacks(userIds){
+  const missing=[...new Set(userIds)].filter(id=>!(id in cardbackMap));
+  if(!missing.length) return;
+  missing.forEach(id=>cardbackMap[id]=undefined);
+  try{
+    const idList=missing.map(id=>`"${id}"`).join(',');
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_cardbacks?user_id=in.(${idList})&select=*`,{headers:headers()});
+    const data=await r.json();
+    missing.forEach(id=>{ if(!(id in cardbackMap)||cardbackMap[id]===undefined) cardbackMap[id]=null; });
+    data.forEach(d=>{ cardbackMap[d.user_id]=d; });
+    if(room) render();
+  }catch(e){}
+}
 
 function buildDeck(){
   const d=[];
@@ -115,6 +148,7 @@ async function fetchRoom(){
 
 function render(){
   document.getElementById('roomTitle').textContent=esc(room.host_username)+'님의 방';
+  ensureCardbacks((room.players||[]).map(p=>p.user_id));
   const wrap=document.getElementById('wrap');
   if(room.status==='waiting') return renderLobby(wrap);
   if(room.status==='playing') return renderGame(wrap);
@@ -468,6 +502,10 @@ function renderGame(wrap){
     prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
   }
   checkEffects(st);
+  if(currentUser){
+    const dp2=document.getElementById('deckPile');
+    if(dp2) dp2.style.background=cardbackStyleFor(currentUser.id);
+  }
 
   ['tl','top','tr','left','right'].forEach(s=>document.getElementById('slot-'+s).innerHTML='');
   const slots=slotsForCount(Math.min(isPlayer?n-1:n,5));
@@ -478,8 +516,9 @@ function renderGame(wrap){
     const p=players[seat];
     if(!p) continue;
     const cnt=Math.min(3,(st.hands[seat]||[]).length);
+    const cbBg=cardbackStyleFor(p.user_id);
     let fan='<div style="display:flex;">';
-    for(let k=0;k<cnt;k++){ fan+=`<div style="width:24px;height:33px;margin-left:${k===0?0:-13}px;border-radius:5px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 3px,#6a4ce0 3px,#6a4ce0 6px);border:1px solid #5a3ecf;transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`; }
+    for(let k=0;k<cnt;k++){ fan+=`<div style="width:24px;height:33px;margin-left:${k===0?0:-13}px;border-radius:5px;background:${cbBg};border:1px solid rgba(0,0,0,0.15);transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`; }
     fan+='</div>';
     const isSeatTurn=st.turn===seat;
     const isLeftSeat=(st.leftSeats||[]).includes(seat);
