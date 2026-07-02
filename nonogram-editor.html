@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>노노그램 제작</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:0.85rem 1rem;border-bottom:1px solid #eee;flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:600;color:#111;flex:1;}
+
+/* 사이즈 선택 화면 */
+.size-pick{padding:1.5rem 1.25rem;}
+.size-pick h2{font-size:16px;font-weight:700;margin-bottom:14px;color:#111;}
+.size-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.size-opt{border:1.5px solid #eee;border-radius:14px;padding:20px 10px;text-align:center;background:#fafafa;cursor:pointer;font-weight:800;font-size:16px;color:#333;}
+.size-opt:active{transform:scale(0.96);}
+
+/* 에디터 화면 */
+.editor{display:none;flex:1;flex-direction:column;padding:0.75rem;gap:0.65rem;align-items:center;}
+.editor.show{display:flex;}
+.color-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;}
+.swatch{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;}
+.swatch.active{border-color:#333;}
+.canvas-wrap{display:flex;justify-content:center;width:100%;overflow:auto;}
+.grid{border:2px solid #333;display:flex;flex-direction:column;flex-shrink:0;}
+.grow{display:flex;}
+.cell{background:#fff;cursor:pointer;}
+.tool-row{display:flex;gap:8px;width:100%;justify-content:center;}
+.gbtn{font-family:inherit;font-size:13px;cursor:pointer;border-radius:8px;border:1px solid #ddd;padding:8px 16px;background:#fff;color:#111;font-weight:600;}
+.gbtn.primary{background:#333;color:#fff;border-color:transparent;}
+.name-row{width:100%;padding:0 0.25rem;}
+.name-row input{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #ddd;font-size:14px;font-family:inherit;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <span class="top-title">문제 만들기</span>
+  </div>
+
+  <div class="size-pick" id="sizePick">
+    <h2>몇 × 몇 크기로 만들까요?</h2>
+    <div class="size-grid">
+      <div class="size-opt" onclick="startEditor(5)">5×5</div>
+      <div class="size-opt" onclick="startEditor(10)">10×10</div>
+      <div class="size-opt" onclick="startEditor(15)">15×15</div>
+      <div class="size-opt" onclick="startEditor(20)">20×20</div>
+      <div class="size-opt" onclick="startEditor(25)">25×25</div>
+      <div class="size-opt" onclick="startEditor(30)">30×30</div>
+    </div>
+  </div>
+
+  <div class="editor" id="editor">
+    <div class="color-row" id="colorRow"></div>
+    <div class="canvas-wrap" id="canvasWrap"></div>
+    <div class="tool-row">
+      <button class="gbtn" onclick="clearGrid()">전체 지우기</button>
+    </div>
+    <div class="name-row">
+      <input type="text" id="puzzleName" placeholder="문제 이름 (예: 우리집 강아지)" maxlength="12">
+    </div>
+    <div class="name-row">
+      <input type="text" id="creatorName" placeholder="내 이름 (선택)" maxlength="12">
+    </div>
+    <div class="tool-row">
+      <button class="gbtn primary" style="flex:1;" onclick="saveCustom()" id="saveBtn">저장하고 목록에 올리기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const COLORS=['#333333','#E24B4A','#F5A623','#1D9E75','#378ADD','#534AB7','#D4537E','#BA7517'];
+
+let N=0, board=[], curColor=COLORS[0], dragging=false, dragVal=0, cellSize=0;
+
+function goBack(){
+  const editor=document.getElementById('editor');
+  if(editor.classList.contains('show')){
+    if(!confirm('그리던 내용이 사라져요. 뒤로 갈까요?'))return;
+    editor.classList.remove('show');
+    document.getElementById('sizePick').style.display='block';
+  }else{
+    location.href='nonogram-custom.html';
+  }
+}
+
+function startEditor(size){
+  N=size;
+  board=Array.from({length:N},()=>new Array(N).fill(0));
+  document.getElementById('sizePick').style.display='none';
+  document.getElementById('editor').classList.add('show');
+  buildColorRow();
+  buildGrid();
+}
+
+function buildColorRow(){
+  const row=document.getElementById('colorRow');
+  row.innerHTML='';
+  COLORS.forEach(c=>{
+    const sw=document.createElement('div');
+    sw.className='swatch'+(c===curColor?' active':'');
+    sw.style.background=c;
+    sw.addEventListener('click',()=>{curColor=c;buildColorRow();});
+    row.appendChild(sw);
+  });
+}
+
+function buildGrid(){
+  const wrap=document.getElementById('canvasWrap');
+  wrap.innerHTML='';
+  const maxW=Math.min(window.innerWidth-24,400);
+  cellSize=Math.max(Math.floor(maxW/N), N<=5?36:N<=10?26:N<=15?18:N<=20?14:N<=25?11:9);
+  cellSize=Math.min(cellSize, N<=5?48:N<=10?32:24);
+
+  const grid=document.createElement('div');
+  grid.className='grid';
+  for(let r=0;r<N;r++){
+    const row=document.createElement('div');
+    row.className='grow';
+    for(let c=0;c<N;c++){
+      const cell=document.createElement('div');
+      cell.className='cell';
+      const borderR=(c+1)%5===0&&c!==N-1?'1.5px solid #999':'0.5px solid #ddd';
+      const borderB=(r+1)%5===0&&r!==N-1?'1.5px solid #999':'0.5px solid #ddd';
+      cell.style.cssText=`width:${cellSize}px;height:${cellSize}px;border-right:${borderR};border-bottom:${borderB};`;
+      cell.id=`e-${r}-${c}`;
+      cell.addEventListener('pointerdown',e=>{e.preventDefault();startDrag(r,c);});
+      cell.addEventListener('pointerenter',()=>{if(dragging)doDrag(r,c);});
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  }
+  grid.addEventListener('pointerup',()=>{dragging=false;});
+  document.addEventListener('pointerup',()=>{dragging=false;});
+  wrap.appendChild(grid);
+}
+
+function paintCell(r,c,v){
+  board[r][c]=v;
+  const el=document.getElementById(`e-${r}-${c}`);
+  el.style.background=v?curColor:'#fff';
+}
+
+function startDrag(r,c){
+  dragging=true;
+  dragVal=board[r][c]?0:1;
+  paintCell(r,c,dragVal);
+}
+function doDrag(r,c){
+  if(!dragging)return;
+  paintCell(r,c,dragVal);
+}
+
+function clearGrid(){
+  if(!confirm('전체를 지울까요?'))return;
+  board=Array.from({length:N},()=>new Array(N).fill(0));
+  buildGrid();
+}
+
+async function saveCustom(){
+  const name=document.getElementById('puzzleName').value.trim();
+  if(!name){alert('문제 이름을 입력해주세요');return;}
+  const filled=board.some(row=>row.some(v=>v===1));
+  if(!filled){alert('칸을 하나 이상 칠해주세요');return;}
+  const creator=document.getElementById('creatorName').value.trim();
+
+  const btn=document.getElementById('saveBtn');
+  btn.disabled=true;btn.textContent='저장 중...';
+
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/nonogram_custom`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Prefer':'return=minimal'},
+      body:JSON.stringify({size:N,name:name,color:curColor,solution:board,creator:creator||null})
+    });
+    if(!res.ok)throw new Error('save failed');
+    location.href='nonogram-custom.html';
+  }catch(e){
+    alert('저장에 실패했어요, 다시 시도해주세요');
+    btn.disabled=false;btn.textContent='저장하고 목록에 올리기';
+  }
+}
+</script>
+</body>
+</html>

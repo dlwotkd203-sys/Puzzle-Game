@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>커스텀 노노그램</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.make-btn{background:#333;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;}
+
+.sizes{padding:0.9rem 1rem 1.5rem;}
+.size-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:12px;border:1px solid #eee;background:#fafafa;cursor:pointer;margin-bottom:8px;font-size:14px;font-weight:700;color:#111;}
+.size-toggle .cnt{font-size:12px;font-weight:600;color:#888;}
+.size-toggle .arrow{transition:transform 0.15s;color:#aaa;}
+.size-toggle.open .arrow{transform:rotate(90deg);}
+.size-list{display:none;padding:4px 0 12px;}
+.size-list.open{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+
+.item{border:1px solid #eee;border-radius:12px;padding:8px;text-align:center;cursor:pointer;background:#fff;transition:transform 0.1s;}
+.item:active{transform:scale(0.95);}
+.item canvas{border-radius:4px;image-rendering:pixelated;margin-bottom:6px;background:#f5f5f5;}
+.item .iname{font-size:11px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.item .icreator{font-size:9px;color:#aaa;}
+.empty-msg{grid-column:1/-1;text-align:center;padding:16px 0;font-size:12px;color:#aaa;}
+.loading{text-align:center;padding:40px;font-size:13px;color:#aaa;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='nonogram-home.html'">←</button>
+    <span class="top-title">커스텀 노노그램</span>
+    <button class="make-btn" onclick="location.href='nonogram-editor.html'">+ 제작</button>
+  </div>
+  <div class="sizes" id="sizes">
+    <div class="loading">불러오는 중...</div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const SIZES=[5,10,15,20,25,30];
+
+let itemsBySize={};
+SIZES.forEach(s=>itemsBySize[s]=[]);
+
+async function loadItems(){
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/nonogram_custom?select=id,size,name,color,solution,creator,created_at&order=created_at.desc`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+    });
+    const rows=await res.json();
+    (rows||[]).forEach(r=>{
+      if(!itemsBySize[r.size])itemsBySize[r.size]=[];
+      itemsBySize[r.size].push(r);
+    });
+  }catch(e){}
+  render();
+}
+
+function drawThumb(canvas,size,solution,color){
+  const px=Math.floor(60/size)||1;
+  canvas.width=size*px;canvas.height=size*px;
+  canvas.style.width=canvas.width+'px';canvas.style.height=canvas.height+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#f5f5f5';ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(let r=0;r<size;r++)for(let c=0;c<size;c++){
+    if(solution[r] && solution[r][c]===1){
+      ctx.fillStyle=color||'#534AB7';
+      ctx.fillRect(c*px,r*px,px,px);
+    }
+  }
+}
+
+function render(){
+  const wrap=document.getElementById('sizes');
+  wrap.innerHTML='';
+  SIZES.forEach(size=>{
+    const items=itemsBySize[size]||[];
+    const toggle=document.createElement('button');
+    toggle.className='size-toggle';
+    toggle.innerHTML=`<span>${size}×${size}</span><span class="cnt">${items.length}개 &nbsp;<span class="arrow">›</span></span>`;
+    const list=document.createElement('div');
+    list.className='size-list';
+
+    if(items.length===0){
+      list.innerHTML='<div class="empty-msg">아직 만들어진 문제가 없어요</div>';
+    }else{
+      items.forEach(it=>{
+        const cell=document.createElement('div');
+        cell.className='item';
+        const canvas=document.createElement('canvas');
+        cell.appendChild(canvas);
+        const nm=document.createElement('div');
+        nm.className='iname';
+        nm.textContent=it.name||'제목없음';
+        cell.appendChild(nm);
+        if(it.creator){
+          const cr=document.createElement('div');
+          cr.className='icreator';
+          cr.textContent='by '+it.creator;
+          cell.appendChild(cr);
+        }
+        cell.addEventListener('click',()=>{location.href='nonogram-custom-play.html?id='+it.id;});
+        list.appendChild(cell);
+        drawThumb(canvas,size,it.solution,it.color);
+      });
+    }
+
+    toggle.addEventListener('click',()=>{
+      const willOpen=!toggle.classList.contains('open');
+      toggle.classList.toggle('open',willOpen);
+      list.classList.toggle('open',willOpen);
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(list);
+  });
+}
+
+loadItems();
+</script>
+</body>
+</html>
