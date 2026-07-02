@@ -52,7 +52,7 @@ SIZES.forEach(s=>itemsBySize[s]=[]);
 
 async function loadItems(){
   try{
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/nonogram_custom?select=id,size,name,color,solution,creator,created_at&order=created_at.desc`,{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/nonogram_custom?select=id,size,name,color,creator,created_at&order=created_at.desc`,{
       headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
     });
     const rows=await res.json();
@@ -64,14 +64,21 @@ async function loadItems(){
   render();
 }
 
-function drawThumb(canvas,size,solution,color){
+function drawThumb(canvas,size,puzzleId,color){
   const px=Math.floor(60/size)||1;
   canvas.width=size*px;canvas.height=size*px;
   canvas.style.width=canvas.width+'px';canvas.style.height=canvas.height+'px';
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#f5f5f5';ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  let raw=null;
+  try{ raw=localStorage.getItem('nonogram_progress_custom_'+puzzleId); }catch(e){}
+  if(!raw)return; // 안 풀어본 문제는 빈 칸으로 둔다 (정답 노출 방지)
+  let arr;
+  try{ arr=JSON.parse(raw); }catch(e){ return; }
+  if(!arr || arr.length!==size)return;
   for(let r=0;r<size;r++)for(let c=0;c<size;c++){
-    if(solution[r] && solution[r][c]===1){
+    if(arr[r] && arr[r][c]===1){
       ctx.fillStyle=color||'#534AB7';
       ctx.fillRect(c*px,r*px,px,px);
     }
@@ -109,7 +116,7 @@ function render(){
         }
         cell.addEventListener('click',()=>{location.href='nonogram-custom-play.html?id='+it.id;});
         list.appendChild(cell);
-        drawThumb(canvas,size,it.solution,it.color);
+        drawThumb(canvas,size,it.id,it.color);
       });
     }
 

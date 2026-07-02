@@ -78,7 +78,7 @@ const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 const COLORS=['#333333','#E24B4A','#F5A623','#1D9E75','#378ADD','#534AB7','#D4537E','#BA7517'];
 
-let N=0, board=[], curColor=COLORS[0], dragging=false, dragVal=0, cellSize=0;
+let N=0, board=[], curColor=COLORS[0], dragging=false, dragVal=0, cellSize=0, gridEl=null;
 
 function goBack(){
   const editor=document.getElementById('editor');
@@ -131,15 +131,33 @@ function buildGrid(){
       const borderB=(r+1)%5===0&&r!==N-1?'1.5px solid #999':'0.5px solid #ddd';
       cell.style.cssText=`width:${cellSize}px;height:${cellSize}px;border-right:${borderR};border-bottom:${borderB};`;
       cell.id=`e-${r}-${c}`;
-      cell.addEventListener('pointerdown',e=>{e.preventDefault();startDrag(r,c);});
-      cell.addEventListener('pointerenter',()=>{if(dragging)doDrag(r,c);});
       row.appendChild(cell);
     }
     grid.appendChild(row);
   }
-  grid.addEventListener('pointerup',()=>{dragging=false;});
-  document.addEventListener('pointerup',()=>{dragging=false;});
+  grid.style.touchAction='none';
+  gridEl=grid;
+  grid.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    const pos=cellFromEvent(e);
+    if(pos)startDrag(pos.r,pos.c);
+  });
+  grid.addEventListener('pointermove',e=>{
+    if(!dragging)return;
+    e.preventDefault();
+    const pos=cellFromEvent(e);
+    if(pos)doDrag(pos.r,pos.c);
+  });
+  window.addEventListener('pointerup',()=>{dragging=false;});
   wrap.appendChild(grid);
+}
+
+function cellFromEvent(e){
+  const rect=gridEl.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  const c=Math.floor(x/cellSize), r=Math.floor(y/cellSize);
+  if(r<0||r>=N||c<0||c>=N)return null;
+  return {r,c};
 }
 
 function paintCell(r,c,v){

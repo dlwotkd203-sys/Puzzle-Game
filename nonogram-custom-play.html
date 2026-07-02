@@ -65,7 +65,21 @@ const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 const params=new URLSearchParams(location.search);
 const puzzleId=params.get('id');
 
-let puzzle=null, N=0, solution=null, userBoard=[], mode='fill', dragging=false, dragVal=1, cellSize=0;
+let puzzle=null, N=0, solution=null, userBoard=[], mode='fill', dragging=false, dragVal=1, cellSize=0, gridEl=null;
+
+function loadProgress(){
+  try{
+    const raw=localStorage.getItem('nonogram_progress_custom_'+puzzleId);
+    if(raw){
+      const arr=JSON.parse(raw);
+      if(arr && arr.length===N && arr[0] && arr[0].length===N) return arr;
+    }
+  }catch(e){}
+  return Array.from({length:N},()=>new Array(N).fill(0));
+}
+function saveProgress(){
+  try{ localStorage.setItem('nonogram_progress_custom_'+puzzleId, JSON.stringify(userBoard)); }catch(e){}
+}
 
 async function load(){
   if(!puzzleId){document.getElementById('gameBody').innerHTML='<div class="loading">잘못된 접근이에요</div>';return;}
@@ -78,7 +92,7 @@ async function load(){
     puzzle=rows[0];
     N=puzzle.size;
     solution=puzzle.solution;
-    userBoard=Array.from({length:N},()=>new Array(N).fill(0));
+    userBoard=loadProgress();
     document.getElementById('stage-title').textContent=puzzle.name;
     if(puzzle.creator)document.getElementById('creator-info').textContent='by '+puzzle.creator;
     buildUI();
@@ -175,8 +189,6 @@ function buildBoard(){
       if(c===N-1)cell.style.borderRight='none';
       if(r===N-1)cell.style.borderBottom='none';
       cell.id=`c-${r}-${c}`;
-      cell.addEventListener('pointerdown',e=>{e.preventDefault();startDrag(r,c);});
-      cell.addEventListener('pointerenter',()=>{if(dragging)doDrag(r,c);});
       const xspan=document.createElement('span');
       xspan.style.cssText=`display:none;color:#E24B4A;font-weight:700;font-size:${Math.max(8,cellSize*0.55)}px;`;
       xspan.textContent='✕';xspan.id=`x-${r}-${c}`;
@@ -185,12 +197,32 @@ function buildBoard(){
     }
     grid.appendChild(row);
   }
-  grid.addEventListener('pointerup',()=>{dragging=false;});
-  document.addEventListener('pointerup',()=>{dragging=false;});
+  grid.style.touchAction='none';
+  gridEl=grid;
+  grid.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    const pos=cellFromEvent(e);
+    if(pos)startDrag(pos.r,pos.c);
+  });
+  grid.addEventListener('pointermove',e=>{
+    if(!dragging)return;
+    e.preventDefault();
+    const pos=cellFromEvent(e);
+    if(pos)doDrag(pos.r,pos.c);
+  });
+  window.addEventListener('pointerup',()=>{dragging=false;});
   body.appendChild(grid);
   nano.appendChild(body);
   wrap.appendChild(nano);
   renderCells();
+}
+
+function cellFromEvent(e){
+  const rect=gridEl.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  const c=Math.floor(x/cellSize), r=Math.floor(y/cellSize);
+  if(r<0||r>=N||c<0||c>=N)return null;
+  return {r,c};
 }
 
 function renderCells(){
@@ -202,6 +234,7 @@ function renderCells(){
     cell.style.background=v===1?(puzzle.color||'#333'):'#fff';
     if(xspan)xspan.style.display=v===2?'block':'none';
   }
+  saveProgress();
 }
 
 function setMode(m){

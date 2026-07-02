@@ -24,7 +24,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .diff-dot{width:8px;height:8px;border-radius:50%;}
 .diff-count{font-size:11px;color:#aaa;}
 .stage-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;}
-.stage-tile{background:#fff;border:1px solid #eee;border-radius:12px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:transform 0.1s;}
+.stage-tile{background:#fff;border:1px solid #eee;border-radius:12px;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:transform 0.1s;overflow:hidden;}
+.s-thumb{border-radius:3px;image-rendering:pixelated;}
 .stage-tile:active{transform:scale(0.93);}
 .stage-tile.cleared{border-width:1.5px;}
 .stage-tile.diff-easy.cleared{background:#E1F5EE;border-color:#1D9E75;}
@@ -53,10 +54,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 <script>
 var DIFFS=[
-  {id:'easy',  label:'왕초보 (5×5)',  color:'#1D9E75', from:1,  to:10},
-  {id:'normal',label:'초보 (10×10)', color:'#378ADD', from:11, to:20},
-  {id:'medium',label:'중수 (20×20)', color:'#BA7517', from:21, to:30},
-  {id:'hard',  label:'고수 (30×30)', color:'#E24B4A', from:31, to:40},
+  {id:'easy',  label:'왕초보 (5×5)',  color:'#1D9E75', from:1,  to:10, size:5},
+  {id:'normal',label:'초보 (10×10)', color:'#378ADD', from:11, to:20, size:10},
+  {id:'medium',label:'중수 (20×20)', color:'#BA7517', from:21, to:30, size:20},
+  {id:'hard',  label:'고수 (30×30)', color:'#E24B4A', from:31, to:40, size:30},
 ];
 var NAMES=['하트','별','집','나무','물고기','달','십자','체크','다이아몬드','사람',
            '큰하트','고양이','큰별','큰집','비행기','꽃','달팽이','곰','배','로켓',
@@ -66,6 +67,22 @@ var NAMES=['하트','별','집','나무','물고기','달','십자','체크','�
 var clearedArr=[];
 try{var raw=localStorage.getItem('nonogram_cleared');if(raw)clearedArr=JSON.parse(raw).map(Number);}catch(e){}
 function isCleared(n){return clearedArr.indexOf(n)!==-1;}
+
+function drawProgressThumb(canvas,n,size,color){
+  var raw=null;
+  try{raw=localStorage.getItem('nonogram_progress_'+n);}catch(e){}
+  var px=Math.floor(34/size)||1;
+  canvas.width=size*px;canvas.height=size*px;
+  canvas.style.width=canvas.width+'px';canvas.style.height=canvas.height+'px';
+  var ctx=canvas.getContext('2d');
+  ctx.fillStyle='#f2f2f2';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(!raw){ canvas.style.visibility='hidden'; return; }
+  var arr; try{arr=JSON.parse(raw);}catch(e){ canvas.style.visibility='hidden'; return; }
+  if(!arr || arr.length!==size){ canvas.style.visibility='hidden'; return; }
+  for(var r=0;r<size;r++)for(var c=0;c<size;c++){
+    if(arr[r] && arr[r][c]===1){ ctx.fillStyle=color; ctx.fillRect(c*px,r*px,px,px); }
+  }
+}
 
 function updateProgress(){
   var total=40,done=clearedArr.length,pct=Math.round(done/total*100);
@@ -89,9 +106,10 @@ function render(){
         var tile=document.createElement('div');
         tile.className='stage-tile diff-'+diff.id+(isCleared(n)?' cleared':'');
         var name=NAMES[n-1]||n;
-        tile.innerHTML='<div class="s-num">'+n+'</div><div class="s-name">'+name+'</div>'+(isCleared(n)?'<div class="s-check">✓</div>':'');
+        tile.innerHTML='<canvas class="s-thumb"></canvas><div class="s-num">'+n+'</div><div class="s-name">'+name+'</div>'+(isCleared(n)?'<div class="s-check">✓</div>':'');
         tile.addEventListener('click',function(){location.href='nonogram.html?stage='+n;});
         row.appendChild(tile);
+        drawProgressThumb(tile.querySelector('.s-thumb'), n, diff.size, diff.color);
       })(i);
     }
     sec.appendChild(row);wrap.appendChild(sec);
