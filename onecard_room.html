@@ -24,6 +24,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span class="top-title" id="roomTitle">원카드 대전방</span>
   </div>
   <div class="wrap" id="wrap"><div class="center-msg">불러오는 중...</div></div>
+  <div id="chatBar" style="position:sticky;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;padding:8px 12px;display:flex;gap:8px;align-items:center;z-index:40;">
+    <input id="chatInput" maxlength="6" placeholder="채팅 (최대 6자)" style="flex:1;border:1px solid #ddd;border-radius:20px;padding:9px 14px;font-size:13px;font-family:inherit;outline:none;">
+    <div id="chatSendBtn" style="font-weight:700;color:#7c5cff;font-size:13px;cursor:pointer;padding:8px 12px;flex-shrink:0;">전송</div>
+  </div>
 </div>
 <script>
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
@@ -48,6 +52,9 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
 let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false;
 let prevHandCounts=null;
+let prevHands=null;
+let prevDeckLen=null, prevDiscardLen=null;
+let dealAnimDone=false;
 let oneCardBucket=-1,oneCardPosSeat=-1;
 let cardbackMap={};
 function cbShade(hex,amt){
@@ -69,18 +76,23 @@ function cardbackStyleFor(userId){
   if(d.bg_color) return cbBgCss(d.bg_color,d.pattern||'stripe');
   return 'repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px)';
 }
+let cardbackFetching=new Set();
 async function ensureCardbacks(userIds){
-  const missing=[...new Set(userIds)].filter(id=>!(id in cardbackMap));
+  const missing=[...new Set(userIds)].filter(id=>!(id in cardbackMap)&&!cardbackFetching.has(id));
   if(!missing.length) return;
-  missing.forEach(id=>cardbackMap[id]=undefined);
+  missing.forEach(id=>cardbackFetching.add(id));
   try{
     const idList=missing.map(id=>`"${id}"`).join(',');
     const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_cardbacks?user_id=in.(${idList})&select=*`,{headers:headers()});
     const data=await r.json();
-    missing.forEach(id=>{ if(!(id in cardbackMap)||cardbackMap[id]===undefined) cardbackMap[id]=null; });
+    missing.forEach(id=>{ if(!(id in cardbackMap)) cardbackMap[id]=null; });
     data.forEach(d=>{ cardbackMap[d.user_id]=d; });
     if(room) render();
-  }catch(e){}
+  }catch(e){
+    // 실패하면 cardbackMap에 기록하지 않아서 다음 render때 다시 시도됨
+  }finally{
+    missing.forEach(id=>cardbackFetching.delete(id));
+  }
 }
 
 function buildDeck(){
@@ -200,8 +212,8 @@ function renderLobby(wrap){
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
   const allReady=players.length>=2&&players.every(p=>p.ready);
   let html='<div style="width:100%;padding:0 6px;">';
-  players.forEach(p=>{
-    html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
+  players.forEach((p,idx)=>{
+    html+=`<div id="lobby-row-${idx}" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
       <div style="width:24px;height:24px;border-radius:50%;background:${p.color};"></div>
       <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}</div>
       <div style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:${p.ready?'#0f9e75':'#bbb'};">${p.ready?'준비완료':'대기중'}</div>
@@ -357,8 +369,8 @@ async function playCard(cardId){
     }
   });
 
-  if(room.state._needSuitPick){ showSuitPick(); return; }
   if(winnerSeat!==null){ await finishGame(winnerSeat); return; }
+  if(room.state._needSuitPick){ showSuitPick(); return; }
   render();
 }
 
@@ -499,34 +511,97 @@ function getSeatTargetEl(seat){
   }
   return document.getElementById('tableArea');
 }
-function flyCardBack(fromEl,toEl){
-  if(!fromEl||!toEl) return;
+function flyPiece(pieceEl,fromEl,toEl,duration){
+  if(!fromEl||!toEl){ pieceEl.remove&&pieceEl.remove(); return; }
   const fr=fromEl.getBoundingClientRect(), tr=toEl.getBoundingClientRect();
   if(!fr.width||!tr.width) return;
-  const clone=makeCardBack(fr.width,fr.height);
-  clone.style.position='fixed'; clone.style.left=fr.left+'px'; clone.style.top=fr.top+'px'; clone.style.margin='0'; clone.style.zIndex='999';
-  clone.style.transition='left 0.4s ease,top 0.4s ease';
-  document.body.appendChild(clone);
+  pieceEl.style.position='fixed'; pieceEl.style.left=fr.left+'px'; pieceEl.style.top=fr.top+'px'; pieceEl.style.margin='0'; pieceEl.style.zIndex='999';
+  pieceEl.style.transition=`left ${duration}ms ease,top ${duration}ms ease`;
+  document.body.appendChild(pieceEl);
   requestAnimationFrame(()=>{
-    clone.style.left=(tr.left+(tr.width-fr.width)/2)+'px';
-    clone.style.top=(tr.top+(tr.height-fr.height)/2)+'px';
+    pieceEl.style.left=(tr.left+(tr.width-fr.width)/2)+'px';
+    pieceEl.style.top=(tr.top+(tr.height-fr.height)/2)+'px';
   });
-  setTimeout(()=>clone.remove(),420);
+  setTimeout(()=>pieceEl.remove(),duration+40);
 }
-function flyCardBackMulti(fromEl,toEl,count){
-  const capped=Math.max(1,Math.min(count,6));
-  for(let i=0;i<capped;i++){ setTimeout(()=>flyCardBack(fromEl,toEl),i*130); }
+function flyDrawnCards(seat,cards){
+  const deckEl=document.getElementById('deckPile');
+  const toEl=getSeatTargetEl(seat);
+  const isMe=seat===mySeat;
+  const p=room.players[seat];
+  cards.slice(0,6).forEach((c,i)=>{
+    setTimeout(()=>{
+      const el=isMe?makeCardFace(c,58,80):makeCardBack(34,48);
+      if(!isMe&&p) el.style.background=cardbackStyleFor(p.user_id);
+      flyPiece(el,deckEl,toEl,380);
+    },i*130);
+  });
 }
 function checkDrawEffects(st){
-  const deckEl=document.getElementById('deckPile');
-  if(prevHandCounts){
+  if(prevHands){
     for(let seat=0;seat<st.hands.length;seat++){
-      const prevC=prevHandCounts[seat]!==undefined?prevHandCounts[seat]:st.hands[seat].length;
-      const delta=st.hands[seat].length-prevC;
-      if(delta>0){ flyCardBackMulti(deckEl,getSeatTargetEl(seat),delta); }
+      const prevIds=prevHands[seat]||[];
+      const curHand=st.hands[seat]||[];
+      const delta=curHand.length-prevIds.length;
+      if(delta>0){
+        const newCards=curHand.slice(-delta);
+        flyDrawnCards(seat,newCards);
+      }
     }
   }
+  prevHands=st.hands.map(h=>h.map(c=>c.id));
   prevHandCounts=st.hands.map(h=>h.length);
+}
+function checkPileEffects(st){
+  if(prevDeckLen!==null&&prevDiscardLen!==null){
+    if(prevDiscardLen>1&&st.discard.length===1&&st.deck.length>prevDeckLen){
+      playReshuffleAnim();
+    }
+  }
+  prevDeckLen=st.deck.length; prevDiscardLen=st.discard.length;
+}
+function playDealIntro(n){
+  const deckEl=document.getElementById('deckPile');
+  if(!deckEl) return;
+  let shakes=0;
+  deckEl.style.transition='transform .12s ease';
+  const shakeTimer=setInterval(()=>{
+    deckEl.style.transform = shakes%2===0?'rotate(-5deg) scale(1.05)':'rotate(5deg) scale(1.05)';
+    shakes++;
+    if(shakes>7){
+      clearInterval(shakeTimer);
+      deckEl.style.transform='rotate(0deg) scale(1)';
+      dealRound(0);
+    }
+  },90);
+  function dealRound(cardIdx){
+    if(cardIdx>=7) return;
+    for(let seat=0;seat<n;seat++){
+      setTimeout(()=>{
+        const isMe=seat===mySeat;
+        const toEl=getSeatTargetEl(seat);
+        const el=makeCardBack(isMe?58:34,isMe?80:48);
+        const p=room.players[seat];
+        if(p) el.style.background=cardbackStyleFor(p.user_id);
+        flyPiece(el,deckEl,toEl,300);
+      },seat*90);
+    }
+    setTimeout(()=>dealRound(cardIdx+1), n*90+60);
+  }
+}
+function playReshuffleAnim(){
+  const deckEl=document.getElementById('deckPile');
+  const discardEl=document.getElementById('discardPile');
+  if(!deckEl||!discardEl) return;
+  showEffectText('덱 재사용!');
+  for(let i=0;i<6;i++){
+    setTimeout(()=>{ flyPiece(makeCardBack(50,70),discardEl,deckEl,320); },i*80);
+  }
+  setTimeout(()=>{
+    deckEl.style.transition='transform .18s ease';
+    deckEl.style.transform='scale(1.18) rotate(-3deg)';
+    setTimeout(()=>{ deckEl.style.transform='scale(1) rotate(0deg)'; },180);
+  },560);
 }
 
 function checkEffects(st){
@@ -571,9 +646,19 @@ function renderGame(wrap){
       <div id="slot-top" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
       <div id="slot-tr" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
       <div id="slot-left" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;"></div>
-      <div id="slot-center" style="display:flex;align-items:center;justify-content:center;gap:14px;">
-        <div id="deckPile" style="width:62px;height:86px;border-radius:9px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px);border:1px solid #5a3ecf;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);"></div>
-        <div id="discardPile" style="width:62px;height:86px;"></div>
+      <div id="slot-center" style="display:flex;align-items:center;justify-content:center;gap:20px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div id="deckPile" style="width:62px;height:86px;border-radius:9px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px);border:1px solid #5a3ecf;cursor:pointer;box-shadow:3px 3px 0 -1px rgba(0,0,0,0.14),6px 6px 0 -1px rgba(0,0,0,0.10),0 2px 6px rgba(0,0,0,0.25);"></div>
+          <div id="deckCount" style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:#666;">0장</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div id="discardPile" style="width:76px;height:100px;position:relative;">
+            <div style="position:absolute;left:8px;top:9px;width:62px;height:86px;border-radius:8px;background:#e2e2e2;border:1px solid #ccc;transform:rotate(-7deg);"></div>
+            <div style="position:absolute;left:5px;top:5px;width:62px;height:86px;border-radius:8px;background:#ececec;border:1px solid #ccc;transform:rotate(4deg);"></div>
+            <div id="discardTop" style="position:absolute;left:7px;top:7px;"></div>
+          </div>
+          <div id="discardCount" style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:#666;">0장</div>
+        </div>
       </div>
       <div id="slot-right" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;"></div>
     </div>
@@ -593,6 +678,9 @@ function renderGame(wrap){
     const t0=topCard(st);
     prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
     prevHandCounts=st.hands.map(h=>h.length);
+    prevHands=st.hands.map(h=>h.map(c=>c.id));
+    prevDeckLen=st.deck.length; prevDiscardLen=st.discard.length;
+    if(room.move_count===0&&!dealAnimDone&&(Date.now()-st.turnStartedAt<4000)){ dealAnimDone=true; setTimeout(()=>playDealIntro(n),120); }
   }
   checkEffects(st);
   if(currentUser){
@@ -611,20 +699,23 @@ function renderGame(wrap){
     const cnt=Math.min(3,(st.hands[seat]||[]).length);
     const cbBg=cardbackStyleFor(p.user_id);
     let fan='<div style="display:flex;">';
-    for(let k=0;k<cnt;k++){ fan+=`<div style="width:30px;height:42px;margin-left:${k===0?0:-16}px;border-radius:6px;background:${cbBg};border:1px solid rgba(0,0,0,0.15);transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 4px rgba(0,0,0,0.25);"></div>`; }
+    for(let k=0;k<cnt;k++){ fan+=`<div style="width:36px;height:50px;margin-left:${k===0?0:-19}px;border-radius:6px;background:${cbBg};border:1px solid rgba(0,0,0,0.15);transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 4px rgba(0,0,0,0.25);"></div>`; }
     fan+='</div>';
     const isSeatTurn=st.turn===seat;
     const isLeftSeat=(st.leftSeats||[]).includes(seat);
     document.getElementById('slot-'+slots[i]).innerHTML=
-      `<div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:${p.color};opacity:${isLeftSeat?0.4:1};">${esc(p.username)}${isLeftSeat?' (나감)':''}</div>
-       <div style="width:42px;height:42px;border-radius:50%;background:${p.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;font-family:-apple-system,sans-serif;opacity:${isLeftSeat?0.4:1};${isSeatTurn&&!isLeftSeat?'animation:pulseGlow 1.1s ease-in-out infinite;':''}">${esc(p.username).slice(-1)}</div>
-       <div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:#666;opacity:${isLeftSeat?0.4:1};">${(st.hands[seat]||[]).length}장</div>
+      `<div style="font-family:-apple-system,sans-serif;font-size:13px;font-weight:800;color:${p.color};opacity:${isLeftSeat?0.4:1};">${esc(p.username)}${isLeftSeat?' (나감)':''}</div>
+       <div style="width:46px;height:46px;border-radius:50%;background:${p.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;font-family:-apple-system,sans-serif;opacity:${isLeftSeat?0.4:1};${isSeatTurn&&!isLeftSeat?'animation:pulseGlow 1.1s ease-in-out infinite;':''}">${esc(p.username).slice(-1)}</div>
+       <div style="font-family:-apple-system,sans-serif;font-size:13px;font-weight:800;color:#666;opacity:${isLeftSeat?0.4:1};">${(st.hands[seat]||[]).length}장</div>
        ${isLeftSeat?'':fan}`;
   }
   checkDrawEffects(st);
+  checkPileEffects(st);
 
   const top=topCard(st);
-  const dp=document.getElementById('discardPile'); dp.innerHTML=''; dp.appendChild(makeCardFace(top,62,86));
+  const dp=document.getElementById('discardTop'); dp.innerHTML=''; dp.appendChild(makeCardFace(top,62,86));
+  const deckCountEl=document.getElementById('deckCount'); if(deckCountEl) deckCountEl.textContent=st.deck.length+'장';
+  const discardCountEl=document.getElementById('discardCount'); if(discardCountEl) discardCountEl.textContent=st.discard.length+'장';
 
   const pb=document.getElementById('pendingBadge');
   if(st.pending){ pb.style.display='block'; const tn=['','2','A','흑백조커','컬러조커'][st.pending.tier]; pb.textContent='⚡'+tn+' 누적 '+st.pending.amount+'장'; }
@@ -658,7 +749,7 @@ function renderGame(wrap){
   if(isPlayer){
     const myHand=st.hands[mySeat].slice().sort(cardCompare);
     const playable=playableCards(st,myHand);
-    const CW=64,CH=90,OVERLAP=34;
+    const CW=76,CH=106,OVERLAP=38;
     myHand.forEach((c,i)=>{
       const can=myTurn&&playable.some(pc=>pc.id===c.id);
       const el=makeCardFace(c,CW,CH);
@@ -804,6 +895,65 @@ if(!currentUser){
 } else {
   fetchRoom();
   pollTimer=setInterval(fetchRoom,1000);
+  initChat();
+}
+
+// ---- 채팅 ----
+let lastChatCheck=new Date().toISOString();
+let seenChatIds=new Set();
+let chatTimer=null;
+
+function initChat(){
+  const input=document.getElementById('chatInput');
+  const sendBtn=document.getElementById('chatSendBtn');
+  sendBtn.addEventListener('click',sendChat);
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); });
+  chatTimer=setInterval(pollChat,1000);
+}
+
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const msg=input.value.trim().slice(0,6);
+  if(!msg) return;
+  if(mySeat<0){ alert('참가자만 채팅을 보낼 수 있어요.'); return; }
+  input.value='';
+  try{
+    await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat`,{
+      method:'POST',headers:jheaders(),
+      body:JSON.stringify({room_id:String(roomId),seat:mySeat,username:currentUser.username,message:msg})
+    });
+  }catch(e){}
+}
+
+async function pollChat(){
+  if(!roomId) return;
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat?room_id=eq.${roomId}&created_at=gt.${encodeURIComponent(lastChatCheck)}&order=created_at.asc&limit=30`,{headers:headers()});
+    const data=await r.json();
+    data.forEach(m=>{
+      if(seenChatIds.has(m.id)) return;
+      seenChatIds.add(m.id);
+      lastChatCheck=m.created_at;
+      showChatBubble(m.seat,m.message);
+    });
+  }catch(e){}
+}
+
+function showChatBubble(seat,message){
+  let anchor=null;
+  if(room&&room.status==='playing'){ anchor=getSeatTargetEl(seat); }
+  else if(room&&room.status==='waiting'){ anchor=document.getElementById('lobby-row-'+seat); }
+  if(!anchor) anchor=document.getElementById('wrap');
+  if(!anchor) return;
+  const rect=anchor.getBoundingClientRect();
+  if(!rect.width&&!rect.height) return;
+  const bubble=document.createElement('div');
+  bubble.textContent=message;
+  bubble.style.cssText=`position:fixed;left:${rect.left+rect.width/2}px;top:${rect.top-6}px;transform:translate(-50%,-100%);background:#1a1a2e;color:#fff;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;padding:6px 12px;border-radius:14px;white-space:nowrap;z-index:200;box-shadow:0 3px 10px rgba(0,0,0,0.3);pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease;`;
+  document.body.appendChild(bubble);
+  requestAnimationFrame(()=>{ bubble.style.opacity='1'; bubble.style.transform='translate(-50%,-108%)'; });
+  setTimeout(()=>{ bubble.style.opacity='0'; },2500);
+  setTimeout(()=>{ bubble.remove(); },2750);
 }
 </script>
 </body>
