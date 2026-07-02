@@ -14,7 +14,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .wrap{padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;min-height:560px;}
 .center-msg{text-align:center;padding:2rem 1rem;color:#8a8a9a;font-size:13px;line-height:1.8;}
 .big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;}
-@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 3px rgba(124,92,255,0.35),0 0 10px 3px rgba(124,92,255,0.5);}50%{box-shadow:0 0 0 5px rgba(124,92,255,0.55),0 0 18px 7px rgba(124,92,255,0.75);}}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 4px rgba(124,92,255,0.4),0 0 14px 5px rgba(124,92,255,0.55);}50%{box-shadow:0 0 0 7px rgba(124,92,255,0.6),0 0 24px 10px rgba(124,92,255,0.8);}}
 </style>
 </head>
 <body>
@@ -32,7 +32,9 @@ const SUITS=['♠','♥','♦','♣'];
 const RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 const RED={'♥':1,'♦':1};
 const PCOLORS=['#7c5cff','#e53935','#0f9e75','#f5a623','#378ADD','#d4537e'];
-const TURN_TIME=8000;
+const TURN_TIME=10000;
+const ONE_CARD_WINDOW=5000;
+const CATCH_DELAY=500;
 const SUIT_ORDER={'♣':0,'♥':1,'♦':2,'♠':3};
 const RANK_ORDER={}; RANKS.forEach((r,i)=>RANK_ORDER[r]=i);
 
@@ -44,6 +46,8 @@ function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE
 function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
 let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
+let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false;
+let oneCardBucket=-1,oneCardPosSeat=-1;
 
 function buildDeck(){
   const d=[];
@@ -82,6 +86,19 @@ function makeCardBack(w,h){
   const el=document.createElement('div');
   el.style.cssText=`width:${w}px;height:${h}px;border-radius:7px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px);border:1px solid #5a3ecf;box-shadow:0 1px 3px rgba(0,0,0,0.2);flex-shrink:0;`;
   return el;
+}
+function showEffectText(t){ showImpactEffect(t,'#ff5e3a',26); }
+function showImpactEffect(content,color,size){
+  const ta=document.getElementById('tableArea');
+  if(!ta) return;
+  const el=document.createElement('div');
+  el.style.cssText=`position:absolute;left:50%;top:42%;transform:translate(-50%,-50%) scale(0.2);opacity:0;font-family:-apple-system,sans-serif;font-weight:900;font-size:${size}px;color:${color||'#1a1a1a'};text-shadow:0 2px 8px rgba(255,255,255,0.95);z-index:26;pointer-events:none;white-space:nowrap;transition:transform 0.25s cubic-bezier(0.34,1.56,0.64,1),opacity 0.15s;`;
+  el.textContent=content;
+  ta.appendChild(el);
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1.3)'; });
+  setTimeout(()=>{ el.style.transition='transform 0.15s ease'; el.style.transform='translate(-50%,-50%) scale(1)'; },250);
+  setTimeout(()=>{ el.style.transition='opacity 0.35s,transform 0.35s'; el.style.opacity='0'; el.style.transform='translate(-50%,-50%) scale(0.85)'; },650);
+  setTimeout(()=>{ el.remove(); },1000);
 }
 
 async function fetchRoom(){
@@ -179,24 +196,39 @@ function canDefend3(st,c){
   return matchesTop(c,topCard(st));
 }
 function playableCards(st,hand){ return hand.filter(c=> st.pending? (canStack(st,c)||canDefend3(st,c)) : canPlayNormal(st,c)); }
-function nextSeat(st,n,skip){ let t=(st.turn+st.dir+n)%n; if(skip) t=(t+st.dir+n)%n; return t; }
+function nextSeat(st,n,skip){
+  const left=st.leftSeats||[];
+  let t=st.turn;
+  const steps=skip?2:1;
+  for(let k=0;k<steps;k++){
+    let guard=0;
+    do{ t=(t+st.dir+n)%n; guard++; }while(left.includes(t)&&guard<n+1);
+  }
+  return t;
+}
 
 async function patchState(mutator, extra){
   if(animLock) return false;
   animLock=true;
-  const st=JSON.parse(JSON.stringify(room.state));
-  const result=mutator(st);
-  const body=Object.assign({state:st,move_count:room.move_count+1},extra||{});
+  const lockWatchdog=setTimeout(()=>{ animLock=false; },4000);
   try{
+    const st=JSON.parse(JSON.stringify(room.state));
+    const result=mutator(st);
+    const body=Object.assign({state:st,move_count:room.move_count+1},extra||{});
     const res=await fetch(`${SUPABASE_URL}/rest/v1/onecard_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
       method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},body:JSON.stringify(body)
     });
     const data=await res.json();
-    animLock=false;
     if(!data||!data.length){ fetchRoom(); return false; }
     room=data[0];
     return result;
-  }catch(e){ animLock=false; return false; }
+  }catch(e){
+    console.error('patchState error',e);
+    return false;
+  }finally{
+    clearTimeout(lockWatchdog);
+    animLock=false;
+  }
 }
 
 function checkOneCardTrigger(st,seat){
@@ -265,7 +297,7 @@ function showSuitPick(){
   box.innerHTML=`<div style="background:#fff;border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;align-items:center;gap:12px;">
     <div style="font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;">무늬를 선언하세요</div>
     <div style="display:flex;gap:8px;">
-      ${['♠','♥','♦','♣'].map(s=>`<div class="suitPick" data-s="${s}" style="width:44px;height:44px;border-radius:10px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:22px;color:${RED[s]?'#e53935':'#111'};cursor:pointer;">${s}</div>`).join('')}
+      ${['♠','♥','♦','♣'].map(s=>`<div class="suitPick" data-s="${s}" style="width:56px;height:56px;border-radius:12px;background:#eee;display:flex;align-items:center;justify-content:center;font-size:28px;color:${RED[s]?'#e53935':'#111'};cursor:pointer;">${s}</div>`).join('')}
     </div></div>`;
   wrap.appendChild(box);
   box.querySelectorAll('.suitPick').forEach(el=>el.onclick=()=>pickSuit(el.dataset.s));
@@ -316,6 +348,16 @@ async function catchOneCard(seat){
   render();
 }
 
+function computeFinalRankOrder(st,winnerSeat,players){
+  const leftSeats=(st&&st.leftSeats)||[];
+  const activeSeats=players.map((_,i)=>i).filter(i=>!leftSeats.includes(i));
+  const activeSorted=activeSeats
+    .map(i=>({seat:i,cnt:i===winnerSeat?0:(st&&st.hands&&st.hands[i]?st.hands[i].length:0)}))
+    .sort((a,b)=>a.cnt-b.cnt).map(x=>x.seat);
+  const leftWorstLast=[...leftSeats].reverse();
+  return [...activeSorted, ...leftWorstLast];
+}
+
 async function finishGame(winnerSeat){
   await fetch(`${SUPABASE_URL}/rest/v1/onecard_rooms?id=eq.${room.id}`,{
     method:'PATCH',headers:jheaders(),
@@ -335,7 +377,8 @@ async function getOrCreateElo(userId,username){
 async function applyEloResults(winnerSeat){
   const players=room.players;
   const st=room.state;
-  const rankOf=(seat)=> seat===winnerSeat?0:st.hands[seat].length;
+  const order=computeFinalRankOrder(st,winnerSeat,players);
+  const rankOf=(seat)=>{ const idx=order.indexOf(seat); return idx<0?order.length:idx; };
   const elos=await Promise.all(players.map(p=>getOrCreateElo(p.user_id,p.username)));
   const K=16;
   const n=players.length;
@@ -358,6 +401,25 @@ async function applyEloResults(winnerSeat){
       body:JSON.stringify({rating:newRating,wins:elos[i].wins+(won?1:0),losses:elos[i].losses+(won?0:1)})
     });
   }));
+}
+
+function checkEffects(st){
+  const top=topCard(st);
+  if(gameInited&&top.id!==prevTopId){
+    if(st.pending){
+      const chain=st.pending.chainLen||1;
+      showImpactEffect('⚔️'.repeat(Math.min(3,chain)),null,32);
+    } else if(prevPendingTier&&top.rank==='3'){
+      showImpactEffect('🛡️',null,36);
+    }
+    if(top.rank==='K') showEffectText('한번 더!');
+    if(top.rank==='J') showEffectText('점프!');
+    if(prevDir!==null&&prevDir!==st.dir) showEffectText('반대로!');
+    if(top.rank==='7'&&st.declaredSuit&&st.declaredSuit!==prevDeclaredSuit){
+      showImpactEffect(st.declaredSuit,RED[st.declaredSuit]?'#e53935':'#1a1a1a',46);
+    }
+  }
+  prevTopId=top.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
 }
 
 function slotsForCount(o){
@@ -384,17 +446,17 @@ function renderGame(wrap){
       <div id="slot-tr" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;"></div>
       <div id="slot-left" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;"></div>
       <div id="slot-center" style="display:flex;align-items:center;justify-content:center;gap:14px;">
-        <div id="deckPile" style="width:46px;height:64px;border-radius:7px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px);border:1px solid #5a3ecf;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);"></div>
-        <div id="discardPile" style="width:46px;height:64px;"></div>
+        <div id="deckPile" style="width:62px;height:86px;border-radius:9px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 4px,#6a4ce0 4px,#6a4ce0 8px);border:1px solid #5a3ecf;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);"></div>
+        <div id="discardPile" style="width:62px;height:86px;"></div>
       </div>
       <div id="slot-right" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;"></div>
     </div>
-    <div id="pendingBadge" style="display:none;background:#e53935;color:#fff;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;padding:6px 14px;border-radius:12px;box-shadow:0 2px 6px rgba(229,57,53,0.4);"></div>
-    <div id="declaredBadge" style="display:none;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;padding:6px 14px;border-radius:12px;background:#eee;"></div>
-    <div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:26px;color:#7c5cff;margin:2px 0;">8</div>
-    <div id="statusTxt" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;color:#1a1a2e;margin-bottom:4px;"></div>
+    <div id="pendingBadge" style="display:none;background:#e53935;color:#fff;font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;padding:8px 16px;border-radius:14px;box-shadow:0 2px 6px rgba(229,57,53,0.4);"></div>
+    <div id="declaredBadge" style="display:none;font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;padding:8px 16px;border-radius:14px;background:#eee;"></div>
+    <div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:42px;color:#7c5cff;margin:4px 0;">10</div>
+    <div id="statusTxt" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#1a1a2e;margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:center;margin-bottom:10px;">
-      <div id="drawBtn" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:7px 14px;border-radius:16px;background:#f0f0f0;color:#999;cursor:pointer;opacity:0.5;">카드 가져오기</div>
+      <div id="drawBtn" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:10px 18px;border-radius:18px;background:#378ADD;color:#fff;cursor:pointer;opacity:0.5;">카드 가져오기</div>
     </div>
     <div id="handRow" style="display:flex;justify-content:center;align-items:flex-end;min-height:100px;padding:0 10px;flex-wrap:wrap;"></div>
     <div id="oneCardOverlay" style="display:none;position:absolute;z-index:25;"></div>
@@ -402,7 +464,10 @@ function renderGame(wrap){
     document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(myTurn) drawCard(); });
     document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(myTurn) drawCard(); });
     if(!tickTimer) tickTimer=setInterval(tick,300);
+    const t0=topCard(st);
+    prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
   }
+  checkEffects(st);
 
   ['tl','top','tr','left','right'].forEach(s=>document.getElementById('slot-'+s).innerHTML='');
   const slots=slotsForCount(Math.min(isPlayer?n-1:n,5));
@@ -414,18 +479,19 @@ function renderGame(wrap){
     if(!p) continue;
     const cnt=Math.min(3,(st.hands[seat]||[]).length);
     let fan='<div style="display:flex;">';
-    for(let k=0;k<cnt;k++){ fan+=`<div style="width:18px;height:25px;margin-left:${k===0?0:-10}px;border-radius:4px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 3px,#6a4ce0 3px,#6a4ce0 6px);border:1px solid #5a3ecf;transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`; }
+    for(let k=0;k<cnt;k++){ fan+=`<div style="width:24px;height:33px;margin-left:${k===0?0:-13}px;border-radius:5px;background:repeating-linear-gradient(45deg,#7c5cff,#7c5cff 3px,#6a4ce0 3px,#6a4ce0 6px);border:1px solid #5a3ecf;transform:rotate(${(k-(cnt-1)/2)*10}deg);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`; }
     fan+='</div>';
     const isSeatTurn=st.turn===seat;
+    const isLeftSeat=(st.leftSeats||[]).includes(seat);
     document.getElementById('slot-'+slots[i]).innerHTML=
-      `<div style="font-family:-apple-system,sans-serif;font-size:9px;font-weight:800;color:${p.color};">${esc(p.username)}</div>
-       <div style="width:30px;height:30px;border-radius:50%;background:${p.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;font-family:-apple-system,sans-serif;${isSeatTurn?'animation:pulseGlow 1.2s ease-in-out infinite;':''}">${esc(p.username).slice(-1)}</div>
-       <div style="font-family:-apple-system,sans-serif;font-size:10px;font-weight:800;color:#666;">${(st.hands[seat]||[]).length}장</div>
-       ${fan}`;
+      `<div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:${p.color};opacity:${isLeftSeat?0.4:1};">${esc(p.username)}${isLeftSeat?' (나감)':''}</div>
+       <div style="width:42px;height:42px;border-radius:50%;background:${p.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;font-family:-apple-system,sans-serif;opacity:${isLeftSeat?0.4:1};${isSeatTurn&&!isLeftSeat?'animation:pulseGlow 1.1s ease-in-out infinite;':''}">${esc(p.username).slice(-1)}</div>
+       <div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:800;color:#666;opacity:${isLeftSeat?0.4:1};">${(st.hands[seat]||[]).length}장</div>
+       ${isLeftSeat?'':fan}`;
   }
 
   const top=topCard(st);
-  const dp=document.getElementById('discardPile'); dp.innerHTML=''; dp.appendChild(makeCardFace(top,46,64));
+  const dp=document.getElementById('discardPile'); dp.innerHTML=''; dp.appendChild(makeCardFace(top,62,86));
 
   const pb=document.getElementById('pendingBadge');
   if(st.pending){ pb.style.display='block'; const tn=['','2','A','흑백조커','컬러조커'][st.pending.tier]; pb.textContent='⚡'+tn+' 누적 '+st.pending.amount+'장'; }
@@ -436,9 +502,18 @@ function renderGame(wrap){
   else db.style.display='none';
 
   const turnPlayer=players[st.turn];
-  document.getElementById('statusTxt').textContent = isPlayer
-    ? (myTurn?'내 차례'+(st.pending?' (방어/얹기/드로우)':''):((turnPlayer?esc(turnPlayer.username):'')+'님 차례'))
+  const statusEl=document.getElementById('statusTxt');
+  statusEl.textContent = isPlayer
+    ? (myTurn?'🔥 내 차례!'+(st.pending?' (방어/얹기/드로우)':''):((turnPlayer?esc(turnPlayer.username):'')+'님 차례'))
     : ((turnPlayer?esc(turnPlayer.username):'')+'님 차례 (관람중)');
+  if(myTurn){
+    statusEl.style.background='#7c5cff'; statusEl.style.color='#fff';
+    statusEl.style.padding='8px 16px'; statusEl.style.borderRadius='14px';
+    statusEl.style.display='inline-block'; statusEl.style.animation='pulseGlow 1.1s ease-in-out infinite';
+  } else {
+    statusEl.style.background='transparent'; statusEl.style.color='#1a1a2e';
+    statusEl.style.padding='0'; statusEl.style.display='block'; statusEl.style.animation='none';
+  }
 
   const drawBtn=document.getElementById('drawBtn');
   drawBtn.style.display=isPlayer?'block':'none';
@@ -450,7 +525,7 @@ function renderGame(wrap){
   if(isPlayer){
     const myHand=st.hands[mySeat].slice().sort(cardCompare);
     const playable=playableCards(st,myHand);
-    const CW=48,CH=68,OVERLAP=26;
+    const CW=64,CH=90,OVERLAP=34;
     myHand.forEach((c,i)=>{
       const can=myTurn&&playable.some(pc=>pc.id===c.id);
       const el=makeCardFace(c,CW,CH);
@@ -475,19 +550,23 @@ function renderGame(wrap){
 function renderOneCardUI(st){
   const ov=document.getElementById('oneCardOverlay');
   if(!ov) return;
-  if(!st.oneCardPending){ ov.style.display='none'; ov.innerHTML=''; return; }
+  if(!st.oneCardPending){ ov.style.display='none'; ov.innerHTML=''; oneCardBucket=-1; oneCardPosSeat=-1; return; }
   const elapsed=Date.now()-st.oneCardPending.createdAt;
-  if(elapsed>2500){ forceOneCardTimeout(st.oneCardPending.seat); return; }
+  if(elapsed>ONE_CARD_WINDOW){ forceOneCardTimeout(st.oneCardPending.seat); return; }
+  if(st.oneCardPending.seat!==oneCardPosSeat){ oneCardBucket=-1; oneCardPosSeat=st.oneCardPending.seat; }
+  const bucket=Math.floor(elapsed/1000);
+  if(bucket!==oneCardBucket){
+    oneCardBucket=bucket;
+    ov.style.left=Math.random()*60+10+'%';
+    ov.style.top=Math.random()*40+20+'%';
+  }
   const isMine=st.oneCardPending.seat===mySeat;
+  ov.style.display='block';
   if(isMine){
-    ov.style.display='block';
-    ov.style.left=Math.random()*60+10+'%'; ov.style.top=Math.random()*40+20+'%';
-    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#fff;background:#e53935;padding:12px 16px;border-radius:24px;cursor:pointer;box-shadow:0 4px 10px rgba(229,57,53,0.5);">ONE CARD!</div>`;
+    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#fff;background:#e53935;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(229,57,53,0.5);">ONE CARD !</div>`;
     ov.onclick=selfDeclareOneCard;
-  } else if(elapsed>500){
-    ov.style.display='block';
-    ov.style.left=Math.random()*60+10+'%'; ov.style.top=Math.random()*40+20+'%';
-    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;background:#ffd166;padding:12px 16px;border-radius:24px;cursor:pointer;box-shadow:0 4px 10px rgba(255,209,102,0.5);">캐치!</div>`;
+  } else if(elapsed>CATCH_DELAY){
+    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#1a1a2e;background:#ffd166;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(255,209,102,0.5);">캐치!</div>`;
     ov.onclick=()=>catchOneCard(st.oneCardPending.seat);
   } else {
     ov.style.display='none';
@@ -519,14 +598,38 @@ function renderFinished(wrap){
   const st=room.state;
   const players=room.players;
   const winner=players[room.winner_seat];
-  const ranked=players.map((p,i)=>({p,cnt:i===room.winner_seat?0:(st&&st.hands&&st.hands[i]?st.hands[i].length:0)})).sort((a,b)=>a.cnt-b.cnt);
+  const leftSeats=(st&&st.leftSeats)||[];
+  const order=computeFinalRankOrder(st,room.winner_seat,players);
   let html=`<div class="center-msg">${winner?esc(winner.username)+'님 승리! 🎉':'게임 종료'}</div><div style="width:100%;">`;
-  ranked.forEach((r,i)=>{
-    html+=`<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-family:-apple-system,sans-serif;font-size:13px;"><span>${i+1}등 ${esc(r.p.username)}${i===0?' 🏆':''}</span><span style="color:#999;">${r.cnt}장 남음</span></div>`;
+  order.forEach((seat,i)=>{
+    const p=players[seat];
+    const isLeft=leftSeats.includes(seat);
+    const cnt=isLeft?null:(seat===room.winner_seat?0:(st&&st.hands&&st.hands[seat]?st.hands[seat].length:0));
+    html+=`<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-family:-apple-system,sans-serif;font-size:13px;"><span>${i+1}등 ${esc(p.username)}${i===0?' 🏆':''}${isLeft?' <span style="color:#e53935;font-size:11px;">(몰수패)</span>':''}</span><span style="color:#999;">${isLeft?'중도퇴장':cnt+'장 남음'}</span></div>`;
   });
   html+='</div><div class="big-btn" id="backBtn" style="background:#7c5cff;color:#fff;margin-top:10px;">방 목록으로</div>';
   wrap.innerHTML=html;
   document.getElementById('backBtn').addEventListener('click',()=>location.href='onecard_rooms.html');
+}
+
+async function leaveDuringGame(){
+  if(!confirm('정말 나가시겠어요?\n몰수패로 처리되고 순위가 가장 낮게 기록돼요.')) return;
+  let autoWinner=-1;
+  await patchState(s=>{
+    if(!s.leftSeats) s.leftSeats=[];
+    if(s.leftSeats.includes(mySeat)) return;
+    s.leftSeats.push(mySeat);
+    const n=s.hands.length;
+    const activeCount=n-s.leftSeats.length;
+    if(s.oneCardPending&&s.oneCardPending.seat===mySeat) s.oneCardPending=null;
+    if(activeCount<=1){
+      for(let i=0;i<n;i++){ if(!s.leftSeats.includes(i)){ autoWinner=i; break; } }
+      return;
+    }
+    if(s.turn===mySeat){ s.turn=nextSeat(s,n,false); s.turnStartedAt=Date.now(); }
+  });
+  if(autoWinner>=0){ await finishGame(autoWinner); }
+  location.href='onecard_rooms.html';
 }
 
 async function leaveRoom(){
@@ -541,7 +644,25 @@ async function leaveRoom(){
   }
   location.href='onecard_rooms.html';
 }
-document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+document.getElementById('leaveBtn').addEventListener('click',async()=>{
+  if(!room){ location.href='onecard_rooms.html'; return; }
+  const alreadyLeft=(room.state&&room.state.leftSeats||[]).includes(mySeat);
+  if(room.status==='playing'&&mySeat>=0&&!alreadyLeft){
+    await leaveDuringGame();
+  } else if(room.status==='waiting'){
+    await leaveRoom();
+  } else {
+    location.href='onecard_rooms.html';
+  }
+});
+
+history.pushState({onecardGuard:true},'',location.href);
+window.addEventListener('popstate',()=>{
+  if(room&&room.status==='playing'&&mySeat>=0&&!(room.state&&room.state.leftSeats||[]).includes(mySeat)){
+    history.pushState({onecardGuard:true},'',location.href);
+    document.getElementById('leaveBtn').click();
+  }
+});
 
 if(!currentUser){
   document.getElementById('wrap').innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>';
