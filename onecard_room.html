@@ -50,7 +50,7 @@ function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE
 function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
 let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
-let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false;
+let prevTopId=null,prevPendingTier=null,prevDir=null,prevDeclaredSuit=null,gameInited=false,prevTurnSeat=null;
 let prevHandCounts=null;
 let prevHands=null;
 let prevDeckLen=null, prevDiscardLen=null;
@@ -117,8 +117,13 @@ function makeCardFace(card,w,h){
   el.style.cssText=`position:relative;width:${w}px;height:${h}px;border-radius:8px;background:#fff;border:1px solid #ccc;box-shadow:0 1px 3px rgba(0,0,0,0.2);flex-shrink:0;`;
   if(card.joker){
     const isBw=card.joker==='bw';
-    el.style.background=isBw?'#efefef':'linear-gradient(135deg,#ffe3e3,#e3f0ff,#fff6d9)';
-    el.innerHTML=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px;"><div style="font-size:${Math.round(w*0.42)}px;">🃏</div><div style="font-family:Georgia,serif;font-weight:700;font-size:${Math.round(w*0.15)}px;color:${isBw?'#333':'#c0392b'};">JOKER</div></div>`;
+    el.style.background=isBw
+      ?'repeating-linear-gradient(135deg,#1a1a1a,#1a1a1a 7px,#f4f4f4 7px,#f4f4f4 14px)'
+      :'linear-gradient(135deg,#ffe3e3,#e3f0ff,#fff6d9)';
+    el.innerHTML=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;">
+      <div style="font-size:${Math.round(w*0.42)}px;${isBw?'filter:grayscale(1) contrast(1.4);':''}">🃏</div>
+      <div style="font-family:Georgia,serif;font-weight:700;font-size:${Math.round(w*0.15)}px;color:${isBw?'#fff':'#c0392b'};${isBw?`background:#1a1a1a;padding:1px 5px;border-radius:4px;`:''}">JOKER</div>
+    </div>`;
     return el;
   }
   const color=RED[card.suit]?'#e53935':'#1a1a1a';
@@ -370,8 +375,8 @@ async function playCard(cardId){
   });
 
   if(winnerSeat!==null){ await finishGame(winnerSeat); return; }
-  if(room.state._needSuitPick){ showSuitPick(); return; }
   render();
+  if(room.state._needSuitPick){ showSuitPick(); }
 }
 
 async function pickSuit(suit){
@@ -604,9 +609,20 @@ function playReshuffleAnim(){
   },560);
 }
 
+function flyPlayedCard(seat,card){
+  if(seat==null||seat<0) return;
+  const fromEl=getSeatTargetEl(seat);
+  const toEl=document.getElementById('discardTop')||document.getElementById('discardPile');
+  const isMe=seat===mySeat;
+  const el=isMe?makeCardFace(card,58,80):makeCardBack(34,48);
+  if(!isMe){ const p=room.players[seat]; if(p) el.style.background=cardbackStyleFor(p.user_id); }
+  flyPiece(el,fromEl,toEl,340);
+}
+
 function checkEffects(st){
   const top=topCard(st);
   if(gameInited&&top.id!==prevTopId){
+    flyPlayedCard(prevTurnSeat,top);
     if(st.pending){
       const chain=st.pending.chainLen||1;
       showImpactEffect('⚔️'.repeat(Math.min(3,chain)),null,32);
@@ -621,6 +637,7 @@ function checkEffects(st){
     }
   }
   prevTopId=top.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
+  prevTurnSeat=st.turn;
 }
 
 function slotsForCount(o){
@@ -670,13 +687,14 @@ function renderGame(wrap){
       <div id="drawBtn" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:10px 18px;border-radius:18px;background:#378ADD;color:#fff;cursor:pointer;opacity:0.5;">카드 가져오기</div>
     </div>
     <div id="handRow" style="display:flex;justify-content:center;align-items:flex-end;min-height:100px;padding:0 10px;flex-wrap:wrap;"></div>
-    <div id="oneCardOverlay" style="display:none;position:absolute;z-index:25;"></div>
+    <div id="oneCardOverlay" style="display:none;position:absolute;z-index:45;"></div>
     `;
     document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
     document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
     if(!tickTimer) tickTimer=setInterval(tick,300);
     const t0=topCard(st);
     prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
+    prevTurnSeat=st.turn;
     prevHandCounts=st.hands.map(h=>h.length);
     prevHands=st.hands.map(h=>h.map(c=>c.id));
     prevDeckLen=st.deck.length; prevDiscardLen=st.discard.length;
@@ -785,13 +803,16 @@ function renderOneCardUI(st){
     ov.style.top=Math.random()*40+20+'%';
   }
   const isMine=st.oneCardPending.seat===mySeat;
+  const pendingSeat=st.oneCardPending.seat;
+  const pendingP=room.players[pendingSeat];
+  const pendingName=pendingP?esc(pendingP.username):'';
   ov.style.display='block';
   if(isMine){
-    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#fff;background:#e53935;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(229,57,53,0.5);">ONE CARD !</div>`;
+    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#fff;background:#e53935;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(229,57,53,0.5);white-space:nowrap;">MY ONE CARD !</div>`;
     ov.onclick=selfDeclareOneCard;
   } else if(elapsed>CATCH_DELAY){
-    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#1a1a2e;background:#ffd166;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(255,209,102,0.5);">캐치!</div>`;
-    ov.onclick=()=>catchOneCard(st.oneCardPending.seat);
+    ov.innerHTML=`<div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#1a1a2e;background:#ffd166;padding:15px 20px;border-radius:26px;cursor:pointer;box-shadow:0 4px 10px rgba(255,209,102,0.5);white-space:nowrap;">${pendingName} ONE CARD !</div>`;
+    ov.onclick=()=>catchOneCard(pendingSeat);
   } else {
     ov.style.display='none';
   }
@@ -899,15 +920,19 @@ if(!currentUser){
 }
 
 // ---- 채팅 ----
-let lastChatCheck=new Date().toISOString();
-let seenChatIds=new Set();
+let lastChatId=0;
 let chatTimer=null;
 
-function initChat(){
+async function initChat(){
   const input=document.getElementById('chatInput');
   const sendBtn=document.getElementById('chatSendBtn');
   sendBtn.addEventListener('click',sendChat);
   input.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); });
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat?room_id=eq.${roomId}&select=id&order=id.desc&limit=1`,{headers:headers()});
+    const data=await r.json();
+    if(data&&data.length) lastChatId=data[0].id;
+  }catch(e){ console.error('채팅 초기화 에러',e); }
   chatTimer=setInterval(pollChat,1000);
 }
 
@@ -918,25 +943,25 @@ async function sendChat(){
   if(mySeat<0){ alert('참가자만 채팅을 보낼 수 있어요.'); return; }
   input.value='';
   try{
-    await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat`,{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat`,{
       method:'POST',headers:jheaders(),
       body:JSON.stringify({room_id:String(roomId),seat:mySeat,username:currentUser.username,message:msg})
     });
-  }catch(e){}
+    if(!res.ok){ console.error('채팅 전송 실패',res.status,await res.text()); }
+  }catch(e){ console.error('채팅 전송 에러',e); }
 }
 
 async function pollChat(){
   if(!roomId) return;
   try{
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat?room_id=eq.${roomId}&created_at=gt.${encodeURIComponent(lastChatCheck)}&order=created_at.asc&limit=30`,{headers:headers()});
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/onecard_chat?room_id=eq.${roomId}&id=gt.${lastChatId}&order=id.asc&limit=30`,{headers:headers()});
+    if(!r.ok){ console.error('채팅 조회 실패',r.status,await r.text()); return; }
     const data=await r.json();
     data.forEach(m=>{
-      if(seenChatIds.has(m.id)) return;
-      seenChatIds.add(m.id);
-      lastChatCheck=m.created_at;
+      lastChatId=m.id;
       showChatBubble(m.seat,m.message);
     });
-  }catch(e){}
+  }catch(e){ console.error('채팅 폴링 에러',e); }
 }
 
 function showChatBubble(seat,message){
