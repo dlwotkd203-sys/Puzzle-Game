@@ -376,7 +376,7 @@ function update(dt){
 
   // 총알 스폰
   const diff=Math.min(elapsed/25,1);
-  const interval=Math.max(0.08,0.45-diff*0.37);
+  const interval=Math.max(0.10,0.58-diff*0.48);
   spawnAcc+=dt;
   while(spawnAcc>=interval){spawnAcc-=interval;spawnBullet();}
 
