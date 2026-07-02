@@ -197,6 +197,7 @@ const DIFFS=[
 ];
 function getDiff(s){return DIFFS.find(d=>s>=d.range[0]&&s<=d.range[1]);}
 const GAMES=[
+  {id:'onecard',name:'원카드',icon:'🎴',available:true},
   {id:'shikaku',name:'시카쿠',icon:'⊞',available:true},
 {id:'sudoku', name:'스도쿠', icon:'#', available:true},
   {id:'2048',name:'2048',icon:'∞',available:true},
@@ -265,6 +266,11 @@ async function computeTotalRanking(){
     const data=await res.json();
     data.forEach((row,idx)=>award(row.username,idx));
   }catch(e){}
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/onecard_elo?select=username,rating&order=rating.desc&limit=3`,{headers});
+    const data=await res.json();
+    data.forEach((row,idx)=>award(row.username,idx));
+  }catch(e){}
   return Object.entries(points)
     .sort((a,b)=>b[1]-a[1]||gameCount[b[0]]-gameCount[a[0]])
     .map(([username,pts])=>({username,points:pts}));
@@ -293,8 +299,9 @@ async function renderLeaderboardWidget(){
 
 async function getTop1(gameId){
   try{
-    if(gameId==='omok'){
-      const res=await fetch(`${SUPABASE_URL}/rest/v1/omok_elo?select=username,rating&order=rating.desc&limit=1`,{
+    if(gameId==='omok'||gameId==='onecard'){
+      const table=gameId==='omok'?'omok_elo':'onecard_elo';
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=username,rating&order=rating.desc&limit=1`,{
         headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
       });
       const data=await res.json();
@@ -324,7 +331,7 @@ const TITLES={
   shikaku:'식하쿠', sudoku:'수독후', nonogram:'픽셀장인', '2048':'16384',
   dodge:'공이 나를 피한다', memory:'타짜', sorter:'왼쪽 오른쪽', minesweeper:'지뢰탐지견',
   breakout:'파괴본능', flow:'뭘로하지', rps:'눈보다 빠른 손', reaction:'빠른 시냅스',
-  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림'
+  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림', onecard:'카드의 제왕'
 };
 let gameEnabledMap={};
 
@@ -382,6 +389,7 @@ if(game.available&&!isMaintenance){
 }
 function goHome(){renderHome();showScreen('home');}
 function openGame(game){
+  if(game.id==='onecard'){ location.href='onecard_rooms.html'; return; }
   if(game.id==='sudoku'){ location.href='sudoku_stages.html'; return; }
   if(game.id==='shikaku'){ location.href='shikaku_stages.html'; return; }
 if(game.id==='2048'){ location.href='2048.html'; return; }
