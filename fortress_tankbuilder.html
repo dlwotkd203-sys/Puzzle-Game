@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>탱크 제작</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;background:#0b1220;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;box-shadow:0 0 0 1px rgba(255,255,255,0.06);}
+
+.hud{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(10,14,22,0.95);border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;}
+.back-btn{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);font-size:18px;padding:2px 6px;}
+.top-title{font-family:-apple-system,sans-serif;font-weight:800;color:#fff;font-size:15px;flex:1;}
+.step-dots{display:flex;gap:5px;}
+.step-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.15);}
+.step-dot.active{background:#60a5fa;}
+.step-dot.done{background:#4ade80;}
+
+.body-area{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:12px;}
+
+.preview-box{background:rgba(255,255,255,0.05);border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.preview-label{font-family:-apple-system,sans-serif;font-size:10px;color:rgba(255,255,255,0.4);font-weight:700;letter-spacing:0.5px;}
+
+.step-title{font-family:-apple-system,sans-serif;font-weight:800;color:#fff;font-size:15px;}
+.step-hint{font-family:-apple-system,sans-serif;font-size:11px;color:rgba(255,255,255,0.4);text-align:center;}
+
+.palette-row{display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:320px;}
+.swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2.5px solid transparent;}
+.swatch.sel{border-color:#fff;}
+.swatch.eraser{background:repeating-linear-gradient(45deg,#333,#333 4px,#555 4px,#555 8px);}
+
+#partCanvas{border-radius:10px;border:1px solid rgba(255,255,255,0.15);touch-action:none;background:#1a2333;}
+
+.nav-row{display:flex;gap:8px;width:100%;max-width:320px;}
+.nbtn{flex:1;padding:12px;border-radius:12px;text-align:center;font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;cursor:pointer;border:none;}
+.nbtn.next{background:#60a5fa;color:#0b1220;}
+.nbtn.back{background:rgba(255,255,255,0.08);color:#fff;}
+.nbtn.clear{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);}
+
+.stat-row{width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px;}
+.stat-item{background:rgba(255,255,255,0.05);border-radius:12px;padding:10px 14px;}
+.stat-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.stat-name{font-family:-apple-system,sans-serif;font-weight:700;color:#fff;font-size:13px;}
+.stat-val{font-family:-apple-system,sans-serif;font-weight:800;color:#60a5fa;font-size:13px;}
+.stat-ctrl{display:flex;align-items:center;gap:10px;}
+.stat-btn{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.1);border:none;color:#fff;font-weight:800;font-size:15px;cursor:pointer;}
+.stat-bar-wrap{flex:1;height:8px;border-radius:5px;background:rgba(255,255,255,0.1);overflow:hidden;}
+.stat-bar-fill{height:100%;border-radius:5px;background:#60a5fa;}
+
+.budget-box{width:100%;max-width:340px;text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:rgba(255,255,255,0.6);padding:8px;background:rgba(255,255,255,0.04);border-radius:10px;}
+.budget-box b{color:#4ade80;}
+.budget-box.over b{color:#ef4444;}
+
+.name-input{width:100%;max-width:340px;padding:12px 14px;border-radius:10px;border:1.5px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-family:inherit;}
+.name-input::placeholder{color:rgba(255,255,255,0.3);}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <span class="top-title">탱크 제작</span>
+    <div class="step-dots" id="stepDots"></div>
+  </div>
+  <div class="body-area" id="bodyArea"></div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const backRoomId=new URLSearchParams(location.search).get('room');
+
+const PARTS=[
+  {id:'body',  label:'몸통',   w:14, h:7},
+  {id:'turret',label:'포신',   w:12, h:5},
+  {id:'wheel', label:'바퀴(하부)', w:16, h:5},
+];
+const PALETTE=['#8a93a3','#e53935','#378ADD','#0f9e75','#f5a623','#7c5cff','#d4537e','#2b2b2b','#fff7d6'];
+const CELL=16;
+
+let stepIdx=0; // 0=body,1=turret,2=wheel,3=stats
+const STEPS=['body','turret','wheel','stats'];
+let grids={ body:null, turret:null, wheel:null };
+let curColor=PALETTE[0];
+let dragging=false;
+let tankName='';
+let stats={hp:100,dmg:100,radius:100,range:100};
+const BUDGET=400, MIN_STAT=50, MAX_STAT=170;
+
+function emptyGrid(w,h){ return Array.from({length:h},()=>new Array(w).fill(null)); }
+PARTS.forEach(p=>{ grids[p.id]=emptyGrid(p.w,p.h); });
+
+function renderStepDots(){
+  const wrap=document.getElementById('stepDots');
+  wrap.innerHTML='';
+  STEPS.forEach((s,i)=>{
+    const d=document.createElement('div');
+    d.className='step-dot'+(i===stepIdx?' active':i<stepIdx?' done':'');
+    wrap.appendChild(d);
+  });
+}
+
+function goBack(){
+  if(stepIdx>0){ stepIdx--; renderStep(); return; }
+  location.href = backRoomId? ('fortress_room.html?id='+backRoomId) : 'fortress_rooms.html';
+}
+
+function drawCombinedPreview(canvasEl, animateAngle){
+  const pctx=canvasEl.getContext('2d');
+  pctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+  const scale=2.6;
+  const wheelImg=gridToCanvas(grids.wheel,scale);
+  const bodyImg=gridToCanvas(grids.body,scale);
+  const turretImg=gridToCanvas(grids.turret,scale);
+  const cx=canvasEl.width/2;
+  const groundY=canvasEl.height-10;
+  pctx.drawImage(wheelImg, cx-wheelImg.width/2, groundY-wheelImg.height, wheelImg.width, wheelImg.height);
+  const bodyY=groundY-wheelImg.height-bodyImg.height;
+  pctx.drawImage(bodyImg, cx-bodyImg.width/2, bodyY, bodyImg.width, bodyImg.height);
+  const pivotY=bodyY+bodyImg.height*0.4;
+  pctx.save();
+  pctx.translate(cx,pivotY);
+  pctx.rotate((animateAngle||-25)*Math.PI/180);
+  pctx.drawImage(turretImg,-4,-turretImg.height/2,turretImg.width,turretImg.height);
+  pctx.restore();
+}
+function gridToCanvas(grid,scale){
+  const h=grid.length, w=grid[0].length;
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,w*scale); c.height=Math.max(1,h*scale);
+  const cctx=c.getContext('2d');
+  for(let r=0;r<h;r++)for(let cI=0;cI<w;cI++){
+    const col=grid[r][cI];
+    if(col){ cctx.fillStyle=col; cctx.fillRect(cI*scale,r*scale,scale+0.5,scale+0.5); }
+  }
+  return c;
+}
+
+function renderStep(){
+  renderStepDots();
+  const area=document.getElementById('bodyArea');
+  area.innerHTML='';
+  const stepId=STEPS[stepIdx];
+
+  const previewBox=document.createElement('div');
+  previewBox.className='preview-box';
+  previewBox.innerHTML='<div class="preview-label">전체 모습 미리보기</div>';
+  const previewCanvas=document.createElement('canvas');
+  previewCanvas.width=140; previewCanvas.height=110;
+  previewBox.appendChild(previewCanvas);
+  area.appendChild(previewBox);
+
+  if(stepId==='stats'){
+    renderStatsStep(area,previewCanvas);
+    return;
+  }
+
+  const part=PARTS.find(p=>p.id===stepId);
+  const title=document.createElement('div');
+  title.className='step-title';
+  title.textContent=(stepIdx+1)+'/3 · '+part.label+' 그리기';
+  area.appendChild(title);
+  const hint=document.createElement('div');
+  hint.className='step-hint';
+  hint.textContent='아래 색을 고르고 칸을 눌러서(드래그도 가능) 칠하세요';
+  area.appendChild(hint);
+
+  const paletteRow=document.createElement('div');
+  paletteRow.className='palette-row';
+  PALETTE.forEach(c=>{
+    const sw=document.createElement('div');
+    sw.className='swatch'+(c===curColor?' sel':'');
+    sw.style.background=c;
+    sw.addEventListener('click',()=>{ curColor=c; document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel')); sw.classList.add('sel'); });
+    paletteRow.appendChild(sw);
+  });
+  const eraser=document.createElement('div');
+  eraser.className='swatch eraser';
+  eraser.addEventListener('click',()=>{ curColor=null; document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('sel')); eraser.classList.add('sel'); });
+  paletteRow.appendChild(eraser);
+  area.appendChild(paletteRow);
+
+  const canvas=document.createElement('canvas');
+  canvas.id='partCanvas';
+  canvas.width=part.w*CELL; canvas.height=part.h*CELL;
+  area.appendChild(canvas);
+  const pctx=canvas.getContext('2d');
+  function redraw(){
+    pctx.clearRect(0,0,canvas.width,canvas.height);
+    for(let r=0;r<part.h;r++)for(let c=0;c<part.w;c++){
+      const col=grids[part.id][r][c];
+      pctx.fillStyle=col||'#1a2333';
+      pctx.fillRect(c*CELL,r*CELL,CELL,CELL);
+      pctx.strokeStyle='rgba(255,255,255,0.08)';
+      pctx.strokeRect(c*CELL+0.5,r*CELL+0.5,CELL-1,CELL-1);
+    }
+    drawCombinedPreview(previewCanvas);
+  }
+  function paintAt(e){
+    const rect=canvas.getBoundingClientRect();
+    const x=e.clientX-rect.left, y=e.clientY-rect.top;
+    const c=Math.floor(x/CELL), r=Math.floor(y/CELL);
+    if(r<0||r>=part.h||c<0||c>=part.w) return;
+    grids[part.id][r][c]=curColor;
+    redraw();
+  }
+  canvas.addEventListener('pointerdown',e=>{ dragging=true; paintAt(e); });
+  canvas.addEventListener('pointermove',e=>{ if(dragging) paintAt(e); });
+  window.addEventListener('pointerup',()=>{ dragging=false; });
+  redraw();
+
+  const navRow=document.createElement('div');
+  navRow.className='nav-row';
+  const clearBtn=document.createElement('button');
+  clearBtn.className='nbtn clear';
+  clearBtn.textContent='전체 지우기';
+  clearBtn.addEventListener('click',()=>{ grids[part.id]=emptyGrid(part.w,part.h); redraw(); });
+  const nextBtn=document.createElement('button');
+  nextBtn.className='nbtn next';
+  nextBtn.textContent=stepIdx<2?'다음':'능력치 설정으로';
+  nextBtn.addEventListener('click',()=>{ stepIdx++; renderStep(); });
+  navRow.appendChild(clearBtn);
+  navRow.appendChild(nextBtn);
+  area.appendChild(navRow);
+}
+
+function renderStatsStep(area,previewCanvas){
+  drawCombinedPreview(previewCanvas);
+  const title=document.createElement('div');
+  title.className='step-title';
+  title.textContent='4/4 · 이름 & 능력치';
+  area.appendChild(title);
+
+  const nameInput=document.createElement('input');
+  nameInput.className='name-input';
+  nameInput.placeholder='탱크 이름 (예: 번개포)';
+  nameInput.maxLength=10;
+  nameInput.value=tankName;
+  nameInput.addEventListener('input',()=>{ tankName=nameInput.value; });
+  area.appendChild(nameInput);
+
+  const budgetBox=document.createElement('div');
+  budgetBox.className='budget-box';
+  area.appendChild(budgetBox);
+
+  const statRow=document.createElement('div');
+  statRow.className='stat-row';
+  area.appendChild(statRow);
+
+  const STAT_DEFS=[
+    {id:'hp',label:'❤️ 체력'},
+    {id:'dmg',label:'💢 데미지'},
+    {id:'radius',label:'💥 범위'},
+    {id:'range',label:'🎯 사거리'},
+  ];
+  function totalUsed(){ return stats.hp+stats.dmg+stats.radius+stats.range; }
+  function refreshBudget(){
+    const used=totalUsed();
+    budgetBox.className='budget-box'+(used>BUDGET?' over':'');
+    budgetBox.innerHTML=`예산 <b>${used}</b> / ${BUDGET} 사용중${used>BUDGET?' (초과! 줄여주세요)':''}`;
+  }
+  function adjust(id,delta){
+    const next=stats[id]+delta;
+    if(next<MIN_STAT||next>MAX_STAT) return;
+    if(delta>0 && totalUsed()+delta>BUDGET) return; // 예산 초과시 증가 막음
+    stats[id]=next;
+    renderStatsInner();
+  }
+  function renderStatsInner(){
+    statRow.innerHTML='';
+    STAT_DEFS.forEach(sd=>{
+      const item=document.createElement('div');
+      item.className='stat-item';
+      const pct=Math.round((stats[sd.id]-MIN_STAT)/(MAX_STAT-MIN_STAT)*100);
+      item.innerHTML=`
+        <div class="stat-head"><span class="stat-name">${sd.label}</span><span class="stat-val">${stats[sd.id]}%</span></div>
+        <div class="stat-ctrl">
+          <button class="stat-btn" data-act="-">−</button>
+          <div class="stat-bar-wrap"><div class="stat-bar-fill" style="width:${pct}%;"></div></div>
+          <button class="stat-btn" data-act="+">＋</button>
+        </div>`;
+      item.querySelector('[data-act="-"]').addEventListener('click',()=>adjust(sd.id,-5));
+      item.querySelector('[data-act="+"]').addEventListener('click',()=>adjust(sd.id,5));
+      statRow.appendChild(item);
+    });
+    refreshBudget();
+  }
+  renderStatsInner();
+
+  const navRow=document.createElement('div');
+  navRow.className='nav-row';
+  const backBtn=document.createElement('button');
+  backBtn.className='nbtn back';
+  backBtn.textContent='이전';
+  backBtn.addEventListener('click',()=>{ stepIdx--; renderStep(); });
+  const saveBtn=document.createElement('button');
+  saveBtn.className='nbtn next';
+  saveBtn.textContent='저장하기';
+  saveBtn.addEventListener('click',saveTank);
+  navRow.appendChild(backBtn);
+  navRow.appendChild(saveBtn);
+  area.appendChild(navRow);
+}
+
+async function saveTank(){
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  if(!tankName.trim()){ alert('탱크 이름을 입력해주세요.'); return; }
+  const hasAnyPixel = ['body','turret','wheel'].some(k=>grids[k].some(row=>row.some(c=>c)));
+  if(!hasAnyPixel){ if(!confirm('아무것도 안 그렸어요. 그래도 저장할까요?')) return; }
+  const bodyColor = grids.body.flat().find(c=>c) || '#8a93a3';
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_custom_tanks`,{
+      method:'POST',
+      headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({
+        user_id:currentUser.id, username:currentUser.username, name:tankName.trim(),
+        body_px:grids.body, turret_px:grids.turret, wheel_px:grids.wheel,
+        body_color:bodyColor,
+        hp_mul:stats.hp/100, dmg_mul:stats.dmg/100, radius_mul:stats.radius/100, range_mul:stats.range/100
+      })
+    });
+    const data=await res.json();
+    if(data&&data[0]){ renderSavedScreen(); }
+    else { alert('저장에 실패했어요.'); }
+  }catch(e){ alert('저장에 실패했어요.'); }
+}
+function renderSavedScreen(){
+  const area=document.getElementById('bodyArea');
+  area.innerHTML='';
+  const previewBox=document.createElement('div');
+  previewBox.className='preview-box';
+  previewBox.innerHTML='<div class="preview-label">완성!</div>';
+  const previewCanvas=document.createElement('canvas');
+  previewCanvas.width=160; previewCanvas.height=126;
+  previewBox.appendChild(previewCanvas);
+  area.appendChild(previewBox);
+  drawCombinedPreview(previewCanvas);
+
+  const title=document.createElement('div');
+  title.className='step-title';
+  title.textContent='"'+tankName.trim()+'" 저장 완료!';
+  area.appendChild(title);
+  const hint=document.createElement('div');
+  hint.className='step-hint';
+  hint.textContent='방 로비 탱크 선택에서 바로 고를 수 있어요.';
+  area.appendChild(hint);
+
+  const navRow=document.createElement('div');
+  navRow.className='nav-row';
+  const backBtn=document.createElement('button');
+  backBtn.className='nbtn back';
+  backBtn.textContent='뒤로가기';
+  backBtn.addEventListener('click',()=>{
+    location.href = backRoomId? ('fortress_room.html?id='+backRoomId) : 'fortress_rooms.html';
+  });
+  const moreBtn=document.createElement('button');
+  moreBtn.className='nbtn next';
+  moreBtn.textContent='탱크 하나 더 만들기';
+  moreBtn.addEventListener('click',()=>{
+    grids={ body:emptyGrid(PARTS[0].w,PARTS[0].h), turret:emptyGrid(PARTS[1].w,PARTS[1].h), wheel:emptyGrid(PARTS[2].w,PARTS[2].h) };
+    tankName='';
+    stats={hp:100,dmg:100,radius:100,range:100};
+    stepIdx=0;
+    renderStep();
+  });
+  navRow.appendChild(backBtn);
+  navRow.appendChild(moreBtn);
+  area.appendChild(navRow);
+}
+
+renderStep();
+</script>
+</body>
+</html>

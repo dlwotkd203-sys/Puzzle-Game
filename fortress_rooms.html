@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>포트탱크 - 실시간대전</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;line-height:1;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.header-row{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #f0f0f0;}
+.my-record{font-family:-apple-system,sans-serif;font-size:12px;color:#555;}
+.my-record b{color:#e0554c;font-size:14px;}
+.create-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:8px 14px;border-radius:16px;background:#e0554c;color:#fff;cursor:pointer;}
+.room-list{padding:0.5rem 1rem;}
+.room-item{border:1px solid #eee;border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+.room-top{display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+.room-host{font-weight:700;font-size:14px;color:#111;}
+.room-sub{font-size:11px;color:#999;margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.mini-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:#f2f2f2;color:#666;}
+.mini-badge.team{background:#e6f1fb;color:#378ADD;}
+.badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;}
+.badge-wait{background:#fdeeec;color:#e0554c;}
+.badge-play{background:#e6f9ee;color:#0f9e75;}
+.room-action{margin-top:8px;display:flex;justify-content:flex-end;}
+.action-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:7px 14px;border-radius:14px;background:#e0554c;color:#fff;cursor:pointer;}
+.action-btn.disabled{background:#e2e2e2;color:#999;}
+.empty{text-align:center;padding:2rem;color:#aaa;font-size:14px;}
+
+.overlay{position:fixed;inset:0;background:rgba(20,14,10,0.5);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;}
+.create-card{background:#fff;border-radius:18px;padding:22px 20px;width:100%;max-width:360px;}
+.create-title{font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#1a1a2e;margin-bottom:16px;}
+.opt-label{font-family:-apple-system,sans-serif;font-size:12px;font-weight:700;color:#666;margin:14px 0 8px;}
+.opt-row{display:flex;gap:8px;flex-wrap:wrap;}
+.opt-btn{padding:9px 14px;border-radius:10px;background:#f2f2f2;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;cursor:pointer;color:#555;border:1.5px solid transparent;}
+.opt-btn.sel{background:#fdeeec;color:#e0554c;border-color:#e0554c;}
+.create-btns{display:flex;gap:8px;margin-top:20px;}
+.cbtn{flex:1;text-align:center;padding:12px;border-radius:12px;font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;cursor:pointer;}
+.cbtn.cancel{background:#f2f2f2;color:#666;}
+.cbtn.ok{background:#e0554c;color:#fff;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">🎯 포트탱크 - 실시간대전</span>
+  </div>
+  <div class="header-row">
+    <div class="my-record" id="myRecord">전적 불러오는 중...</div>
+    <div style="display:flex;gap:6px;">
+      <div class="create-btn" id="tankBuilderBtn" style="background:#eef1f5;color:#555;">🛠️ 탱크 제작</div>
+      <div class="create-btn" id="createBtn">방 만들기</div>
+    </div>
+  </div>
+  <div class="room-list" id="roomList"><div class="empty">불러오는 중...</div></div>
+</div>
+
+<div class="overlay" id="createOverlay" style="display:none;">
+  <div class="create-card">
+    <div class="create-title">방 만들기</div>
+    <div class="opt-label">턴 제한시간</div>
+    <div class="opt-row" id="timeRow"></div>
+    <div class="opt-label">대전 방식</div>
+    <div class="opt-row" id="modeRow"></div>
+    <div class="create-btns">
+      <div class="cbtn cancel" id="createCancel">취소</div>
+      <div class="cbtn ok" id="createOk">만들기</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const PCOLORS=['#e53935','#378ADD','#0f9e75','#f5a623','#7c5cff','#d4537e'];
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+let selectedId=null;
+let rooms=[];
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+async function loadMyRecord(){
+  const el=document.getElementById('myRecord');
+  if(!currentUser){ el.textContent='로그인하면 전적이 표시돼요'; return; }
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/fortress_elo?user_id=eq.${currentUser.id}&select=rating,wins,losses`,{headers:headers()});
+    const data=await r.json();
+    if(data.length){
+      const d=data[0];
+      const total=d.wins+d.losses;
+      const winrate=total>0?Math.round(d.wins/total*100):0;
+      el.innerHTML=`<b>${d.rating}</b>점 · ${d.wins}승 ${d.losses}패 (${winrate}%)`;
+    } else {
+      el.innerHTML=`<b>1000</b>점 · 0승 0패`;
+    }
+  }catch(e){ el.textContent='전적을 불러올 수 없어요'; }
+}
+
+const STALE_MS=60000; // 1분 이상 활동 없으면 자동 정리
+
+async function loadRooms(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?status=neq.finished&select=*&order=created_at.desc&limit=50`,{headers:headers()});
+    const fetched=await r.json();
+    const now=Date.now();
+    const stale=[];
+    rooms=fetched.filter(room=>{
+      const last=new Date(room.updated_at||room.created_at).getTime();
+      if(now-last>STALE_MS){ stale.push(room.id); return false; }
+      return true;
+    });
+    renderRooms();
+    // 방치된 방은 조용히 정리 (누구든 먼저 목록을 본 사람이 처리, 중복 처리돼도 문제없음)
+    stale.forEach(id=>{
+      fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${id}`,{
+        method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'finished'})
+      }).catch(()=>{});
+    });
+  }catch(e){}
+}
+
+function renderRooms(){
+  const el=document.getElementById('roomList');
+  if(!rooms.length){ el.innerHTML='<div class="empty">열린 방이 없어요. 방을 만들어보세요!</div>'; return; }
+  el.innerHTML='';
+  rooms.forEach(room=>{
+    const div=document.createElement('div');
+    div.className='room-item';
+    const badgeClass=room.status==='playing'?'badge-play':'badge-wait';
+    const badgeText=room.status==='playing'?'게임중':'대기중';
+    const players=room.players||[];
+
+    let actionHtml='';
+    if(selectedId===room.id){
+      const isIn=currentUser&&players.some(p=>String(p.user_id)===String(currentUser.id));
+      let label='',enabled=true;
+      if(isIn){ label='이어하기'; }
+      else if(room.status==='playing'){ label='관람하기'; }
+      else if(players.length<6){ label='입장하기'; }
+      else { label='정원마감'; enabled=false; }
+      actionHtml=`<div class="room-action"><div class="action-btn ${enabled?'':'disabled'}" id="joinBtn">${label}</div></div>`;
+    }
+
+    div.innerHTML=`
+      <div class="room-top">
+        <div>
+          <div class="room-host">${esc(room.host_username)} 님의 방</div>
+          <div class="room-sub">
+            <span>${players.length}/6명</span>
+            <span class="mini-badge">⏱ ${room.time_limit||20}초</span>
+            <span class="mini-badge ${room.mode==='team'?'team':''}">${room.mode==='team'?'팀전':'개인전'}</span>
+          </div>
+        </div>
+        <span class="badge ${badgeClass}">${badgeText}</span>
+      </div>
+      ${actionHtml}
+    `;
+    div.querySelector('.room-top').addEventListener('click',()=>{
+      selectedId=selectedId===room.id?null:room.id;
+      renderRooms();
+    });
+    if(selectedId===room.id){
+      const btn=div.querySelector('#joinBtn');
+      if(btn&&!btn.classList.contains('disabled')){
+        btn.addEventListener('click',async(e)=>{
+          e.stopPropagation();
+          await joinOrEnter(room);
+        });
+      }
+    }
+    el.appendChild(div);
+  });
+}
+
+async function joinOrEnter(room){
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  const players=room.players||[];
+  const isIn=players.some(p=>String(p.user_id)===String(currentUser.id));
+  if(isIn||room.status==='playing'){
+    location.href='fortress_room.html?id='+room.id;
+    return;
+  }
+  if(players.length<6){
+    const team = room.mode==='team' ? (players.length%2===0?'A':'B') : null;
+    const newPlayers=players.concat([{user_id:currentUser.id,username:currentUser.username,color:'#8a93a3',ready:false,seat:players.length,team,tankClass:'standard'}]);
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+        method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+        body:JSON.stringify({players:newPlayers,move_count:room.move_count+1,updated_at:new Date().toISOString()})
+      });
+      const data=await res.json();
+      if(!data||!data.length){ alert('다른 사람이 방금 입장했어요. 다시 시도해주세요.'); loadRooms(); return; }
+      location.href='fortress_room.html?id='+room.id;
+    }catch(e){ alert('입장에 실패했어요.'); }
+  }
+}
+
+// ---- 방 만들기 ----
+const TIME_OPTIONS=[10,15,20,30,45];
+const MODE_OPTIONS=[{id:'solo',label:'개인전'},{id:'team',label:'팀전'}];
+let selTime=20, selMode='solo';
+
+const timeRow=document.getElementById('timeRow');
+TIME_OPTIONS.forEach(t=>{
+  const b=document.createElement('div');
+  b.className='opt-btn'+(t===selTime?' sel':'');
+  b.textContent=t+'초';
+  b.addEventListener('click',()=>{
+    selTime=t;
+    document.querySelectorAll('#timeRow .opt-btn').forEach(x=>x.classList.remove('sel'));
+    b.classList.add('sel');
+  });
+  timeRow.appendChild(b);
+});
+const modeRow=document.getElementById('modeRow');
+MODE_OPTIONS.forEach(m=>{
+  const b=document.createElement('div');
+  b.className='opt-btn'+(m.id===selMode?' sel':'');
+  b.textContent=m.label;
+  b.addEventListener('click',()=>{
+    selMode=m.id;
+    document.querySelectorAll('#modeRow .opt-btn').forEach(x=>x.classList.remove('sel'));
+    b.classList.add('sel');
+  });
+  modeRow.appendChild(b);
+});
+
+document.getElementById('tankBuilderBtn').addEventListener('click',()=>{
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  location.href='fortress_tankbuilder.html';
+});
+document.getElementById('createBtn').addEventListener('click',async()=>{
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  // 3번: 내가 이미 만들어둔 대기중인 방이 있으면 중복으로 새로 만들지 않고 그 방으로 보냄
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?host_user_id=eq.${currentUser.id}&status=eq.waiting&select=id&order=created_at.desc&limit=1`,{headers:headers()});
+    const existing=await r.json();
+    if(existing&&existing.length){
+      location.href='fortress_room.html?id='+existing[0].id;
+      return;
+    }
+  }catch(e){}
+  document.getElementById('createOverlay').style.display='flex';
+});
+document.getElementById('createCancel').addEventListener('click',()=>{
+  document.getElementById('createOverlay').style.display='none';
+});
+document.getElementById('createOk').addEventListener('click',async()=>{
+  const btn=document.getElementById('createOk');
+  if(btn.dataset.busy==='1') return; // 중복 클릭 방지
+  btn.dataset.busy='1';
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms`,{
+      method:'POST',
+      headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({
+        host_user_id:currentUser.id,
+        host_username:currentUser.username,
+        status:'waiting',
+        time_limit:selTime,
+        mode:selMode,
+        players:[{user_id:currentUser.id,username:currentUser.username,color:'#8a93a3',ready:false,seat:0,team:selMode==='team'?'A':null,tankClass:'standard'}],
+        move_count:0,
+        updated_at:new Date().toISOString()
+      })
+    });
+    const data=await res.json();
+    if(data&&data[0]){ location.href='fortress_room.html?id='+data[0].id; }
+    else { btn.dataset.busy='0'; }
+  }catch(e){ alert('방 생성에 실패했어요.'); btn.dataset.busy='0'; }
+});
+
+loadMyRecord();
+loadRooms();
+setInterval(loadRooms,1000);
+</script>
+</body>
+</html>
