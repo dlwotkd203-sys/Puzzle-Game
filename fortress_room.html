@@ -98,6 +98,7 @@ html,body{
 <div id="app">
   <div class="hud">
     <button class="back-btn" onclick="leaveRoom()" style="font-size:12px;font-weight:800;white-space:nowrap;">← 나가기</button>
+    <div class="turn-chip" id="roundChip" style="background:rgba(255,255,255,0.06);"><span id="roundVal">1</span> TURN</div>
     <div class="turn-chip" id="turnChip"><span class="turn-dot" id="turnDot"></span><span id="turnLabel">-</span></div>
     <div class="turn-chip" id="timerChip" style="background:rgba(255,255,255,0.06);"><span id="timerVal">20</span>초</div>
     <div class="hp-row" id="hpRow"></div>
@@ -237,6 +238,9 @@ let groundSurface=null;
 let terrainCanvas=null, terrainCtx=null;
 let tanks=[];
 let turnIdx=0;
+let turnCount=0; // 전체 턴 수(개인별) - 이걸로 "N TURN"(라운드)을 계산함
+let pendingHazardBanner=null;
+let lastSeenHazardKey=null;
 let wind=0;
 let phase='loading'; // loading | lobby | intro | aim | flying | resolving | over
 let fuelLeft=TURN_FUEL;
@@ -405,6 +409,26 @@ function carveCrater(cx,cy,r){
   }
   renderTerrainBuffer();
 }
+// 3번: 지형 전체를 그리드 몇 칸만큼 가라앉힘 - 바닥 아래(낙사선 너머)로 밀려난 부분은 완전히 사라짐
+function sinkTerrain(rows){
+  const newSolid=new Uint8Array(gridCols*gridRows);
+  const deathRow=Math.floor(deathY/CELL);
+  for(let gx=0;gx<gridCols;gx++){
+    for(let gy=0;gy<gridRows;gy++){
+      const srcGy=gy-rows;
+      if(srcGy>=0 && solid[gidx(gx,srcGy)] && gy<=deathRow){
+        newSolid[gidx(gx,gy)]=1;
+      }
+    }
+  }
+  solid=newSolid;
+  renderTerrainBuffer();
+}
+// 이벤트 재생 공용 처리 (크레이터 폭발 / 지형 가라앉음 두 종류 모두 지원)
+function applyTerrainEvent(e){
+  if(e.type==='sink') sinkTerrain(e.rows);
+  else carveCrater(e.x,e.y,e.r);
+}
 function renderTerrainBuffer(){
   if(!terrainCanvas){ terrainCanvas=document.createElement('canvas'); terrainCtx=terrainCanvas.getContext('2d'); }
   terrainCanvas.width=WORLD_W; terrainCanvas.height=H;
@@ -423,6 +447,27 @@ function renderTerrainBuffer(){
         const depth=Math.min(1,gy/(gridRows*0.42));
         tctx.fillStyle=mixColor('#6b4f2e','#2a1d10',depth);
         tctx.fillRect(wx,wy,CELL+1,CELL+1);
+      }
+    }
+  }
+  renderMinimapTerrainCache();
+}
+
+// 미니맵용 지형 캐시 - 매 프레임 다시 그리지 않고, 지형이 바뀔 때만(위 renderTerrainBuffer 호출시) 갱신
+const MM_W=220, MM_H=112;
+let minimapTerrainCache=null;
+function renderMinimapTerrainCache(){
+  if(!gridCols||!gridRows) return;
+  if(!minimapTerrainCache){ minimapTerrainCache=document.createElement('canvas'); minimapTerrainCache.width=MM_W; minimapTerrainCache.height=MM_H; }
+  const c2=minimapTerrainCache.getContext('2d');
+  c2.clearRect(0,0,MM_W,MM_H);
+  c2.fillStyle='rgba(140,100,60,0.95)';
+  for(let mx=0;mx<MM_W;mx++){
+    const gx=Math.min(gridCols-1,Math.floor(mx/MM_W*gridCols));
+    for(let gy=0;gy<gridRows;gy++){
+      if(solid[gidx(gx,gy)]){
+        const my=Math.floor(gy/gridRows*MM_H);
+        c2.fillRect(mx,my,1,1);
       }
     }
   }
@@ -759,9 +804,16 @@ function startTurn(){
   updateHUD();
 }
 function nextTurn(){
+  turnCount++;
   do{ turnIdx=(turnIdx+1)%tanks.length; }while(!tanks[turnIdx].alive);
+  // 3번: 한 바퀴(라운드)가 새로 시작될 때, 10라운드를 넘겼으면 서든데스 발동
+  if(turnCount%tanks.length===0){
+    const newRound=Math.floor(turnCount/tanks.length)+1;
+    if(newRound>10) applySuddenDeathHazard();
+  }
   startTurn();
 }
+function roundNumber(){ return Math.floor(turnCount/Math.max(1,tanks.length))+1; }
 function aliveCount(){ return tanks.filter(t=>t.alive).length; }
 function evaluateWin(){
   const aliveTanks=tanks.filter(t=>t.alive);
@@ -1058,6 +1110,53 @@ function settleTanks(){
     }
   });
 }
+function showBanner(text){
+  const el=document.createElement('div');
+  el.style.cssText='position:absolute;left:50%;top:38%;transform:translate(-50%,-50%) scale(0.5);z-index:60;font-family:-apple-system,sans-serif;font-weight:900;font-size:19px;color:#fff;text-shadow:0 3px 10px rgba(0,0,0,0.7);opacity:0;transition:transform .3s cubic-bezier(.34,1.56,.64,1),opacity .3s ease;pointer-events:none;white-space:nowrap;';
+  el.textContent=text;
+  document.getElementById('app').appendChild(el);
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1)'; });
+  setTimeout(()=>{ el.style.opacity='0'; },1700);
+  setTimeout(()=>el.remove(),2000);
+}
+// 3번: 10라운드가 넘으면 매 라운드 시작마다 지형이 가라앉거나 운석이 랜덤으로 떨어짐 (빠른 결판을 위함)
+function applySuddenDeathHazard(){
+  const useMeteor=Math.random()<0.5;
+  if(useMeteor){
+    const n=2+Math.floor(Math.random()*3); // 2~4개
+    for(let i=0;i<n;i++){
+      const x=rand(WORLD_W*0.06,WORLD_W*0.94);
+      const groundYAtX=getSurfaceY(x);
+      const impactY=groundYAtX!==null? groundYAtX : deathY-5;
+      const r=rand(26,40);
+      carveCrater(x,impactY,r);
+      allEvents.push({x,y:impactY,r});
+      spawnBurst(x,impactY,r);
+      tanks.forEach(t=>{
+        if(!t.alive) return;
+        const cy=t.groundY-20;
+        const dist=Math.hypot(t.x-x,cy-impactY);
+        const falloff=r+16;
+        if(dist<falloff){
+          const dmg=Math.round(28*(1-dist/falloff));
+          if(dmg>0){ t.hp=Math.max(0,t.hp-dmg); showPop(t.x,t.groundY-40,'-'+dmg,'dmg-pop',dmg); if(t.hp<=0) t.alive=false; }
+        }
+      });
+    }
+    settleTanks();
+    pendingHazardBanner={text:'☄️ 운석이 떨어졌다!',key:'hz_'+turnCount};
+    showBanner('☄️ 운석이 떨어졌다!');
+  } else {
+    const rows=3+Math.floor(Math.random()*3); // 3~5칸(=18~30px 상당) 가라앉음
+    sinkTerrain(rows);
+    allEvents.push({type:'sink',rows});
+    settleTanks();
+    pendingHazardBanner={text:'🌊 지형이 가라앉는다!',key:'hz_'+turnCount};
+    showBanner('🌊 지형이 가라앉는다!');
+  }
+  appliedEventCount=allEvents.length;
+}
+
 async function skipTurn(){
   if(mySeat!==turnIdx) return;
   myTurnInProgress=true;
@@ -1087,8 +1186,8 @@ async function commitState(){
     seed: room.state.seed,
     events: allEvents,
     tanks: tanks.map(t=>({x:t.x,groundY:t.groundY,hp:t.hp,alive:t.alive,angle:t.angle,facing:t.facing,lastPower:t.lastPower})),
-    turnIdx, wind, turnStartedAt: turnStartTs,
-    winnerSeat, winnerTeam, usedRingIds
+    turnIdx, turnCount, wind, turnStartedAt: turnStartTs,
+    winnerSeat, winnerTeam, usedRingIds, hazardBanner:pendingHazardBanner
   };
   try{
     const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
@@ -1177,6 +1276,7 @@ function updateHUD(){
   const t=tanks[turnIdx];
   document.getElementById('turnDot').style.background=t.color;
   document.getElementById('turnLabel').textContent=t.name+' 차례';
+  document.getElementById('roundVal').textContent=roundNumber();
   document.getElementById('angleVal').textContent=Math.round(curAngle)+'°';
   document.getElementById('fuelFill').style.width=Math.max(0,(fuelLeft/TURN_FUEL)*100)+'%';
   updateWindUI();
@@ -1196,14 +1296,11 @@ function updateHUD(){
 // ---------------- 미니맵 ----------------
 function drawMinimap(){
   if(!groundSurface) return;
-  const mw=minimap.width=minimap.clientWidth*2, mh=minimap.height=minimap.clientHeight*2;
-  mctx.clearRect(0,0,mw,mh);
-  const scaleX=mw/WORLD_W, scaleY=mh/H;
-  mctx.fillStyle='rgba(80,60,40,0.9)';
-  for(let x=0;x<WORLD_W;x+=16){
-    const sy=groundSurface[x]*scaleY;
-    mctx.fillRect(x*scaleX,sy,Math.max(2,16*scaleX),mh-sy);
-  }
+  if(minimap.width!==MM_W) minimap.width=MM_W;
+  if(minimap.height!==MM_H) minimap.height=MM_H;
+  mctx.clearRect(0,0,MM_W,MM_H);
+  if(minimapTerrainCache) mctx.drawImage(minimapTerrainCache,0,0);
+  const scaleX=MM_W/WORLD_W, scaleY=MM_H/H;
   tanks.forEach(t=>{
     if(!t.alive) return;
     mctx.fillStyle=t.color;
@@ -1213,7 +1310,7 @@ function drawMinimap(){
   });
   mctx.strokeStyle='rgba(255,255,255,0.8)';
   mctx.lineWidth=1.5;
-  mctx.strokeRect(camX*scaleX,0,W*scaleX,mh);
+  mctx.strokeRect(camX*scaleX,0,W*scaleX,MM_H);
 }
 
 // ---------------- 메인 루프 ----------------
@@ -1611,7 +1708,7 @@ async function returnToLobby(){
       room=data[0];
       document.getElementById('ov-win').style.display='none';
       introShown=false;
-      lastSeenShotKey=null; lastSeenMoveTs=0;
+      lastSeenShotKey=null; lastSeenMoveTs=0; lastSeenHazardKey=null; turnCount=0;
       mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
       phase='lobby';
       renderLobby();
@@ -1706,8 +1803,8 @@ async function hostStartGame(){
   const initState={
     seed, events:[],
     tanks: tanks.map(t=>({x:t.x,groundY:t.groundY,hp:t.hp,alive:t.alive,angle:t.angle,facing:t.facing,lastPower:t.lastPower})),
-    turnIdx:0, wind:0, turnStartedAt:Date.now(),
-    winnerSeat:null, winnerTeam:null, usedRingIds:[]
+    turnIdx:0, turnCount:0, wind:0, turnStartedAt:Date.now(),
+    winnerSeat:null, winnerTeam:null, usedRingIds:[], hazardBanner:null
   };
   try{
     const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
@@ -1732,7 +1829,7 @@ async function enterGameFromState(state,players){
   initRings();
 
   allEvents=[]; appliedEventCount=0;
-  for(const e of (state.events||[])) carveCrater(e.x,e.y,e.r);
+  for(const e of (state.events||[])) applyTerrainEvent(e);
   allEvents=(state.events||[]).slice();
   appliedEventCount=allEvents.length;
 
@@ -1743,12 +1840,14 @@ async function enterGameFromState(state,players){
     t.tilt=getTiltAngle(t.x);
   });
   turnIdx=state.turnIdx||0;
+  turnCount=state.turnCount||0;
   wind=state.wind||0;
   usedRingIds=state.usedRingIds||[];
   maybeSpawnBonusRings();
   rings.forEach(r=>{ if(usedRingIds.includes(r.id)) r.active=false; });
   winnerSeat=state.winnerSeat??null;
   winnerTeam=state.winnerTeam??null;
+  if(state.hazardBanner) lastSeenHazardKey=state.hazardBanner.key; // 처음 들어올 때는 이미 지난 발동이므로 배너 재생하지 않음
 
   particles=[];projectile=null;
   initAmbient();
@@ -1777,7 +1876,7 @@ function adoptTurnState(state){
 function applyRemoteState(state){
   const events=state.events||[];
   const newCraters=[];
-  for(let i=appliedEventCount;i<events.length;i++){ const e=events[i]; carveCrater(e.x,e.y,e.r); newCraters.push(e); }
+  for(let i=appliedEventCount;i<events.length;i++){ const e=events[i]; applyTerrainEvent(e); if(e.type!=='sink') newCraters.push(e); }
   appliedEventCount=events.length;
   allEvents=events.slice();
   // 새로 생긴 크레이터마다 폭발 이펙트를 보여줘서 "뭔가 터졌다"는 게 확실히 보이게
@@ -1794,10 +1893,15 @@ function applyRemoteState(state){
     else if(wasAlive&&!st.alive){ showPop(t.x,oldGY-30,'추락!','fall-pop'); }
   });
   turnIdx=state.turnIdx;
+  turnCount=state.turnCount||0;
   wind=state.wind;
   usedRingIds=state.usedRingIds||[];
   maybeSpawnBonusRings();
   rings.forEach(r=>{ if(usedRingIds.includes(r.id)) r.active=false; });
+  if(state.hazardBanner && state.hazardBanner.key!==lastSeenHazardKey){
+    lastSeenHazardKey=state.hazardBanner.key;
+    showBanner(state.hazardBanner.text);
+  }
   winnerSeat=state.winnerSeat??null;
   winnerTeam=state.winnerTeam??null;
 
@@ -1823,7 +1927,7 @@ async function pollRoom(){
       room=newRoom;
       document.getElementById('ov-win').style.display='none';
       introShown=false;
-      lastSeenShotKey=null; lastSeenMoveTs=0;
+      lastSeenShotKey=null; lastSeenMoveTs=0; lastSeenHazardKey=null; turnCount=0;
       mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
       phase='lobby';
       renderLobby();
