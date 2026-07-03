@@ -2,12 +2,18 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>포트탱크</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;overflow:hidden;background:#0b1220;}
-#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;position:relative;box-shadow:0 0 0 1px rgba(255,255,255,0.06);}
+html,body{
+  height:100%; height:100dvh;
+  overflow:hidden; overscroll-behavior:none;
+  position:fixed; width:100%;
+  touch-action:none;
+  background:#0b1220;
+}
+#app{max-width:430px;margin:0 auto;height:100%;height:100dvh;display:flex;flex-direction:column;position:relative;box-shadow:0 0 0 1px rgba(255,255,255,0.06);}
 
 .hud{
   display:flex;align-items:center;gap:8px;
@@ -51,6 +57,7 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
 .weapon-btn.sel{border-color:#fff;background:rgba(255,255,255,0.14);color:#fff;}
 .weapon-emoji{font-size:15px;}
 .weapon-label{font-family:-apple-system,sans-serif;font-size:9px;font-weight:700;margin-top:1px;}
+.weapon-stats{font-family:-apple-system,sans-serif;font-size:7.5px;font-weight:600;color:rgba(255,255,255,0.55);margin-top:1px;}
 .fire-btn{
   height:52px;border-radius:14px;border:none;position:relative;overflow:hidden;
   background:#3a1518;cursor:pointer;
@@ -90,7 +97,7 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
 <body>
 <div id="app">
   <div class="hud">
-    <button class="back-btn" onclick="leaveRoom()">←</button>
+    <button class="back-btn" onclick="leaveRoom()" style="font-size:12px;font-weight:800;white-space:nowrap;">← 나가기</button>
     <div class="turn-chip" id="turnChip"><span class="turn-dot" id="turnDot"></span><span id="turnLabel">-</span></div>
     <div class="turn-chip" id="timerChip" style="background:rgba(255,255,255,0.06);"><span id="timerVal">20</span>초</div>
     <div class="hp-row" id="hpRow"></div>
@@ -137,6 +144,7 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
     <div class="ov-divider"></div>
     <button class="ov-btn" id="lobbyStartBtn" onclick="hostStartGame()">게임 시작</button>
     <div class="ov-sub" id="lobbyHint" style="margin-top:-4px;"></div>
+    <button class="ov-btn" style="background:rgba(255,255,255,0.08);color:#fff;margin-top:4px;" onclick="leaveRoom()">방 나가기</button>
   </div>
 </div>
 
@@ -276,11 +284,45 @@ function roundRect(x,y,w,h,r){
 
 // ---------------- 격자 지형 생성 (언덕 + 공중 플랫폼 + 유한 두께) ----------------
 function gidx(gx,gy){ return gy*gridCols+gx; }
+let mapType='hills';
+let spawnZones=[]; // [{x0,x1}] - 탱크가 랜덤으로 스폰될 수 있는 구간들
+
+function fillGroundBand(x0,x1,surfaceFn,thickPx){
+  const gx0=Math.max(0,Math.floor(x0/CELL)), gx1=Math.min(gridCols-1,Math.floor(x1/CELL));
+  for(let gx=gx0;gx<=gx1;gx++){
+    const wx=Math.min(WORLD_W-1,gx*CELL+CELL/2);
+    const sY=surfaceFn(wx);
+    const bottomY=Math.min(deathY-2,sY+thickPx);
+    const gy0=Math.max(0,Math.floor(sY/CELL));
+    const gy1=Math.min(gridRows-1,Math.floor(bottomY/CELL));
+    for(let gy=gy0;gy<=gy1;gy++) solid[gidx(gx,gy)]=1;
+  }
+}
+function fillBlock(x0,y0,x1,y1){
+  const gx0=Math.max(0,Math.floor(x0/CELL)), gx1=Math.min(gridCols-1,Math.floor(x1/CELL));
+  const gy0=Math.max(0,Math.floor(y0/CELL)), gy1=Math.min(gridRows-1,Math.floor(y1/CELL));
+  for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++) solid[gidx(gx,gy)]=1;
+}
+
 function generateTerrain(){
   gridCols=Math.ceil(WORLD_W/CELL);
   gridRows=Math.ceil(H/CELL);
   solid=new Uint8Array(gridCols*gridRows);
+  deathY=H*0.84; // 이보다 아래로 떨어지면 낙사 처리
+  spawnZones=[];
 
+  const roll=rng(); // 맵 타입도 시드로 결정 -> 모든 클라이언트가 같은 맵 타입을 그림
+  mapType = roll<0.42 ? 'hills' : roll<0.75 ? 'towers' : 'islands';
+
+  if(mapType==='hills') generateTerrainHills();
+  else if(mapType==='towers') generateTerrainTowers();
+  else generateTerrainIslands();
+
+  renderTerrainBuffer();
+}
+
+// ---- 타입 1: 완만한 언덕 + 공중 플랫폼 몇 개 (기존 방식) ----
+function generateTerrainHills(){
   const baseY=H*0.50, amp=H*0.085;
   const freqs=[{f:0.0022,a:1},{f:0.006,a:0.5},{f:0.017,a:0.2}];
   const phases=freqs.map(()=>rng()*Math.PI*2);
@@ -290,31 +332,53 @@ function generateTerrain(){
     freqs.forEach((fr,i)=>{ y+=Math.sin(x*fr.f+phases[i])*amp*fr.a; });
     groundSurface[x]=y;
   }
-  const THICK=H*0.16;
-  deathY=H*0.84; // 이보다 아래로 떨어지면 낙사 처리
+  fillGroundBand(0,WORLD_W-1,x=>groundSurface[Math.round(x)],H*0.16);
+  spawnZones.push({x0:WORLD_W*0.05,x1:WORLD_W*0.95});
 
-  for(let gx=0;gx<gridCols;gx++){
-    const wx=Math.min(WORLD_W-1,gx*CELL+CELL/2);
-    const sY=groundSurface[Math.round(wx)];
-    const bottomY=Math.min(deathY-2,sY+THICK);
-    const gy0=Math.max(0,Math.floor(sY/CELL));
-    const gy1=Math.min(gridRows-1,Math.floor(bottomY/CELL));
-    for(let gy=gy0;gy<=gy1;gy++) solid[gidx(gx,gy)]=1;
-  }
-
-  // 공중 플랫폼(다른 층) 여러 개 - 시드 기반이라 모두 동일하게 생성됨
   const platCount=4+Math.floor(rng()*3);
   for(let i=0;i<platCount;i++){
     const pw=srand(70,150), ph=srand(20,28);
     const px=srand(WORLD_W*0.1,WORLD_W*0.9-pw);
     const py=srand(H*0.16,H*0.4);
-    const gx0=Math.max(0,Math.floor(px/CELL)), gx1=Math.min(gridCols-1,Math.floor((px+pw)/CELL));
-    const gy0=Math.max(0,Math.floor(py/CELL)), gy1=Math.min(gridRows-1,Math.floor((py+ph)/CELL));
-    for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++) solid[gidx(gx,gy)]=1;
+    fillBlock(px,py,px+pw,py+ph);
+    spawnZones.push({x0:px,x1:px+pw});
   }
-
-  renderTerrainBuffer();
 }
+
+// ---- 타입 2: 여러 층으로 나뉜 타워형 (스케치처럼 층층이 떠 있는 구조 + 바닥) ----
+function generateTerrainTowers(){
+  const baseY=H*0.74, amp=H*0.025;
+  const phase=rng()*Math.PI*2;
+  groundSurface=new Float32Array(WORLD_W);
+  for(let x=0;x<WORLD_W;x++){ groundSurface[x]=baseY+Math.sin(x*0.003+phase)*amp; }
+  fillGroundBand(0,WORLD_W-1,x=>groundSurface[Math.round(x)],H*0.13);
+  spawnZones.push({x0:WORLD_W*0.04,x1:WORLD_W*0.96});
+
+  const floorCount=4+Math.floor(rng()*2); // 4~5개 층
+  for(let i=0;i<floorCount;i++){
+    const fw=srand(WORLD_W*0.14,WORLD_W*0.32);
+    const fx=srand(WORLD_W*0.04,WORLD_W*0.96-fw);
+    const fy=srand(H*0.1,H*0.6);
+    const fh=srand(14,22);
+    fillBlock(fx,fy,fx+fw,fy+fh);
+    spawnZones.push({x0:fx,x1:fx+fw});
+  }
+}
+
+// ---- 타입 3: 공중에 떠 있는 섬들 (바닥이 아예 없음, 낙사 위험 큼) ----
+function generateTerrainIslands(){
+  groundSurface=new Float32Array(WORLD_W).fill(deathY+40); // 이 맵엔 이어진 지면이 없음(표시용 더미값)
+  const islandCount=6+Math.floor(rng()*3); // 6~8개
+  for(let i=0;i<islandCount;i++){
+    const iw=srand(WORLD_W*0.09,WORLD_W*0.2);
+    const ix=srand(WORLD_W*0.04,WORLD_W*0.96-iw);
+    const iy=srand(H*0.22,H*0.62);
+    const ih=srand(18,30);
+    fillBlock(ix,iy,ix+iw,iy+ih);
+    spawnZones.push({x0:ix,x1:ix+iw});
+  }
+}
+
 function isSurfaceCell(gx,gy){
   return solid[gidx(gx,gy)]===1 && (gy===0 || solid[gidx(gx,gy-1)]===0);
 }
@@ -569,6 +633,7 @@ function drawTank(t){
   if(!t.alive) return;
   const cx=t.x, gy=t.groundY;
   const pivotOffset = t.turretPivotOffset!=null? t.turretPivotOffset : (t.wheelR||WHEEL_R)*2+13;
+  const clearance = pivotOffset + (t.turretLen||22) + 6; // 포신을 위로 쳐들어도 이름/HP바를 안 가리도록 충분히 띄움
   ctx.fillStyle='rgba(0,0,0,0.25)';
   ctx.beginPath();ctx.ellipse(cx,gy+2,17,4,0,0,Math.PI*2);ctx.fill();
 
@@ -585,10 +650,10 @@ function drawTank(t){
   ctx.font='700 9px -apple-system,sans-serif';
   ctx.textAlign='center';
   ctx.fillStyle='rgba(255,255,255,0.9)';
-  ctx.fillText(t.name,cx,gy-pivotOffset-13);
+  ctx.fillText(t.name,cx,gy-clearance-13);
   // 7번: 머리 위 HP바 더 잘 보이게(두껍게+테두리)
   const bw=32,bh=6;
-  const by=gy-pivotOffset-9;
+  const by=gy-clearance-9;
   ctx.fillStyle='rgba(0,0,0,0.55)';
   roundRect(cx-bw/2-1.5,by-1.5,bw+3,bh+3,3);ctx.fill();
   ctx.fillStyle='rgba(255,255,255,0.15)';
@@ -621,14 +686,28 @@ function drawAimGuide(t){
   ctx.restore();
 }
 
+function pickSpawnX(placedX,minGap){
+  const zones = spawnZones.length? spawnZones : [{x0:WORLD_W*0.1,x1:WORLD_W*0.9}];
+  for(let attempt=0;attempt<30;attempt++){
+    const zone=zones[Math.floor(rng()*zones.length)];
+    const lo=zone.x0+8, hi=Math.max(lo+1,zone.x1-8);
+    const cand=srand(lo,hi);
+    if(getSurfaceY(cand)===null) continue; // 그 자리에 실제 지형이 없으면 다시 뽑음
+    if(placedX.every(px=>Math.abs(px-cand)>=minGap)) return cand;
+  }
+  // 그래도 못 찾으면 아무 구역에서나 하나 받아들임(인원이 아주 많을 때 대비)
+  const zone=zones[Math.floor(rng()*zones.length)];
+  return srand(zone.x0+8,Math.max(zone.x0+9,zone.x1-8));
+}
 function spawnTanks(players,customMap){
   customMap=customMap||{};
   tanks=[];
   const n=players.length;
-  const margin=WORLD_W*0.07;
-  const spacing=(WORLD_W-margin*2)/(n-1||1);
+  const minGap=Math.max(50,WORLD_W/(n*4));
+  const placedX=[];
   players.forEach((p,i)=>{
-    const x = n===1? WORLD_W/2 : margin+spacing*i;
+    const x = pickSpawnX(placedX,minGap);
+    placedX.push(x);
     const gy=getSurfaceY(x) ?? groundSurface[Math.round(x)];
     const custom = p.customTankId? customMap[p.customTankId] : null;
     let skin,color,hpMul,dmgMul,radiusMul,rangeMul,turretPivotOffset,turretLen,wheelR,classId,className;
@@ -731,7 +810,7 @@ const weaponRow=document.getElementById('weaponRow');
 WEAPONS.forEach((w,i)=>{
   const b=document.createElement('div');
   b.className='weapon-btn'+(i===curWeapon?' sel':'');
-  b.innerHTML=`<div class="weapon-emoji">${w.emoji}</div><div class="weapon-label">${w.name}</div>`;
+  b.innerHTML=`<div class="weapon-emoji">${w.emoji}</div><div class="weapon-label">${w.name}</div><div class="weapon-stats">💢${w.dmg} 💥${w.radius}</div>`;
   b.addEventListener('click',()=>{
     if(phase!=='aim'||mySeat!==turnIdx)return;
     curWeapon=i;
