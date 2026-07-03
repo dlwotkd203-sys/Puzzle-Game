@@ -190,10 +190,10 @@ let mySeat=-1;
 let appliedEventCount=0; // 지금까지 반영한 크레이터 이벤트 수 (증분 재생용)
 let allEvents=[]; // 지금까지의 크레이터 이벤트 전체 목록 (서버에 보낼 때 사용)
 let pollTimer=null;
+let myTurnInProgress=false; // 내가 행동한 뒤 결과 커밋까지, 폴링으로 상태가 덮어써지지 않도록
 let pendingShotCommit=null;
-let myTurnInProgress=false; // 내가 쏜 뒤 결과 커밋까지, 폴링으로 상태가 덮어써지지 않도록
-let lastMoveSentTs=0;
-let lastSeenMoveTs=0;
+let lastSeenShotKey=null;
+let lastSeenCheckpointTs=0; // 남의 체크포인트(3초마다 오는 위치) 중 내가 이미 반영한 마지막 시각
 
 // 시드 기반 결정론적 난수 - 모든 클라이언트가 같은 지형/링 위치를 만들도록
 let rng=Math.random;
@@ -226,7 +226,7 @@ const WEAPONS=[
   {id:'arc',    name:'곡사포', emoji:'🌙', dmg:24, radius:30, speedMul:0.8,  arcBoost:1.55},
 ];
 const MOVE_SPEED=75;
-const TURN_FUEL=165;
+const TURN_FUEL=215; // 기존 165에서 30% 증가
 let TURN_TIME=20; // 방 설정(time_limit)으로 덮어써짐
 let turnStartTs=0;
 const WHEEL_R=7;
@@ -249,11 +249,13 @@ let curWeapon=0;
 let charging=false, chargeStart=0, chargePower=0;
 let projectile=null;
 let ghostProjectile=null; // 남의 발사를 내 화면에서 재생할 때 쓰는 연출용 포탄(판정에는 영향 없음)
-let lastSeenShotKey=null;
 let particles=[];
 let ambient=[];
-let camX=0;
-let dragging=false, dragLastX=0, lastDragTs=0;
+let camX=0, camY=0;
+let zoom=1, MIN_ZOOM=0.55, MAX_ZOOM=2.2;
+let dragging=false, dragLastX=0, dragLastY=0, lastDragTs=0;
+let pinchDist=null, pinchStartZoom=1;
+const activePointers=new Map();
 let lastImpact=null;
 let rings=[];
 let usedRingIds=[];
@@ -397,6 +399,23 @@ function getSurfaceY(worldX){
     }
   }
   return null;
+}
+// 이동 중에 쓰는 버전: "가장 위에 있는 지형"이 아니라 "지금 서 있는 높이와 가까운 지형"을 찾음.
+// 안 그러면 1층에 있는데 2층(더 위쪽) 플랫폼 높이를 발밑으로 착각해서 이동이 이상하게 막히는 문제가 생김.
+function getSurfaceYNear(worldX,refY,tolerance){
+  tolerance = tolerance!=null? tolerance : 46;
+  const gx=Math.floor(worldX/CELL);
+  if(gx<0||gx>=gridCols) return null;
+  let fallback=null;
+  for(let gy=0;gy<gridRows;gy++){
+    if(solid[gidx(gx,gy)]){
+      const wy=gy*CELL;
+      if(wy>deathY) break;
+      if(fallback===null) fallback=wy;
+      if(Math.abs(wy-refY)<=tolerance) return wy;
+    }
+  }
+  return fallback; // 근처에 못 찾으면(발밑이 완전히 뚫린 경우 등) 그냥 가장 위쪽 표면이라도 반환
 }
 function carveCrater(cx,cy,r){
   const gx0=Math.max(0,Math.floor((cx-r)/CELL)), gx1=Math.min(gridCols-1,Math.floor((cx+r)/CELL));
@@ -667,9 +686,9 @@ function turretTip(t){
   return {x:baseX+Math.cos(totalRot)*turretLen, y:baseY+Math.sin(totalRot)*turretLen, baseX, baseY, totalRot};
 }
 
-function getTiltAngle(x){
-  const y1=getSurfaceY(clamp(x-10,0,WORLD_W-1));
-  const y2=getSurfaceY(clamp(x+10,0,WORLD_W-1));
+function getTiltAngle(x,refY){
+  const y1=getSurfaceYNear(clamp(x-10,0,WORLD_W-1),refY);
+  const y2=getSurfaceYNear(clamp(x+10,0,WORLD_W-1),refY);
   if(y1===null||y2===null) return 0;
   return clamp(Math.atan2(y2-y1,20),-0.7,0.7); // 라디안, 최대 ±40도 정도로 제한
 }
@@ -896,7 +915,7 @@ function doFire(power){
   // 탱크 종류의 데미지/범위 배율을 미리 적용한 '실효 무기'로 발사 (링 파워업이 여기에 추가로 곱해짐)
   const effW={...w, dmg:Math.round(w.dmg*(t.dmgMul||1)), radius:Math.round(w.radius*(t.radiusMul||1))};
   projectile={x:tip.x,y:tip.y,vx,vy,weapon:effW,trail:[]};
-  pendingShotCommit=commitShotFired(tip.x,tip.y,vx,vy,w.id); // 다른 사람들에게 "지금 쐈다"를 먼저 알림 (실시간 궤적 재생용)
+  pendingShotCommit=commitShotFired(tip.x,tip.y,vx,vy,w.id); // 쏘는 즉시 알려서 남들도 빨리 볼 수 있게
 }
 async function commitShotFired(x,y,vx,vy,weaponId){
   if(!room) return;
@@ -911,27 +930,30 @@ async function commitShotFired(x,y,vx,vy,weaponId){
     if(data&&data[0]) room=data[0];
   }catch(e){ console.error('발사 알림 실패',e); }
 }
-let moveCommitBusy=false;
-async function commitMoveUpdate(t){
-  if(!room||moveCommitBusy) return;
+// 3초마다 한 번씩 이동 위치를 알려서, 완전 실시간은 아니지만 거의 따라오는 것처럼 보이게 함
+// (매 프레임 보내면 서버 부하/충돌이 잦아져서 오히려 더 어긋났었음 - 3초 간격 + 부드러운 이동으로 절충)
+let lastCheckpointTs=0;
+let checkpointBusy=false;
+async function commitCheckpoint(t){
+  if(!room||checkpointBusy) return;
   const now=Date.now();
-  if(now-lastMoveSentTs<220) return; // 너무 자주 보내지 않게 쓰로틀링
-  lastMoveSentTs=now;
-  moveCommitBusy=true;
+  if(now-lastCheckpointTs<3000) return;
+  lastCheckpointTs=now;
+  checkpointBusy=true;
   try{
     const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
       method:'PATCH',
       headers:{...jheaders(),'Prefer':'return=representation'},
       body:JSON.stringify({
-        state:{...room.state, moveUpdate:{seat:turnIdx,x:t.x,groundY:t.groundY,facing:t.facing,wheelRot:t.wheelRot,ts:now}},
+        state:{...room.state, checkpoint:{seat:turnIdx,x:t.x,groundY:t.groundY,facing:t.facing,ts:now}},
         move_count:room.move_count+1,
         updated_at:new Date().toISOString()
       })
     });
     const data=await res.json();
     if(data&&data[0]) room=data[0];
-  }catch(e){ /* 이동 브로드캐스트는 실패해도 무시(다음 이동때 다시 시도됨) */ }
-  moveCommitBusy=false;
+  }catch(e){ /* 실패해도 무시 - 3초 뒤 다음 체크포인트가 또 전송됨 */ }
+  checkpointBusy=false;
 }
 
 // ---------------- 물리/충돌 ----------------
@@ -1255,8 +1277,8 @@ function showPop(worldX,worldY,text,cls,dmg){
   document.getElementById('app').appendChild(el);
   const canvasRect=canvas.getBoundingClientRect();
   const appRect=document.getElementById('app').getBoundingClientRect();
-  const sx=canvasRect.left-appRect.left+(worldX-camX);
-  const sy=canvasRect.top-appRect.top+worldY;
+  const sx=canvasRect.left-appRect.left+(worldX-camX)*zoom;
+  const sy=canvasRect.top-appRect.top+(worldY-camY)*zoom;
   el.style.left=sx+'px'; el.style.top=sy+'px';
   requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1.25)'; el.style.top=(sy-38)+'px'; });
   setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translate(-50%,-50%) scale(1)'; },700);
@@ -1310,7 +1332,7 @@ function drawMinimap(){
   });
   mctx.strokeStyle='rgba(255,255,255,0.8)';
   mctx.lineWidth=1.5;
-  mctx.strokeRect(camX*scaleX,0,W*scaleX,MM_H);
+  mctx.strokeRect(camX*scaleX,camY*scaleY,viewW()*scaleX,viewH()*scaleY);
 }
 
 // ---------------- 메인 루프 ----------------
@@ -1341,7 +1363,7 @@ function update(dt){
     if(moved!==0){
       const dir=moved<0?-1:1;
       const lookX=clamp(t.x+dir*3,0,WORLD_W-1);
-      const y0=getSurfaceY(t.x), y1=getSurfaceY(lookX);
+      const y0=getSurfaceYNear(t.x,t.groundY), y1=getSurfaceYNear(lookX,t.groundY);
       let blocked=false;
       if(y0!==null&&y1!==null){
         const rise=y0-y1; // 양수면 이동방향이 더 높음(오르막)
@@ -1352,16 +1374,25 @@ function update(dt){
         const nx=clamp(t.x+moved,6,WORLD_W-6);
         t.x=nx;
         t.facing=dir;
-        const gy=getSurfaceY(t.x);
+        const gy=getSurfaceYNear(t.x,t.groundY);
         if(gy!==null) t.groundY=gy;
         t.wheelRot+=moved/WHEEL_R;
         fuelLeft=Math.max(0,fuelLeft-Math.abs(moved));
         document.getElementById('fuelFill').style.width=Math.max(0,(fuelLeft/TURN_FUEL)*100)+'%';
-        commitMoveUpdate(t); // 1번: 이동도 실시간으로 다른 사람에게 (쓰로틀링해서 전송)
+        commitCheckpoint(t); // 3초마다 위치 알림 (완전 실시간은 아니지만 거의 따라오게)
       }
     }
   }
-  tanks.forEach(t=>{ if(t.alive) t.tilt=getTiltAngle(t.x); });
+  // 남의 체크포인트가 도착해있으면 순간이동 대신 부드럽게 그 위치로 다가가게 함
+  tanks.forEach(t=>{
+    if(t.lerpTargetX!=null){
+      t.x += (t.lerpTargetX-t.x)*Math.min(1,4*dt);
+      const gy=getSurfaceYNear(t.x,t.groundY);
+      if(gy!==null) t.groundY=gy;
+      if(Math.abs(t.lerpTargetX-t.x)<0.6){ t.x=t.lerpTargetX; t.groundY=getSurfaceYNear(t.x,t.groundY)??t.groundY; t.lerpTargetX=null; }
+    }
+  });
+  tanks.forEach(t=>{ if(t.alive) t.tilt=getTiltAngle(t.x,t.groundY); });
   tanks.forEach(t=>{
     if(t.falling){
       t.groundY+=240*dt;
@@ -1377,11 +1408,15 @@ function update(dt){
   }
 
   // 카메라: 포탄이 날아가는 중이면 포탄을, 폭발 직후엔 폭발지점을, 그 외엔 현재 턴 탱크를 따라감
-  // 단, 사용자가 드래그해서 직접 화면을 보고 있는 중이거나 직후(1.1초)엔 자동추적을 쉼
+  // 단, 사용자가 드래그(또는 확대/축소)해서 직접 화면을 보고 있는 중이거나 직후(1.1초)엔 자동추적을 쉼
   if(phase!=='intro' && !dragging && performance.now()-lastDragTs>1100){
-    const followX = projectile? projectile.x : ghostProjectile? ghostProjectile.x : (phase==='resolving'&&lastImpact? lastImpact.x : tanks[turnIdx].x);
-    const targetCam=clamp(followX-W/2,0,Math.max(0,WORLD_W-W));
-    camX+=(targetCam-camX)*Math.min(1,6*dt);
+    const followObj = projectile || ghostProjectile;
+    const followX = followObj? followObj.x : (phase==='resolving'&&lastImpact? lastImpact.x : tanks[turnIdx].x);
+    const followY = followObj? followObj.y : (phase==='resolving'&&lastImpact? lastImpact.y : (tanks[turnIdx]?tanks[turnIdx].groundY-40:H/2));
+    const targetCamX=clamp(followX-viewW()/2,0,Math.max(0,WORLD_W-viewW()));
+    const targetCamY=clamp(followY-viewH()/2,0,Math.max(0,H-viewH()));
+    camX+=(targetCamX-camX)*Math.min(1,6*dt);
+    camY+=(targetCamY-camY)*Math.min(1,6*dt);
   }
 
   updateProjectile(dt);
@@ -1393,7 +1428,8 @@ function draw(){
   drawBackground();
   drawAmbient();
   ctx.save();
-  ctx.translate(-camX,0);
+  ctx.scale(zoom,zoom);
+  ctx.translate(-camX,-camY);
   if(terrainCanvas) ctx.drawImage(terrainCanvas,0,0);
   drawRings();
   tanks.forEach(drawTank);
@@ -1456,25 +1492,87 @@ function showIntroLabel(t){
   document.getElementById('app').appendChild(el);
   const canvasRect=canvas.getBoundingClientRect();
   const appRect=document.getElementById('app').getBoundingClientRect();
-  const sx=canvasRect.left-appRect.left+(t.x-camX);
-  const sy=canvasRect.top-appRect.top+t.groundY-70;
+  const sx=canvasRect.left-appRect.left+(t.x-camX)*zoom;
+  const sy=canvasRect.top-appRect.top+(t.groundY-70-camY)*zoom;
   el.style.left=sx+'px'; el.style.top=sy+'px';
   requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1.15)'; });
   setTimeout(()=>{ el.style.opacity='0'; },850);
   setTimeout(()=>el.remove(),1050);
 }
 
-// 4번: 드래그로 화면 자유롭게 둘러보기
-canvas.addEventListener('pointerdown',e=>{ dragging=true; dragLastX=e.clientX; });
-window.addEventListener('pointermove',e=>{
-  if(!dragging) return;
-  const dx=e.clientX-dragLastX;
-  dragLastX=e.clientX;
-  camX=clamp(camX-dx,0,Math.max(0,WORLD_W-W));
-  lastDragTs=performance.now();
+// 4번: 드래그로 화면 자유롭게 둘러보기 + 휠/핀치로 확대·축소
+canvas.style.touchAction='none';
+function viewW(){ return W/zoom; }
+function viewH(){ return H/zoom; }
+function clampCam(){
+  camX=clamp(camX,0,Math.max(0,WORLD_W-viewW()));
+  camY=clamp(camY,0,Math.max(0,H-viewH()));
+}
+function setZoomAroundScreenPoint(newZoom,sx,sy){
+  newZoom=clamp(newZoom,MIN_ZOOM,MAX_ZOOM);
+  // 화면상의 (sx,sy) 지점이 확대/축소 후에도 같은 월드 좌표를 가리키도록 카메라를 같이 보정
+  const worldX=camX+sx/zoom, worldY=camY+sy/zoom;
+  zoom=newZoom;
+  camX=worldX-sx/zoom;
+  camY=worldY-sy/zoom;
+  clampCam();
+}
+
+canvas.addEventListener('pointerdown',e=>{
+  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(activePointers.size===1){
+    dragging=true; dragLastX=e.clientX; dragLastY=e.clientY;
+  } else if(activePointers.size===2){
+    dragging=false;
+    const pts=[...activePointers.values()];
+    pinchDist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    pinchStartZoom=zoom;
+  }
 });
-window.addEventListener('pointerup',()=>{ dragging=false; });
-window.addEventListener('pointercancel',()=>{ dragging=false; });
+window.addEventListener('pointermove',e=>{
+  if(!activePointers.has(e.pointerId)) return;
+  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(activePointers.size===2){
+    // 두 손가락 핀치 줌
+    const pts=[...activePointers.values()];
+    const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+    if(pinchDist){
+      const rect=canvas.getBoundingClientRect();
+      const midX=((pts[0].x+pts[1].x)/2-rect.left)*(W/rect.width);
+      const midY=((pts[0].y+pts[1].y)/2-rect.top)*(H/rect.height);
+      setZoomAroundScreenPoint(pinchStartZoom*(dist/pinchDist),midX,midY);
+    }
+    lastDragTs=performance.now();
+  } else if(dragging && activePointers.size===1){
+    const dx=e.clientX-dragLastX, dy=e.clientY-dragLastY;
+    dragLastX=e.clientX; dragLastY=e.clientY;
+    camX=clamp(camX-dx/zoom,0,Math.max(0,WORLD_W-viewW()));
+    camY=clamp(camY-dy/zoom,0,Math.max(0,H-viewH()));
+    lastDragTs=performance.now();
+  }
+});
+function endPointer(e){
+  activePointers.delete(e.pointerId);
+  if(activePointers.size<2) pinchDist=null;
+  if(activePointers.size===0) dragging=false;
+  else if(activePointers.size===1){
+    // 손가락 하나만 남으면 그 손가락 기준으로 팬을 이어감
+    const remain=[...activePointers.entries()][0];
+    dragging=true; dragLastX=remain[1].x; dragLastY=remain[1].y;
+  }
+}
+window.addEventListener('pointerup',endPointer);
+window.addEventListener('pointercancel',endPointer);
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const sx=(e.clientX-rect.left)*(W/rect.width);
+  const sy=(e.clientY-rect.top)*(H/rect.height);
+  const factor=e.deltaY<0?1.12:0.89;
+  setZoomAroundScreenPoint(zoom*factor,sx,sy);
+  lastDragTs=performance.now();
+},{passive:false});
 
 // 5번: 키보드 조작 (방향키 이동/각도, 스페이스바 파워충전)
 window.addEventListener('keydown',e=>{
@@ -1708,7 +1806,7 @@ async function returnToLobby(){
       room=data[0];
       document.getElementById('ov-win').style.display='none';
       introShown=false;
-      lastSeenShotKey=null; lastSeenMoveTs=0; lastSeenHazardKey=null; turnCount=0;
+      lastSeenShotKey=null; lastSeenCheckpointTs=0; lastSeenHazardKey=null; turnCount=0;
       mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
       phase='lobby';
       renderLobby();
@@ -1837,7 +1935,7 @@ async function enterGameFromState(state,players){
     const t=tanks[i]; if(!t) return;
     t.x=st.x; t.groundY=st.groundY; t.hp=st.hp; t.alive=st.alive;
     t.angle=st.angle; t.facing=st.facing; t.lastPower=st.lastPower;
-    t.tilt=getTiltAngle(t.x);
+    t.tilt=getTiltAngle(t.x,t.groundY);
   });
   turnIdx=state.turnIdx||0;
   turnCount=state.turnCount||0;
@@ -1851,6 +1949,7 @@ async function enterGameFromState(state,players){
 
   particles=[];projectile=null;
   initAmbient();
+  zoom=1; camY=0;
   camX=clamp((tanks[turnIdx]?tanks[turnIdx].x:0)-W/2,0,Math.max(0,WORLD_W-W));
   running=true;
 
@@ -1887,7 +1986,7 @@ function applyRemoteState(state){
     const oldHp=t.hp, wasAlive=t.alive, oldGY=t.groundY;
     t.x=st.x; t.groundY=st.groundY; t.hp=st.hp; t.alive=st.alive;
     t.angle=st.angle; t.facing=st.facing; t.lastPower=st.lastPower;
-    t.tilt=getTiltAngle(t.x);
+    t.tilt=getTiltAngle(t.x,t.groundY);
     // 체력이 줄었으면 데미지 팝업을, 체력 그대로인데 죽었으면(=낙사) 추락 팝업을 확실히 띄움
     if(st.hp<oldHp){ showPop(t.x,oldGY-40,'-'+(oldHp-st.hp),'dmg-pop',oldHp-st.hp); }
     else if(wasAlive&&!st.alive){ showPop(t.x,oldGY-30,'추락!','fall-pop'); }
@@ -1927,7 +2026,7 @@ async function pollRoom(){
       room=newRoom;
       document.getElementById('ov-win').style.display='none';
       introShown=false;
-      lastSeenShotKey=null; lastSeenMoveTs=0; lastSeenHazardKey=null; turnCount=0;
+      lastSeenShotKey=null; lastSeenCheckpointTs=0; lastSeenHazardKey=null; turnCount=0;
       mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
       phase='lobby';
       renderLobby();
@@ -1953,14 +2052,14 @@ async function pollRoom(){
         applyRemoteState(newRoom.state);
       }
 
-      // 1번: 남이 이동중인 위치도 실시간 반영 (전체 상태 적용 뒤에 덮어써서 최신 위치가 우선되게)
-      const mv=newRoom.state.moveUpdate;
-      if(mv && mv.ts!==lastSeenMoveTs && mv.seat!==mySeat){
-        lastSeenMoveTs=mv.ts;
-        const t=tanks[mv.seat];
+      // 1번: 남이 이동중인 위치도 체크포인트로 반영 (순간이동 대신 부드럽게 다가가도록 lerpTargetX만 설정)
+      const cp=newRoom.state.checkpoint;
+      if(cp && cp.ts!==lastSeenCheckpointTs && cp.seat!==mySeat){
+        lastSeenCheckpointTs=cp.ts;
+        const t=tanks[cp.seat];
         if(t && t.alive){
-          t.x=mv.x; t.groundY=mv.groundY; t.facing=mv.facing; t.wheelRot=mv.wheelRot;
-          t.tilt=getTiltAngle(t.x);
+          t.lerpTargetX=cp.x;
+          t.facing=cp.facing;
         }
       }
     }
