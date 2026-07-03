@@ -90,7 +90,7 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
 <body>
 <div id="app">
   <div class="hud">
-    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <button class="back-btn" onclick="leaveRoom()">←</button>
     <div class="turn-chip" id="turnChip"><span class="turn-dot" id="turnDot"></span><span id="turnLabel">-</span></div>
     <div class="turn-chip" id="timerChip" style="background:rgba(255,255,255,0.06);"><span id="timerVal">20</span>초</div>
     <div class="hp-row" id="hpRow"></div>
@@ -154,7 +154,8 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
     <div class="ov-title">🏆 승리!</div>
     <div class="winner-name" id="winnerName"></div>
     <div class="ov-divider"></div>
-    <button class="ov-btn" onclick="location.reload()">다시 시작</button>
+    <button class="ov-btn" onclick="returnToLobby()">이 방에서 다시하기</button>
+    <button class="ov-btn" style="background:rgba(255,255,255,0.1);color:#fff;margin-top:8px;" onclick="location.href='fortress_rooms.html'">방 목록으로</button>
   </div>
 </div>
 
@@ -210,10 +211,10 @@ const TANK_CLASSES=[
 function tankClassById(id){ return TANK_CLASSES.find(c=>c.id===id)||TANK_CLASSES[0]; }
 const GRAVITY=560;
 const WEAPONS=[
-  {id:'basic',  name:'기본포', emoji:'💣', dmg:34, radius:34, speedMul:1.0, arcBoost:1.0},
-  {id:'shotgun',name:'산탄포', emoji:'☄️', dmg:20, radius:52, speedMul:0.85,arcBoost:1.0},
-  {id:'sniper', name:'저격포', emoji:'🎯', dmg:56, radius:19, speedMul:1.35,arcBoost:1.0},
-  {id:'arc',    name:'곡사포', emoji:'🌙', dmg:24, radius:30, speedMul:0.8, arcBoost:1.55},
+  {id:'basic',  name:'기본포', emoji:'💣', dmg:34, radius:34, speedMul:1.1,  arcBoost:1.0},
+  {id:'shotgun',name:'산탄포', emoji:'☄️', dmg:20, radius:52, speedMul:0.935,arcBoost:1.0},
+  {id:'sniper', name:'저격포', emoji:'🎯', dmg:56, radius:19, speedMul:1.35, arcBoost:1.0},
+  {id:'arc',    name:'곡사포', emoji:'🌙', dmg:24, radius:30, speedMul:0.8,  arcBoost:1.55},
 ];
 const MOVE_SPEED=75;
 const TURN_FUEL=165;
@@ -804,10 +805,19 @@ async function commitMoveUpdate(t){
 
 // ---------------- 물리/충돌 ----------------
 // 다른 사람이 쏜 포탄을 내 화면에서도 똑같은 물리로 재생 (순수 연출용, 판정은 그 사람 쪽에서 이미 확정됨)
+let ghostAnimating=false;
+let pendingRemoteState=null;
 function playGhostShot(shot){
+  ghostAnimating=true;
+  dragging=false;
+  lastDragTs=0; // 5번: 딴 곳을 보고 있었어도 발사 장면으로 카메라가 즉시 이동하도록
   const w=WEAPONS.find(x=>x.id===shot.weaponId)||WEAPONS[0];
   const g={x:shot.x,y:shot.y,vx:shot.vx,vy:shot.vy,trail:[]};
   const useWind=shot.wind||0;
+  function finish(){
+    ghostAnimating=false;
+    if(pendingRemoteState){ const st=pendingRemoteState; pendingRemoteState=null; applyRemoteState(st); }
+  }
   function step(){
     const dt=1/60;
     g.trail.push({x:g.x,y:g.y});
@@ -817,11 +827,18 @@ function playGhostShot(shot){
     g.x+=g.vx*dt;
     g.y+=g.vy*dt;
     ghostProjectile=g;
-    if(g.y>H+80||g.x<-40||g.x>WORLD_W+40){ ghostProjectile=null; return; }
+    if(g.y>H+80||g.x<-40||g.x>WORLD_W+40){ ghostProjectile=null; finish(); return; }
+    // 탱크 직격도 감지해서 자연스럽게 멈추게(정확한 판정은 이미 쏜 사람 쪽에서 끝났고, 여긴 연출용)
+    for(const t of tanks){
+      if(!t.alive) continue;
+      const cy=t.groundY-20;
+      if(Math.hypot(g.x-t.x,g.y-cy)<12){ spawnBurst(g.x,g.y,w.radius); ghostProjectile=null; finish(); return; }
+    }
     const xi=Math.floor(g.x/CELL), yi=Math.floor(g.y/CELL);
     if(xi>=0&&xi<gridCols&&yi>=0&&yi<gridRows&&solid[gidx(xi,yi)]){
       spawnBurst(g.x,g.y,w.radius);
       ghostProjectile=null;
+      finish();
       return;
     }
     requestAnimationFrame(step);
@@ -870,6 +887,22 @@ function initRings(){
   rings=[];
   for(let i=0;i<3;i++) rings.push(makeRing(i));
 }
+// 7번: 폭발이 몇 번 쌓일 때마다(=한동안 지나면) 새 파워업 링이 하늘에 추가로 등장
+const RING_BONUS_EVERY=3;
+function bonusRingAt(idx){
+  const baseSeed=(room&&room.state&&room.state.seed)||0;
+  const lrng=mulberry32(baseSeed+(idx+1)*7919);
+  return { id:'bonus'+idx, x:lrng()*(WORLD_W*0.76)+WORLD_W*0.12, y:lrng()*(H*0.2)+H*0.12, r:15, active:true, spin:0 };
+}
+function maybeSpawnBonusRings(){
+  const earned=Math.floor(allEvents.length/RING_BONUS_EVERY);
+  const have=rings.filter(r=>String(r.id).indexOf('bonus')===0).length;
+  for(let i=have;i<earned;i++){
+    const ring=bonusRingAt(i);
+    ring.active=!usedRingIds.includes(ring.id);
+    rings.push(ring);
+  }
+}
 function updateRings(dt){
   rings.forEach(r=>{ if(r.active) r.spin+=dt*1.3; });
 }
@@ -901,6 +934,7 @@ function resolveHit(x,y,weapon){
   carveCrater(x,craterY,weapon.radius);
   allEvents.push({x,y:craterY,r:weapon.radius}); // 온라인 동기화용 이벤트 기록
   appliedEventCount=allEvents.length;
+  maybeSpawnBonusRings();
   spawnBurst(x,y,weapon.radius);
   tanks.forEach(t=>{
     if(!t.alive) return;
@@ -1130,12 +1164,12 @@ function update(dt){
     else if(keyState.right) moved=MOVE_SPEED*dt;
     if(moved!==0){
       const dir=moved<0?-1:1;
-      const lookX=clamp(t.x+dir*10,0,WORLD_W-1);
+      const lookX=clamp(t.x+dir*3,0,WORLD_W-1);
       const y0=getSurfaceY(t.x), y1=getSurfaceY(lookX);
       let blocked=false;
       if(y0!==null&&y1!==null){
         const rise=y0-y1; // 양수면 이동방향이 더 높음(오르막)
-        const slopeAngle=Math.atan2(rise,10)*180/Math.PI;
+        const slopeAngle=Math.atan2(rise,3)*180/Math.PI;
         if(slopeAngle>70) blocked=true; // 2번: 70도 넘는 급경사는 못 올라감
       }
       if(!blocked){
@@ -1483,6 +1517,76 @@ async function selectTankClass(classId){
   }catch(e){ alert('탱크 선택에 실패했어요.'); }
 }
 
+async function returnToLobby(){
+  if(!room) return;
+  try{
+    // 나갔던(left) 사람은 정리하고, 나머지는 준비상태 초기화해서 다시 대기실로
+    const cleanPlayers=(room.players||[]).filter(p=>!p.left).map(p=>({...p,ready:false}));
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',
+      headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({status:'waiting',state:null,players:cleanPlayers,move_count:room.move_count+1,updated_at:new Date().toISOString()})
+    });
+    const data=await res.json();
+    if(data&&data[0]){
+      room=data[0];
+      document.getElementById('ov-win').style.display='none';
+      introShown=false;
+      lastSeenShotKey=null; lastSeenMoveTs=0;
+      mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
+      phase='lobby';
+      renderLobby();
+    } else {
+      alert('다른 변경사항과 겹쳤어요, 새로고침 해주세요.');
+    }
+  }catch(e){ alert('방으로 돌아가지 못했어요.'); }
+}
+async function leaveRoom(){
+  if(!room||!currentUser){ location.href='fortress_rooms.html'; return; }
+  const msg = room.status==='playing'? '게임 중이에요. 나가면 기권 처리돼요. 나가시겠어요?' : '방에서 나가시겠어요?';
+  if(!confirm(msg)) return;
+  try{
+    if(room.status==='waiting'){
+      const newPlayers=(room.players||[]).filter(p=>String(p.user_id)!==String(currentUser.id));
+      if(newPlayers.length===0){
+        await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'finished'})});
+      } else {
+        await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+          method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+          body:JSON.stringify({players:newPlayers,move_count:room.move_count+1,updated_at:new Date().toISOString()})
+        });
+      }
+    } else if(room.status==='playing' && room.state){
+      // 게임 중엔 좌석(seat) 배열 순서가 깨지면 안되므로 목록에서 지우지 않고 '나감' 표시만 하고, 탱크는 기권(死) 처리
+      const newPlayers=(room.players||[]).map(p=>String(p.user_id)===String(currentUser.id)?{...p,left:true}:p);
+      let st={...room.state};
+      if(st.tanks && mySeat>=0 && st.tanks[mySeat]){
+        st.tanks=st.tanks.map((t,i)=>i===mySeat?{...t,alive:false,hp:0}:t);
+        if(st.turnIdx===mySeat){
+          let next=mySeat;
+          for(let k=0;k<st.tanks.length;k++){ next=(next+1)%st.tanks.length; if(st.tanks[next].alive) break; }
+          st.turnIdx=next;
+          st.turnStartedAt=Date.now();
+        }
+        const aliveTanks=st.tanks.filter(t=>t.alive);
+        if(room.mode==='team'){
+          const teams=[...new Set(aliveTanks.map(t=>t.team))];
+          if(teams.length<=1){ st.winnerTeam=teams[0]||null; st.winnerSeat=null; }
+        } else if(aliveTanks.length<=1){
+          st.winnerSeat=aliveTanks[0]?aliveTanks[0].seat:null;
+        }
+      }
+      const patch={players:newPlayers,state:st,move_count:room.move_count+1,updated_at:new Date().toISOString()};
+      if(st.winnerSeat!=null||st.winnerTeam!=null) patch.status='finished';
+      await fetch(`${SUPABASE_URL}/rest/v1/fortress_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+        method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+        body:JSON.stringify(patch)
+      });
+    }
+  }catch(e){}
+  location.href='fortress_rooms.html';
+}
+
 async function toggleReady(){
   if(!room||!currentUser) return;
   const players=(room.players||[]).map(p=>String(p.user_id)===String(currentUser.id)?{...p,ready:!p.ready}:p);
@@ -1562,6 +1666,7 @@ async function enterGameFromState(state,players){
   turnIdx=state.turnIdx||0;
   wind=state.wind||0;
   usedRingIds=state.usedRingIds||[];
+  maybeSpawnBonusRings();
   rings.forEach(r=>{ if(usedRingIds.includes(r.id)) r.active=false; });
   winnerSeat=state.winnerSeat??null;
   winnerTeam=state.winnerTeam??null;
@@ -1612,6 +1717,7 @@ function applyRemoteState(state){
   turnIdx=state.turnIdx;
   wind=state.wind;
   usedRingIds=state.usedRingIds||[];
+  maybeSpawnBonusRings();
   rings.forEach(r=>{ if(usedRingIds.includes(r.id)) r.active=false; });
   winnerSeat=state.winnerSeat??null;
   winnerTeam=state.winnerTeam??null;
@@ -1633,6 +1739,17 @@ async function pollRoom(){
       else { renderLobby(); }
       return;
     }
+    if(newRoom.status==='waiting' && phase!=='lobby'){
+      // 누군가 "이 방에서 다시하기"를 눌러서 방이 대기실로 리셋된 경우, 나도 따라서 로비로 전환
+      room=newRoom;
+      document.getElementById('ov-win').style.display='none';
+      introShown=false;
+      lastSeenShotKey=null; lastSeenMoveTs=0;
+      mySeat=(room.players||[]).findIndex(p=>currentUser&&String(p.user_id)===String(currentUser.id));
+      phase='lobby';
+      renderLobby();
+      return;
+    }
     const changed=!room||newRoom.move_count!==room.move_count;
     room=newRoom;
     if(changed && newRoom.state && phase!=='intro' && phase!=='loading' && phase!=='lobby' && !myTurnInProgress){
@@ -1641,12 +1758,17 @@ async function pollRoom(){
         const key=shot.startedAt+'_'+shot.seat;
         if(key!==lastSeenShotKey && mySeat!==newRoom.state.turnIdx){
           lastSeenShotKey=key;
-          playGhostShot(shot);
+          playGhostShot(shot); // 이 안에서 ghostAnimating=true로 즉시 설정됨
         } else if(lastSeenShotKey===null){
           lastSeenShotKey=key; // 처음 들어왔을 때는 이미 지난 발사이므로 재생하지 않고 표시만 해둠
         }
       }
-      applyRemoteState(newRoom.state);
+      if(ghostAnimating){
+        // 4번: 포탄이 아직 날아가는 중이면 최종 결과는 착탄하는 순간까지 잠깐 들고 있음 (미리 스냅되지 않도록)
+        pendingRemoteState=newRoom.state;
+      } else {
+        applyRemoteState(newRoom.state);
+      }
 
       // 1번: 남이 이동중인 위치도 실시간 반영 (전체 상태 적용 뒤에 덮어써서 최신 위치가 우선되게)
       const mv=newRoom.state.moveUpdate;

@@ -19,6 +19,18 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
 
 .body-area{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:12px;}
 
+.section-label{width:100%;max-width:360px;font-family:-apple-system,sans-serif;font-size:11px;font-weight:800;color:rgba(255,255,255,0.4);letter-spacing:0.5px;margin-top:6px;}
+.make-btn{width:100%;max-width:360px;padding:13px;border-radius:12px;background:#4ade80;color:#0b1220;text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:14px;cursor:pointer;}
+
+.tank-list-card{width:100%;max-width:360px;display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,0.05);border-radius:12px;}
+.tank-list-canvas{background:rgba(255,255,255,0.06);border-radius:8px;flex-shrink:0;}
+.tank-list-name{font-family:-apple-system,sans-serif;font-weight:800;color:#fff;font-size:13px;}
+.tank-list-desc{font-family:-apple-system,sans-serif;font-size:10.5px;color:rgba(255,255,255,0.45);margin:2px 0 5px;line-height:1.35;}
+.tank-stat-row{display:flex;gap:6px;flex-wrap:wrap;}
+.tank-stat{font-family:-apple-system,sans-serif;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.8);}
+.edit-btn{flex-shrink:0;padding:8px 12px;border-radius:9px;background:rgba(96,165,250,0.2);color:#60a5fa;font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;cursor:pointer;}
+.empty-note{width:100%;max-width:360px;text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:rgba(255,255,255,0.3);padding:10px;}
+
 .preview-box{background:rgba(255,255,255,0.05);border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .preview-label{font-family:-apple-system,sans-serif;font-size:10px;color:rgba(255,255,255,0.4);font-weight:700;letter-spacing:0.5px;}
 
@@ -60,7 +72,7 @@ html,body{height:100%;overflow:hidden;background:#0b1220;}
 <div id="app">
   <div class="hud">
     <button class="back-btn" onclick="goBack()">←</button>
-    <span class="top-title">탱크 제작</span>
+    <span class="top-title" id="topTitle">탱크</span>
     <div class="step-dots" id="stepDots"></div>
   </div>
   <div class="body-area" id="bodyArea"></div>
@@ -74,6 +86,99 @@ let currentUser=null;
 try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
 const backRoomId=new URLSearchParams(location.search).get('room');
 
+// ---- 기본 탱크 데이터 (fortress_room.html과 동일한 스탯) ----
+const TANK_CLASSES=[
+  {id:'standard', name:'표준형',  emoji:'⚙️', color:'#8a93a3', hpMul:1.0, dmgMul:1.0,  radiusMul:1.0, rangeMul:1.0,  turretLen:22, bodyW:30, wheelR:7, desc:'모든 능력치가 무난한 기본형'},
+  {id:'assault',  name:'강습형',  emoji:'🔥', color:'#e53935', hpMul:1.0, dmgMul:1.3,  radiusMul:0.9, rangeMul:0.85, turretLen:17, bodyW:32, wheelR:7, desc:'데미지는 세지만 사거리가 짧아요'},
+  {id:'howitzer', name:'곡사형',  emoji:'🌙', color:'#0f9e75', hpMul:1.0, dmgMul:0.85, radiusMul:1.0, rangeMul:1.35, turretLen:30, bodyW:26, wheelR:7, desc:'사거리가 아주 길지만 데미지가 약해요'},
+  {id:'blast',    name:'광역형',  emoji:'💥', color:'#f5a623', hpMul:1.0, dmgMul:0.78, radiusMul:1.5, rangeMul:0.92, turretLen:19, bodyW:33, wheelR:7, desc:'폭발 범위가 아주 넓지만 데미지가 약해요'},
+  {id:'sniper',   name:'저격형',  emoji:'🎯', color:'#7c5cff', hpMul:0.85,dmgMul:1.5,  radiusMul:0.6, rangeMul:1.5,  turretLen:34, bodyW:24, wheelR:6, desc:'사거리·데미지가 뛰어나지만 범위가 좁고 맷집이 약해요'},
+  {id:'heavy',    name:'중장갑형',emoji:'🛡️', color:'#b8860b', hpMul:1.35,dmgMul:0.95, radiusMul:1.05,rangeMul:0.8,  turretLen:20, bodyW:37, wheelR:9, desc:'체력이 아주 높지만 사거리가 짧아요'},
+];
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return '#'+(r<<16|g<<8|b).toString(16).padStart(6,'0');
+}
+function roundRectPath(pctx,x,y,w,h,r){
+  pctx.beginPath();
+  pctx.moveTo(x+r,y);
+  pctx.arcTo(x+w,y,x+w,y+h,r);
+  pctx.arcTo(x+w,y+h,x,y+h,r);
+  pctx.arcTo(x,y+h,x,y,r);
+  pctx.arcTo(x,y,x+w,y,r);
+  pctx.closePath();
+}
+function drawPresetPreview(canvasEl,cls){
+  const pctx=canvasEl.getContext('2d');
+  pctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+  const cx=canvasEl.width/2, gy=canvasEl.height-12;
+  const wheelR=cls.wheelR, bodyW=cls.bodyW, turretLen=cls.turretLen, color=cls.color;
+  const wheelPositions = bodyW>=35 ? [-13,0,13] : [-9,9];
+  const wy=gy-wheelR;
+  wheelPositions.forEach(ox=>{
+    const wx=cx+ox;
+    pctx.fillStyle='#1c1c1c';
+    pctx.beginPath();pctx.arc(wx,wy,wheelR,0,Math.PI*2);pctx.fill();
+    pctx.strokeStyle='#444';pctx.lineWidth=1.5;pctx.stroke();
+  });
+  pctx.fillStyle='#141414';
+  roundRectPath(pctx,cx-bodyW/2,wy-3,bodyW,7,3);pctx.fill();
+  const by=gy-wheelR*2-9;
+  pctx.fillStyle=shade(color,-25);
+  roundRectPath(pctx,cx-bodyW/2,by-1,bodyW,13,4);pctx.fill();
+  pctx.fillStyle=color;
+  roundRectPath(pctx,cx-bodyW/2+1,by-9,bodyW-2,11,4);pctx.fill();
+  const ty=gy-wheelR*2-13;
+  pctx.fillStyle=shade(color,-15);
+  pctx.beginPath();pctx.arc(cx,ty,7.5,0,Math.PI*2);pctx.fill();
+  pctx.save();
+  pctx.translate(cx,ty);
+  pctx.rotate(-50*Math.PI/180);
+  pctx.fillStyle='#2b2b2b';
+  const turretWid=cls.id==='blast'?8.5:5.2;
+  roundRectPath(pctx,-2.6,-turretWid/2,turretLen,turretWid,2);pctx.fill();
+  pctx.restore();
+}
+
+// ---- 커스텀(픽셀) 미리보기 ----
+function gridToCanvas(grid,cellPx){
+  if(!grid||!grid.length||!grid[0]||!grid[0].length){ const c=document.createElement('canvas'); c.width=4;c.height=4; return c; }
+  const h=grid.length, w=grid[0].length;
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(w*cellPx)); c.height=Math.max(1,Math.round(h*cellPx));
+  const cctx=c.getContext('2d');
+  for(let r=0;r<h;r++)for(let cI=0;cI<w;cI++){
+    const col=grid[r][cI];
+    if(col){ cctx.fillStyle=col; cctx.fillRect(cI*cellPx,r*cellPx,cellPx+0.6,cellPx+0.6); }
+  }
+  return c;
+}
+function drawCustomPreview(canvasEl,body_px,turret_px,wheel_px,angle){
+  const pctx=canvasEl.getContext('2d');
+  pctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+  const scale=2.6;
+  const wheelImg=gridToCanvas(wheel_px,scale);
+  const bodyImg=gridToCanvas(body_px,scale);
+  const turretImg=gridToCanvas(turret_px,scale);
+  const cx=canvasEl.width/2;
+  const groundY=canvasEl.height-10;
+  pctx.drawImage(wheelImg, cx-wheelImg.width/2, groundY-wheelImg.height, wheelImg.width, wheelImg.height);
+  const bodyY=groundY-wheelImg.height-bodyImg.height;
+  pctx.drawImage(bodyImg, cx-bodyImg.width/2, bodyY, bodyImg.width, bodyImg.height);
+  const pivotY=bodyY+bodyImg.height*0.4;
+  pctx.save();
+  pctx.translate(cx,pivotY);
+  pctx.rotate((angle!=null?angle:-25)*Math.PI/180);
+  pctx.drawImage(turretImg,-4,-turretImg.height/2,turretImg.width,turretImg.height);
+  pctx.restore();
+}
+
+// ---- 상태 ----
+let currentView='list'; // list | editor
+let stepIdx=0;
+const STEPS=['body','turret','wheel','stats'];
 const PARTS=[
   {id:'body',  label:'몸통',   w:14, h:7},
   {id:'turret',label:'포신',   w:12, h:5},
@@ -81,19 +186,124 @@ const PARTS=[
 ];
 const PALETTE=['#8a93a3','#e53935','#378ADD','#0f9e75','#f5a623','#7c5cff','#d4537e','#2b2b2b','#fff7d6'];
 const CELL=16;
+const BUDGET=400, MIN_STAT=50, MAX_STAT=170;
 
-let stepIdx=0; // 0=body,1=turret,2=wheel,3=stats
-const STEPS=['body','turret','wheel','stats'];
 let grids={ body:null, turret:null, wheel:null };
 let curColor=PALETTE[0];
 let dragging=false;
 let tankName='';
 let stats={hp:100,dmg:100,radius:100,range:100};
-const BUDGET=400, MIN_STAT=50, MAX_STAT=170;
+let editingId=null;
 
 function emptyGrid(w,h){ return Array.from({length:h},()=>new Array(w).fill(null)); }
-PARTS.forEach(p=>{ grids[p.id]=emptyGrid(p.w,p.h); });
+function resetGrids(){ PARTS.forEach(p=>{ grids[p.id]=emptyGrid(p.w,p.h); }); }
+resetGrids();
 
+function goBack(){
+  if(currentView==='editor'){
+    if(stepIdx>0){ stepIdx--; renderStep(); return; }
+    currentView='list'; renderListView(); return;
+  }
+  location.href = backRoomId? ('fortress_room.html?id='+backRoomId) : 'fortress_rooms.html';
+}
+
+// ---------------- 목록 화면 ----------------
+async function renderListView(){
+  document.getElementById('topTitle').textContent='탱크';
+  document.getElementById('stepDots').innerHTML='';
+  const area=document.getElementById('bodyArea');
+  area.innerHTML='<div class="empty-note">불러오는 중...</div>';
+
+  let myCustoms=[];
+  if(currentUser){
+    try{
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/fortress_custom_tanks?user_id=eq.${currentUser.id}&select=*&order=created_at.desc`,{headers:headers()});
+      myCustoms=await r.json();
+    }catch(e){}
+  }
+
+  area.innerHTML='';
+
+  const makeBtn=document.createElement('div');
+  makeBtn.className='make-btn';
+  makeBtn.textContent='+ 새 탱크 만들기';
+  makeBtn.addEventListener('click',()=>{
+    if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+    editingId=null; tankName=''; stats={hp:100,dmg:100,radius:100,range:100}; resetGrids();
+    currentView='editor'; stepIdx=0; renderStep();
+  });
+  area.appendChild(makeBtn);
+
+  const label1=document.createElement('div');
+  label1.className='section-label';
+  label1.textContent='내가 만든 탱크';
+  area.appendChild(label1);
+
+  if(!myCustoms.length){
+    const empty=document.createElement('div');
+    empty.className='empty-note';
+    empty.textContent='아직 만든 탱크가 없어요.';
+    area.appendChild(empty);
+  } else {
+    myCustoms.forEach(custom=>{
+      const card=document.createElement('div');
+      card.className='tank-list-card';
+      card.innerHTML=`
+        <canvas class="tank-list-canvas" width="58" height="54"></canvas>
+        <div style="flex:1;">
+          <div class="tank-list-name">🛠️ ${custom.name}</div>
+          <div class="tank-stat-row">
+            <span class="tank-stat">❤️ ${Math.round(custom.hp_mul*100)}%</span>
+            <span class="tank-stat">💢 ${Math.round(custom.dmg_mul*100)}%</span>
+            <span class="tank-stat">💥 ${Math.round(custom.radius_mul*100)}%</span>
+            <span class="tank-stat">🎯 ${Math.round(custom.range_mul*100)}%</span>
+          </div>
+        </div>
+        <div class="edit-btn">수정</div>`;
+      card.querySelector('.edit-btn').addEventListener('click',()=>loadCustomForEdit(custom));
+      area.appendChild(card);
+      drawCustomPreview(card.querySelector('.tank-list-canvas'),custom.body_px,custom.turret_px,custom.wheel_px);
+    });
+  }
+
+  const label2=document.createElement('div');
+  label2.className='section-label';
+  label2.textContent='기본 탱크';
+  area.appendChild(label2);
+
+  TANK_CLASSES.forEach(cls=>{
+    const card=document.createElement('div');
+    card.className='tank-list-card';
+    card.innerHTML=`
+      <canvas class="tank-list-canvas" width="58" height="54"></canvas>
+      <div style="flex:1;">
+        <div class="tank-list-name">${cls.emoji} ${cls.name}</div>
+        <div class="tank-list-desc">${cls.desc}</div>
+        <div class="tank-stat-row">
+          <span class="tank-stat">❤️ ${Math.round(cls.hpMul*100)}%</span>
+          <span class="tank-stat">💢 ${Math.round(cls.dmgMul*100)}%</span>
+          <span class="tank-stat">💥 ${Math.round(cls.radiusMul*100)}%</span>
+          <span class="tank-stat">🎯 ${Math.round(cls.rangeMul*100)}%</span>
+        </div>
+      </div>`;
+    area.appendChild(card);
+    drawPresetPreview(card.querySelector('.tank-list-canvas'),cls);
+  });
+}
+
+function loadCustomForEdit(custom){
+  editingId=custom.id;
+  tankName=custom.name;
+  stats={hp:Math.round(custom.hp_mul*100),dmg:Math.round(custom.dmg_mul*100),radius:Math.round(custom.radius_mul*100),range:Math.round(custom.range_mul*100)};
+  grids={
+    body: custom.body_px && custom.body_px.length? custom.body_px : emptyGrid(PARTS[0].w,PARTS[0].h),
+    turret: custom.turret_px && custom.turret_px.length? custom.turret_px : emptyGrid(PARTS[1].w,PARTS[1].h),
+    wheel: custom.wheel_px && custom.wheel_px.length? custom.wheel_px : emptyGrid(PARTS[2].w,PARTS[2].h),
+  };
+  currentView='editor'; stepIdx=0; renderStep();
+}
+
+// ---------------- 제작 단계 ----------------
 function renderStepDots(){
   const wrap=document.getElementById('stepDots');
   wrap.innerHTML='';
@@ -104,43 +314,12 @@ function renderStepDots(){
   });
 }
 
-function goBack(){
-  if(stepIdx>0){ stepIdx--; renderStep(); return; }
-  location.href = backRoomId? ('fortress_room.html?id='+backRoomId) : 'fortress_rooms.html';
-}
-
-function drawCombinedPreview(canvasEl, animateAngle){
-  const pctx=canvasEl.getContext('2d');
-  pctx.clearRect(0,0,canvasEl.width,canvasEl.height);
-  const scale=2.6;
-  const wheelImg=gridToCanvas(grids.wheel,scale);
-  const bodyImg=gridToCanvas(grids.body,scale);
-  const turretImg=gridToCanvas(grids.turret,scale);
-  const cx=canvasEl.width/2;
-  const groundY=canvasEl.height-10;
-  pctx.drawImage(wheelImg, cx-wheelImg.width/2, groundY-wheelImg.height, wheelImg.width, wheelImg.height);
-  const bodyY=groundY-wheelImg.height-bodyImg.height;
-  pctx.drawImage(bodyImg, cx-bodyImg.width/2, bodyY, bodyImg.width, bodyImg.height);
-  const pivotY=bodyY+bodyImg.height*0.4;
-  pctx.save();
-  pctx.translate(cx,pivotY);
-  pctx.rotate((animateAngle||-25)*Math.PI/180);
-  pctx.drawImage(turretImg,-4,-turretImg.height/2,turretImg.width,turretImg.height);
-  pctx.restore();
-}
-function gridToCanvas(grid,scale){
-  const h=grid.length, w=grid[0].length;
-  const c=document.createElement('canvas');
-  c.width=Math.max(1,w*scale); c.height=Math.max(1,h*scale);
-  const cctx=c.getContext('2d');
-  for(let r=0;r<h;r++)for(let cI=0;cI<w;cI++){
-    const col=grid[r][cI];
-    if(col){ cctx.fillStyle=col; cctx.fillRect(cI*scale,r*scale,scale+0.5,scale+0.5); }
-  }
-  return c;
+function drawCombinedPreview(canvasEl,animateAngle){
+  drawCustomPreview(canvasEl,grids.body,grids.turret,grids.wheel,animateAngle);
 }
 
 function renderStep(){
+  document.getElementById('topTitle').textContent=editingId?'탱크 수정':'탱크 제작';
   renderStepDots();
   const area=document.getElementById('bodyArea');
   area.innerHTML='';
@@ -215,6 +394,10 @@ function renderStep(){
 
   const navRow=document.createElement('div');
   navRow.className='nav-row';
+  const backBtn=document.createElement('button');
+  backBtn.className='nbtn back';
+  backBtn.textContent='이전';
+  backBtn.addEventListener('click',goBack);
   const clearBtn=document.createElement('button');
   clearBtn.className='nbtn clear';
   clearBtn.textContent='전체 지우기';
@@ -223,6 +406,7 @@ function renderStep(){
   nextBtn.className='nbtn next';
   nextBtn.textContent=stepIdx<2?'다음':'능력치 설정으로';
   nextBtn.addEventListener('click',()=>{ stepIdx++; renderStep(); });
+  navRow.appendChild(backBtn);
   navRow.appendChild(clearBtn);
   navRow.appendChild(nextBtn);
   area.appendChild(navRow);
@@ -266,7 +450,7 @@ function renderStatsStep(area,previewCanvas){
   function adjust(id,delta){
     const next=stats[id]+delta;
     if(next<MIN_STAT||next>MAX_STAT) return;
-    if(delta>0 && totalUsed()+delta>BUDGET) return; // 예산 초과시 증가 막음
+    if(delta>0 && totalUsed()+delta>BUDGET) return;
     stats[id]=next;
     renderStatsInner();
   }
@@ -296,10 +480,10 @@ function renderStatsStep(area,previewCanvas){
   const backBtn=document.createElement('button');
   backBtn.className='nbtn back';
   backBtn.textContent='이전';
-  backBtn.addEventListener('click',()=>{ stepIdx--; renderStep(); });
+  backBtn.addEventListener('click',goBack);
   const saveBtn=document.createElement('button');
   saveBtn.className='nbtn next';
-  saveBtn.textContent='저장하기';
+  saveBtn.textContent=editingId?'수정 저장':'저장하기';
   saveBtn.addEventListener('click',saveTank);
   navRow.appendChild(backBtn);
   navRow.appendChild(saveBtn);
@@ -312,23 +496,30 @@ async function saveTank(){
   const hasAnyPixel = ['body','turret','wheel'].some(k=>grids[k].some(row=>row.some(c=>c)));
   if(!hasAnyPixel){ if(!confirm('아무것도 안 그렸어요. 그래도 저장할까요?')) return; }
   const bodyColor = grids.body.flat().find(c=>c) || '#8a93a3';
+  const payload={
+    user_id:currentUser.id, username:currentUser.username, name:tankName.trim(),
+    body_px:grids.body, turret_px:grids.turret, wheel_px:grids.wheel,
+    body_color:bodyColor,
+    hp_mul:stats.hp/100, dmg_mul:stats.dmg/100, radius_mul:stats.radius/100, range_mul:stats.range/100
+  };
   try{
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_custom_tanks`,{
-      method:'POST',
-      headers:{...jheaders(),'Prefer':'return=representation'},
-      body:JSON.stringify({
-        user_id:currentUser.id, username:currentUser.username, name:tankName.trim(),
-        body_px:grids.body, turret_px:grids.turret, wheel_px:grids.wheel,
-        body_color:bodyColor,
-        hp_mul:stats.hp/100, dmg_mul:stats.dmg/100, radius_mul:stats.radius/100, range_mul:stats.range/100
-      })
-    });
+    let res;
+    if(editingId){
+      res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_custom_tanks?id=eq.${editingId}`,{
+        method:'PATCH', headers:{...jheaders(),'Prefer':'return=representation'}, body:JSON.stringify(payload)
+      });
+    } else {
+      res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_custom_tanks`,{
+        method:'POST', headers:{...jheaders(),'Prefer':'return=representation'}, body:JSON.stringify(payload)
+      });
+    }
     const data=await res.json();
     if(data&&data[0]){ renderSavedScreen(); }
     else { alert('저장에 실패했어요.'); }
   }catch(e){ alert('저장에 실패했어요.'); }
 }
 function renderSavedScreen(){
+  document.getElementById('stepDots').innerHTML='';
   const area=document.getElementById('bodyArea');
   area.innerHTML='';
   const previewBox=document.createElement('div');
@@ -351,28 +542,30 @@ function renderSavedScreen(){
 
   const navRow=document.createElement('div');
   navRow.className='nav-row';
+  const listBtn=document.createElement('button');
+  listBtn.className='nbtn back';
+  listBtn.textContent='탱크 목록으로';
+  listBtn.addEventListener('click',()=>{ currentView='list'; renderListView(); });
   const backBtn=document.createElement('button');
   backBtn.className='nbtn back';
-  backBtn.textContent='뒤로가기';
+  backBtn.textContent='방으로';
   backBtn.addEventListener('click',()=>{
     location.href = backRoomId? ('fortress_room.html?id='+backRoomId) : 'fortress_rooms.html';
   });
   const moreBtn=document.createElement('button');
   moreBtn.className='nbtn next';
-  moreBtn.textContent='탱크 하나 더 만들기';
+  moreBtn.textContent='하나 더 만들기';
   moreBtn.addEventListener('click',()=>{
-    grids={ body:emptyGrid(PARTS[0].w,PARTS[0].h), turret:emptyGrid(PARTS[1].w,PARTS[1].h), wheel:emptyGrid(PARTS[2].w,PARTS[2].h) };
-    tankName='';
-    stats={hp:100,dmg:100,radius:100,range:100};
-    stepIdx=0;
-    renderStep();
+    editingId=null; tankName=''; stats={hp:100,dmg:100,radius:100,range:100}; resetGrids();
+    stepIdx=0; renderStep();
   });
+  navRow.appendChild(listBtn);
   navRow.appendChild(backBtn);
   navRow.appendChild(moreBtn);
   area.appendChild(navRow);
 }
 
-renderStep();
+renderListView();
 </script>
 </body>
 </html>
