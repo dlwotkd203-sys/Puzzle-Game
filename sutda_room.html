@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>섯다 대전방</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:15px;font-weight:600;color:#111;flex:1;}
+.wrap{padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;min-height:560px;}
+.center-msg{text-align:center;padding:2rem 1rem;color:#8a8a9a;font-size:13px;line-height:1.8;}
+.big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;}
+.table-area{width:100%;background:#0b5c34;border-radius:16px;padding:16px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+.seat-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:100%;}
+.seat{background:rgba(255,255,255,0.1);border-radius:12px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:70px;}
+.seat.turn{background:rgba(255,209,102,0.35);box-shadow:0 0 0 2px #ffd166;}
+.seat.folded{opacity:0.4;}
+.seat-name{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:#fff;}
+.seat-pts{font-family:-apple-system,sans-serif;font-size:10px;color:#cde8d8;}
+.pot-box{font-family:-apple-system,sans-serif;font-weight:800;font-size:18px;color:#ffd166;}
+.bet-box{font-family:-apple-system,sans-serif;font-size:12px;color:#fff;}
+.myhand{display:flex;gap:6px;justify-content:center;margin:8px 0;}
+.act-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px;}
+.act-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:9px 14px;border-radius:14px;background:#8a1a1a;color:#fff;cursor:pointer;}
+.act-btn.disabled{background:#ccc;color:#888;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">섯다 대전방</span>
+  </div>
+  <div class="wrap" id="wrap"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const BASE_UNIT=100;
+const RECHARGE_AMOUNT=3000;
+const HWATU_URLS={
+  1:'https://upload.wikimedia.org/wikipedia/commons/8/8e/Hwatu001.svg',
+  2:'https://upload.wikimedia.org/wikipedia/commons/b/bd/Hwatu002.svg',
+  3:'https://upload.wikimedia.org/wikipedia/commons/e/e1/Hwatu003.svg',
+  4:'https://upload.wikimedia.org/wikipedia/commons/6/6d/Hwatu004.svg',
+  5:'https://upload.wikimedia.org/wikipedia/commons/f/fc/Hwatu005.svg',
+  6:'https://upload.wikimedia.org/wikipedia/commons/b/b5/Hwatu006.svg',
+  7:'https://upload.wikimedia.org/wikipedia/commons/6/6a/Hwatu007.svg',
+  8:'https://upload.wikimedia.org/wikipedia/commons/5/5d/Hwatu008.svg',
+  9:'https://upload.wikimedia.org/wikipedia/commons/a/ac/Hwatu009.svg',
+  10:'https://upload.wikimedia.org/wikipedia/commons/b/b3/Hwatu010.svg'
+};
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const roomId=new URLSearchParams(location.search).get('id');
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function buildDeck(){ const d=[]; for(let m=1;m<=10;m++){ d.push({month:m,copy:0}); d.push({month:m,copy:1}); } return shuffle(d); }
+
+const GWANG_MONTHS={1:1,3:1,8:1};
+const GWANG_ORDER={3:3,1:2,8:1};
+const SPECIALS={'1,2':5,'1,4':4,'1,9':3,'4,10':2,'4,6':1};
+const SPECIAL_NAME={'1,2':'알리','1,4':'독사','1,9':'구삥','4,10':'장사','4,6':'세륙'};
+function evalPair(m1,m2){
+  if(m1===m2){
+    if(GWANG_MONTHS[m1]) return {rank:200+GWANG_ORDER[m1],label:m1+'광땡'};
+    return {rank:100+m1,label:m1+'땡'};
+  }
+  const key=[m1,m2].sort((a,b)=>a-b).join(',');
+  if(SPECIALS[key]) return {rank:50+SPECIALS[key],label:SPECIAL_NAME[key]};
+  const kkeut=(m1+m2)%10;
+  return {rank:kkeut,label:kkeut===9?'갑오':kkeut===0?'망통':kkeut+'끗'};
+}
+function evalHand(cards){
+  if(cards.length===2){ return {...evalPair(cards[0].month,cards[1].month), used:[0,1]}; }
+  const combos=[[0,1],[0,2],[1,2]];
+  let best=null;
+  combos.forEach(([i,j])=>{ const r=evalPair(cards[i].month,cards[j].month); if(!best||r.rank>best.rank) best={...r,used:[i,j]}; });
+  return best;
+}
+
+function makeCardEl(card,w,h){
+  const wrap=document.createElement('div');
+  wrap.style.cssText=`width:${w}px;height:${h}px;overflow:hidden;position:relative;border-radius:8px;border:1px solid #ccc;box-shadow:0 1px 3px rgba(0,0,0,0.25);background:#fff;flex-shrink:0;`;
+  const img=document.createElement('img');
+  img.src=HWATU_URLS[card.month];
+  img.style.cssText=`position:absolute;left:${-card.copy*w}px;top:0;width:${w*4}px;height:${h}px;`;
+  wrap.appendChild(img);
+  return wrap;
+}
+function makeCardBackEl(w,h){
+  const el=document.createElement('div');
+  el.style.cssText=`width:${w}px;height:${h}px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 1px 3px rgba(0,0,0,0.25);flex-shrink:0;`;
+  return el;
+}
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('wrap').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    render();
+  }catch(e){}
+}
+
+function render(){
+  document.getElementById('roomTitle').textContent=esc(room.host_username)+'님의 방 ('+(room.mode==='3card'?'3장':'2장')+')';
+  const wrap=document.getElementById('wrap');
+  if(room.status==='waiting') return renderLobby(wrap);
+  if(room.status==='playing') return renderGame(wrap);
+}
+
+function renderLobby(wrap){
+  const players=room.players||[];
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const allReady=players.length>=2&&players.every(p=>p.ready);
+  let html='<div style="width:100%;padding:0 6px;">';
+  players.forEach(p=>{
+    html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
+      <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}</div>
+      <div style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:${p.ready?'#0f9e75':'#bbb'};">${p.ready?'준비완료':'대기중'}</div>
+    </div>`;
+  });
+  html+='</div>';
+  if(mySeat>=0){
+    const myReady=players[mySeat].ready;
+    html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#ffd166':'#8a1a1a'};color:${myReady?'#1a1a2e':'#fff'};margin-top:10px;">${myReady?'준비 취소':'준비완료'}</div>`;
+  }
+  if(isHost){
+    html+=`<div class="big-btn" id="startBtn" style="background:${allReady?'#ff5e3a':'#e2e2e2'};color:${allReady?'#fff':'#999'};margin-top:8px;">게임 시작${allReady?'':' (2명 이상 전원 준비 필요)'}</div>`;
+  }
+  wrap.innerHTML=html;
+  if(mySeat>=0){
+    document.getElementById('readyBtn').addEventListener('click',async()=>{
+      const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+      await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+        method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np,move_count:room.move_count+1})
+      });
+      fetchRoom();
+    });
+  }
+  if(isHost&&allReady){
+    document.getElementById('startBtn').addEventListener('click',startHand);
+  }
+}
+
+async function startHand(){
+  const players=room.players||[];
+  const n=players.length;
+  const cardsPer=room.mode==='3card'?3:2;
+  const deck=buildDeck();
+  const hands=Array.from({length:n},()=>[]);
+  for(let r=0;r<cardsPer;r++) for(let s=0;s<n;s++) hands[s].push(deck.pop());
+  const pointsSnapshot=await Promise.all(players.map(async p=>{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
+    const data=await r.json();
+    return data.length?data[0].points:RECHARGE_AMOUNT;
+  }));
+  const state={
+    phase:'betting', deck, hands,
+    folded:players.map(()=>false),
+    contributions:players.map(()=>0),
+    actedAtBet:players.map(()=>-1),
+    pointsSnapshot,
+    pot:0, currentBet:0, openingDone:false,
+    turn:0, turnStartedAt:Date.now(),
+    result:null
+  };
+  await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'playing',state,move_count:0})
+  });
+  fetchRoom();
+}
+
+function nextActiveSeat(st,n,from){
+  let t=from;
+  for(let k=0;k<n;k++){ t=(t+1)%n; if(!st.folded[t]) return t; }
+  return from;
+}
+function activeSeats(st){ return st.folded.map((f,i)=>f?-1:i).filter(i=>i>=0); }
+function roundComplete(st){
+  const act=activeSeats(st);
+  if(act.length<=1) return true;
+  return act.every(s=>st.actedAtBet[s]===st.currentBet);
+}
+
+async function patchState(mutator){
+  if(animLock) return;
+  animLock=true;
+  const watchdog=setTimeout(()=>{ animLock=false; },4000);
+  try{
+    const st=JSON.parse(JSON.stringify(room.state));
+    mutator(st);
+    const act=activeSeats(st);
+    if(st.phase==='betting'&&roundComplete(st)){
+      st.phase='showdown';
+      const evals=st.hands.map((h,i)=>st.folded[i]?null:evalHand(h));
+      let winner=act[0];
+      act.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
+      st.result={winnerSeat:winner, evals};
+    }
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({state:st,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){
+      room=data[0];
+      if(room.state.phase==='showdown'&&!room.state._settled){
+        await settleHand();
+      }
+    } else { fetchRoom(); }
+  }catch(e){ console.error(e); }
+  finally{ clearTimeout(watchdog); animLock=false; }
+}
+
+async function settleHand(){
+  const st=room.state;
+  const players=room.players;
+  const winner=st.result.winnerSeat;
+  await Promise.all(players.map(async(p,i)=>{
+    const delta = i===winner ? (st.pot - st.contributions[i]) : -st.contributions[i];
+    if(delta===0) return;
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
+    const data=await r.json();
+    const cur=data.length?data[0].points:RECHARGE_AMOUNT;
+    const newPts=Math.max(0,cur+delta);
+    await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:newPts})});
+  }));
+  const st2=JSON.parse(JSON.stringify(room.state));
+  st2._settled=true;
+  await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({state:st2,move_count:room.move_count+1})
+  });
+  fetchRoom();
+}
+
+function myAfford(amount){
+  const st=room.state;
+  const bal=st.pointsSnapshot[mySeat]-st.contributions[mySeat];
+  return bal>=amount;
+}
+
+async function actBbing(){
+  await patchState(s=>{
+    s.pot+=BASE_UNIT; s.contributions[mySeat]+=BASE_UNIT; s.currentBet=BASE_UNIT;
+    s.actedAtBet[mySeat]=BASE_UNIT; s.openingDone=true;
+    s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
+  });
+  render();
+}
+async function actDdadang(){
+  await patchState(s=>{
+    let newBet;
+    if(!s.openingDone){ newBet=BASE_UNIT*2; } else { newBet=s.currentBet*2; }
+    const pay=newBet-s.contributions[mySeat];
+    s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
+    s.actedAtBet[mySeat]=newBet; s.openingDone=true;
+    s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
+  });
+  render();
+}
+async function actCall(){
+  await patchState(s=>{
+    const pay=s.currentBet-s.contributions[mySeat];
+    s.pot+=pay; s.contributions[mySeat]=s.currentBet;
+    s.actedAtBet[mySeat]=s.currentBet;
+    s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
+  });
+  render();
+}
+async function actRaiseFrac(frac){
+  await patchState(s=>{
+    const raiseAmt=Math.max(BASE_UNIT,Math.floor(s.pot*frac));
+    const newBet=s.currentBet+raiseAmt;
+    const pay=newBet-s.contributions[mySeat];
+    s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
+    s.actedAtBet[mySeat]=newBet;
+    s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
+  });
+  render();
+}
+async function actDie(){
+  await patchState(s=>{
+    s.folded[mySeat]=true;
+    if(activeSeats(s).length>1){ s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now(); }
+  });
+  render();
+}
+
+async function nextHand(){
+  const np=room.players.map(p=>({...p,ready:false}));
+  await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'waiting',players:np,state:null})
+  });
+  fetchRoom();
+}
+
+function renderGame(wrap){
+  const st=room.state;
+  const players=room.players;
+  const n=players.length;
+  const isPlayer=mySeat>=0;
+  const myTurn=isPlayer&&st.phase==='betting'&&st.turn===mySeat&&!st.folded[mySeat];
+
+  let html='<div class="table-area"><div class="pot-box">팟 '+st.pot.toLocaleString()+'P</div><div class="bet-box">현재 배팅액 '+st.currentBet.toLocaleString()+'P</div><div class="seat-row">';
+  players.forEach((p,i)=>{
+    const cnt=room.mode==='3card'?3:2;
+    let cardsHtml='';
+    if(st.phase==='showdown'&&!st.folded[i]){
+      cardsHtml='<div style="display:flex;gap:2px;">'+st.hands[i].map(()=>'').join('')+'</div>';
+    }
+    html+=`<div class="seat ${st.turn===i&&st.phase==='betting'?'turn':''} ${st.folded[i]?'folded':''}" id="seatbox-${i}">
+      <div class="seat-name">${esc(p.username)}${st.folded[i]?' (다이)':''}</div>
+      <div class="seat-pts">${(st.pointsSnapshot[i]-st.contributions[i]).toLocaleString()}P · 배팅 ${st.contributions[i].toLocaleString()}</div>
+      <div class="cardslot-${i}"></div>
+    </div>`;
+  });
+  html+='</div></div>';
+  html+='<div class="myhand" id="myhand"></div>';
+  html+='<div id="statusTxt" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;text-align:center;"></div>';
+  html+='<div class="act-row" id="actRow"></div>';
+  html+='<div id="showdownBox"></div>';
+  wrap.innerHTML=html;
+
+  const CW=44,CH=62;
+  players.forEach((p,i)=>{
+    const slot=wrap.querySelector('.cardslot-'+i);
+    if(!slot) return;
+    slot.style.display='flex'; slot.style.gap='2px'; slot.style.marginTop='2px';
+    const cnt=room.mode==='3card'?3:2;
+    if(i===mySeat){ return; }
+    for(let k=0;k<cnt;k++){
+      if(st.phase==='showdown'&&!st.folded[i]){
+        slot.appendChild(makeCardEl(st.hands[i][k],CW,CH));
+      } else if(!st.folded[i]){
+        slot.appendChild(makeCardBackEl(CW,CH));
+      }
+    }
+  });
+
+  const myhand=document.getElementById('myhand');
+  if(isPlayer){
+    st.hands[mySeat].forEach(c=>{ myhand.appendChild(makeCardEl(c,60,84)); });
+  }
+
+  const statusTxt=document.getElementById('statusTxt');
+  const actRow=document.getElementById('actRow');
+  if(st.phase==='betting'){
+    const turnPlayer=players[st.turn];
+    statusTxt.textContent = myTurn?'내 차례!':(esc(turnPlayer.username)+'님 차례');
+    actRow.innerHTML='';
+    if(myTurn){
+      const canBbing=!st.openingDone;
+      const canDdadang=true;
+      const canCall=st.openingDone&&st.contributions[mySeat]<st.currentBet;
+      const canHalf=st.openingDone;
+      const canQuarter=st.openingDone;
+      const buttons=[];
+      if(canBbing) buttons.push(['삥',actBbing,BASE_UNIT]);
+      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:BASE_UNIT*2]);
+      if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
+      if(canHalf) buttons.push(['하프',()=>actRaiseFrac(0.5),null]);
+      if(canQuarter) buttons.push(['쿼터',()=>actRaiseFrac(0.25),null]);
+      buttons.push(['다이',actDie,0]);
+      buttons.forEach(([label,fn,cost])=>{
+        const afford = cost===null?true:myAfford(cost);
+        const btn=document.createElement('div');
+        btn.className='act-btn'+(afford?'':' disabled');
+        btn.textContent=label+(cost?` (${cost}P)`:'');
+        if(afford) btn.addEventListener('click',fn);
+        actRow.appendChild(btn);
+      });
+    }
+  } else if(st.phase==='showdown'){
+    statusTxt.textContent='';
+    const box=document.getElementById('showdownBox');
+    const winner=players[st.result.winnerSeat];
+    let h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">🏆 '+esc(winner.username)+'님 승리! ('+st.result.evals[st.result.winnerSeat].label+')</div>';
+    h+='<div style="width:100%;">';
+    players.forEach((p,i)=>{
+      if(st.folded[i]) return;
+      h+='<div style="display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #eee;font-family:-apple-system,sans-serif;font-size:12px;"><span>'+esc(p.username)+(i===st.result.winnerSeat?' 🏆':'')+'</span><span>'+st.result.evals[i].label+'</span></div>';
+    });
+    h+='</div>';
+    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+    if(isHost){ h+='<div class="big-btn" id="nextHandBtn" style="background:#ff5e3a;color:#fff;margin-top:12px;">다음 판</div>'; }
+    box.innerHTML=h;
+    if(isHost){ document.getElementById('nextHandBtn').addEventListener('click',nextHand); }
+  }
+}
+
+async function leaveRoom(){
+  if(room&&room.status==='waiting'){
+    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+    if(isHost){
+      await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'DELETE',headers:headers()});
+    } else if(mySeat>=0){
+      const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+      await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})});
+    }
+  } else if(room&&room.status==='playing'&&mySeat>=0&&!room.state.folded[mySeat]&&room.state.phase==='betting'){
+    if(confirm('정말 나가시겠어요? 다이(기권) 처리돼요.')){ await actDie(); }
+    else return;
+  }
+  location.href='sutda_rooms.html';
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+
+if(!currentUser){
+  document.getElementById('wrap').innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>';
+} else if(!roomId){
+  document.getElementById('wrap').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>';
+} else {
+  fetchRoom();
+  pollTimer=setInterval(fetchRoom,1000);
+}
+</script>
+</body>
+</html>

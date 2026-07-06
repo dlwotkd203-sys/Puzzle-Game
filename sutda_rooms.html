@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>섯다 - 방목록</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:17px;font-weight:600;color:#111;flex:1;}
+.header-row{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #f0f0f0;}
+.my-record{font-family:-apple-system,sans-serif;font-size:12px;color:#555;}
+.my-record b{color:#8a1a1a;font-size:15px;}
+.create-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:8px 14px;border-radius:16px;background:#ff5e3a;color:#fff;cursor:pointer;}
+.room-list{padding:0.5rem 1rem;}
+.room-item{border:1px solid #eee;border-radius:12px;padding:12px 14px;margin-bottom:8px;}
+.room-top{display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+.room-host{font-weight:700;font-size:14px;color:#111;}
+.room-sub{font-size:11px;color:#999;margin-top:2px;}
+.badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;}
+.badge-wait{background:#f4f1ff;color:#7c5cff;}
+.badge-play{background:#e6f9ee;color:#0f9e75;}
+.mode-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fff3e0;color:#c9861a;margin-left:6px;}
+.room-action{margin-top:8px;display:flex;justify-content:flex-end;}
+.action-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:7px 14px;border-radius:14px;background:#8a1a1a;color:#fff;cursor:pointer;}
+.action-btn.disabled{background:#e2e2e2;color:#999;}
+.empty{text-align:center;padding:2rem;color:#aaa;font-size:14px;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(20,18,30,0.5);align-items:center;justify-content:center;z-index:100;}
+.modal{background:#fff;border-radius:16px;padding:20px;width:80%;max-width:280px;display:flex;flex-direction:column;gap:12px;}
+.mode-pick{display:flex;gap:8px;}
+.mode-pick div{flex:1;text-align:center;padding:12px;border-radius:12px;background:#f0f0f0;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;cursor:pointer;color:#555;}
+.mode-pick div.sel{background:#8a1a1a;color:#fff;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">🎴 섯다</span>
+  </div>
+  <div class="header-row">
+    <div class="my-record" id="myRecord">포인트 불러오는 중...</div>
+    <div class="create-btn" id="createBtn">방 만들기</div>
+  </div>
+  <div class="room-list" id="roomList"><div class="empty">불러오는 중...</div></div>
+</div>
+
+<div class="modal-bg" id="createModal">
+  <div class="modal">
+    <div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;">모드 선택</div>
+    <div class="mode-pick">
+      <div class="modeOpt sel" data-mode="2card">2장 섯다</div>
+      <div class="modeOpt" data-mode="3card">3장 섯다</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <div class="action-btn" id="confirmCreateBtn" style="flex:1;text-align:center;">만들기</div>
+      <div class="action-btn disabled" id="cancelCreateBtn" style="flex:1;text-align:center;background:#eee;color:#888;">취소</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const RECHARGE_AMOUNT=3000;
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+let selectedId=null, selectedMode='2card', rooms=[];
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+async function ensurePoints(){
+  if(!currentUser) return null;
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${currentUser.id}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(!data.length){
+    const created={user_id:currentUser.id,username:currentUser.username,points:3000};
+    await fetch(`${SUPABASE_URL}/rest/v1/sutda_points`,{method:'POST',headers:jheaders(),body:JSON.stringify(created)});
+    return created;
+  }
+  if(data[0].points<=0){
+    await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${currentUser.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:RECHARGE_AMOUNT})});
+    data[0].points=RECHARGE_AMOUNT;
+  }
+  return data[0];
+}
+
+async function loadMyRecord(){
+  const el=document.getElementById('myRecord');
+  if(!currentUser){ el.textContent='로그인하면 포인트가 표시돼요'; return; }
+  const p=await ensurePoints();
+  el.innerHTML=`보유 <b>${p.points.toLocaleString()}</b>P`;
+}
+
+async function loadRooms(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?status=neq.finished&select=*&order=created_at.desc&limit=50`,{headers:headers()});
+    rooms=await r.json();
+    renderRooms();
+  }catch(e){}
+}
+function renderRooms(){
+  const el=document.getElementById('roomList');
+  if(!rooms.length){ el.innerHTML='<div class="empty">열린 방이 없어요. 방을 만들어보세요!</div>'; return; }
+  el.innerHTML='';
+  rooms.forEach(room=>{
+    const div=document.createElement('div');
+    div.className='room-item';
+    const badgeClass=room.status==='playing'?'badge-play':'badge-wait';
+    const badgeText=room.status==='playing'?'게임중':'대기중';
+    const players=room.players||[];
+    let actionHtml='';
+    if(selectedId===room.id){
+      const isIn=currentUser&&players.some(p=>String(p.user_id)===String(currentUser.id));
+      let label='',enabled=true;
+      if(isIn) label='이어하기';
+      else if(room.status==='playing') label='관람하기';
+      else if(players.length<8) label='입장하기';
+      else { label='정원마감'; enabled=false; }
+      actionHtml=`<div class="room-action"><div class="action-btn ${enabled?'':'disabled'}" id="joinBtn">${label}</div></div>`;
+    }
+    div.innerHTML=`
+      <div class="room-top">
+        <div>
+          <div class="room-host">${esc(room.host_username)} 님의 방 <span class="mode-badge">${room.mode==='3card'?'3장':'2장'}</span></div>
+          <div class="room-sub">${players.length}/8명 참가중</div>
+        </div>
+        <span class="badge ${badgeClass}">${badgeText}</span>
+      </div>
+      ${actionHtml}
+    `;
+    div.querySelector('.room-top').addEventListener('click',()=>{ selectedId=selectedId===room.id?null:room.id; renderRooms(); });
+    if(selectedId===room.id){
+      const btn=div.querySelector('#joinBtn');
+      if(btn&&!btn.classList.contains('disabled')){
+        btn.addEventListener('click',async(e)=>{ e.stopPropagation(); await joinOrEnter(room); });
+      }
+    }
+    el.appendChild(div);
+  });
+}
+
+async function joinOrEnter(room){
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  const players=room.players||[];
+  const isIn=players.some(p=>String(p.user_id)===String(currentUser.id));
+  if(isIn||room.status==='playing'){ location.href='sutda_room.html?id='+room.id; return; }
+  await ensurePoints();
+  if(players.length<8){
+    const newPlayers=players.concat([{user_id:currentUser.id,username:currentUser.username,ready:false,seat:players.length}]);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({players:newPlayers,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(!data||!data.length){ alert('다른 사람이 방금 입장했어요. 다시 시도해주세요.'); loadRooms(); return; }
+    location.href='sutda_room.html?id='+room.id;
+  }
+}
+
+document.getElementById('createBtn').addEventListener('click',()=>{
+  if(!currentUser){ alert('로그인 후 이용해주세요.'); return; }
+  document.getElementById('createModal').style.display='flex';
+});
+document.getElementById('cancelCreateBtn').addEventListener('click',()=>{ document.getElementById('createModal').style.display='none'; });
+document.querySelectorAll('.modeOpt').forEach(el=>{
+  el.addEventListener('click',()=>{
+    selectedMode=el.dataset.mode;
+    document.querySelectorAll('.modeOpt').forEach(o=>o.classList.remove('sel'));
+    el.classList.add('sel');
+  });
+});
+document.getElementById('confirmCreateBtn').addEventListener('click',async()=>{
+  await ensurePoints();
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms`,{
+    method:'POST',headers:{...jheaders(),'Prefer':'return=representation'},
+    body:JSON.stringify({
+      host_user_id:currentUser.id, host_username:currentUser.username,
+      mode:selectedMode, status:'waiting',
+      players:[{user_id:currentUser.id,username:currentUser.username,ready:false,seat:0}],
+      move_count:0
+    })
+  });
+  const data=await res.json();
+  if(data&&data[0]){ location.href='sutda_room.html?id='+data[0].id; }
+});
+
+loadMyRecord();
+loadRooms();
+setInterval(loadRooms,1000);
+</script>
+</body>
+</html>

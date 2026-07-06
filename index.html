@@ -197,13 +197,14 @@ const DIFFS=[
 ];
 function getDiff(s){return DIFFS.find(d=>s>=d.range[0]&&s<=d.range[1]);}
 const GAMES=[
-  {id:'onecard',name:'원카드',icon:'🎴',available:true},
+  {id:'onecard',name:'원카드',icon:'🃏',available:true},
+  {id:'sutda',name:'섯다',icon:'🎴',available:true},
   {id:'shikaku',name:'시카쿠',icon:'⊞',available:true},
 {id:'sudoku', name:'스도쿠', icon:'#', available:true},
   {id:'2048',name:'2048',icon:'∞',available:true},
 {id:'dodge', name:'닷지', icon:'🔵', available:true},
 {id:'nonogram', name:'노노그램', icon:'▦', available:true},
-  {id:'memory',name:'짝맞추기',icon:'🃏',available:true},
+  {id:'memory',name:'짝맞추기',icon:'🀄',available:true},
 {id:'sorter', name:'분류하기', icon:'🎯', available:true},
 {id:'minesweeper', name:'지뢰찾기', icon:'💣', available:true},
 {id:'breakout', name:'벽돌깨기', icon:'🧱', available:true},
@@ -215,9 +216,6 @@ const GAMES=[
   {id:'colormatch', name:'색감 맞추기', icon:'🎨', available:true},
   {id:'omok', name:'오목', icon:'⚫', available:true},
   {id:'numrush', name:'숫자순서터치', icon:'🔢', available:true},
-  {id:'crossy', name:'길건너친구들', icon:'🐔', available:true},
-  {id:'match3', name:'후르츠팡', icon:'🍓', available:true},
-  {id:'fortress', name:'포트탱크', icon:'🎯', available:true},
   {id:'more',name:'더 보기',icon:'+',available:false},
 ];
 let cleared=new Set();
@@ -236,7 +234,7 @@ const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 function esc(str){
   return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
-const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush','crossy','match3'];
+const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
 const STAGE_GAMES=['shikaku','sudoku','nonogram','flow'];
 const RANK_POINTS=[3,2,1];
 
@@ -275,7 +273,7 @@ async function computeTotalRanking(){
     data.forEach((row,idx)=>award(row.username,idx));
   }catch(e){}
   try{
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/fortress_elo?select=username,rating&order=rating.desc&limit=3`,{headers});
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?select=username,points&order=points.desc&limit=3`,{headers});
     const data=await res.json();
     data.forEach((row,idx)=>award(row.username,idx));
   }catch(e){}
@@ -307,8 +305,15 @@ async function renderLeaderboardWidget(){
 
 async function getTop1(gameId){
   try{
-    if(gameId==='omok'||gameId==='onecard'||gameId==='fortress'){
-      const table=gameId==='omok'?'omok_elo':gameId==='onecard'?'onecard_elo':'fortress_elo';
+    if(gameId==='sutda'){
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?select=username,points&order=points.desc&limit=1`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      return data.length?data[0].username:null;
+    }
+    if(gameId==='omok'||gameId==='onecard'){
+      const table=gameId==='omok'?'omok_elo':'onecard_elo';
       const res=await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=username,rating&order=rating.desc&limit=1`,{
         headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
       });
@@ -339,8 +344,7 @@ const TITLES={
   shikaku:'식하쿠', sudoku:'수독후', nonogram:'픽셀장인', '2048':'16384',
   dodge:'공이 나를 피한다', memory:'타짜', sorter:'왼쪽 오른쪽', minesweeper:'지뢰탐지견',
   breakout:'파괴본능', flow:'뭘로하지', rps:'눈보다 빠른 손', reaction:'빠른 시냅스',
-  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림', onecard:'카드의 제왕',
-  crossy:'로드러너', match3:'콤보의 신', fortress:'각도기 그 자체'
+  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림', onecard:'카드의 제왕', sutda:'고니'
 };
 let gameEnabledMap={};
 
@@ -398,11 +402,12 @@ if(game.available&&!isMaintenance){
 }
 function goHome(){renderHome();showScreen('home');}
 function openGame(game){
+  if(game.id==='sutda'){ location.href='sutda_rooms.html'; return; }
   if(game.id==='onecard'){ location.href='onecard_rooms.html'; return; }
   if(game.id==='sudoku'){ location.href='sudoku_stages.html'; return; }
   if(game.id==='shikaku'){ location.href='shikaku_stages.html'; return; }
 if(game.id==='2048'){ location.href='2048.html'; return; }
-if(game.id==='nonogram'){ location.href='nonogram-home.html'; return; }
+if(game.id==='nonogram'){ location.href='nonogram_stages.html'; return; }
   if(game.id==='breakout'){ location.href='breakout.html'; return; }
   if(game.id==='flow'){ location.href='flow_stages.html'; return; }
   if(game.id==='rps'){ location.href='rps.html'; return; }
@@ -416,9 +421,6 @@ if(game.id==='nonogram'){ location.href='nonogram-home.html'; return; }
 if(game.id==='sorter'){ location.href='sorter.html'; return; }
 if(game.id==='minesweeper'){ location.href='minesweeper.html'; return; }
 if(game.id==='dodge'){ location.href='dodge.html'; return; }
-  if(game.id==='crossy'){ location.href='crossy.html'; return; }
-  if(game.id==='match3'){ location.href='match3.html'; return; }
-  if(game.id==='fortress'){ location.href='fortress_rooms.html'; return; }
   document.getElementById('sel-title').textContent=game.name;
   renderDiffs();showScreen('stage-select');
 }
