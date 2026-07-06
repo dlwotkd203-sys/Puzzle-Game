@@ -78,14 +78,16 @@ const GWANG_ORDER={3:3,1:2,8:1};
 const SPECIALS={'1,2':5,'1,4':4,'1,9':3,'4,10':2,'4,6':1};
 const SPECIAL_NAME={'1,2':'알리','1,4':'독사','1,9':'구삥','4,10':'장사','4,6':'세륙'};
 function evalPair(m1,m2){
+  const isAmhaeng = (m1===4&&m2===7)||(m1===7&&m2===4);
+  const isPatoh = (m1===4&&m2===9)||(m1===9&&m2===4);
   if(m1===m2){
-    if(GWANG_MONTHS[m1]) return {rank:200+GWANG_ORDER[m1],label:m1+'광땡'};
-    return {rank:100+m1,label:m1+'땡'};
+    if(GWANG_MONTHS[m1]) return {rank:200+GWANG_ORDER[m1],label:m1+'광땡',isDdaeng:true,isAmhaeng:false,isPatoh:false};
+    return {rank:100+m1,label:(m1===10?'장땡':m1+'땡'),isDdaeng:true,isAmhaeng:false,isPatoh:false};
   }
   const key=[m1,m2].sort((a,b)=>a-b).join(',');
-  if(SPECIALS[key]) return {rank:50+SPECIALS[key],label:SPECIAL_NAME[key]};
+  if(SPECIALS[key]) return {rank:50+SPECIALS[key],label:SPECIAL_NAME[key],isDdaeng:false,isAmhaeng,isPatoh};
   const kkeut=(m1+m2)%10;
-  return {rank:kkeut,label:kkeut===9?'갑오':kkeut===0?'망통':kkeut+'끗'};
+  return {rank:kkeut,label:kkeut===9?'갑오':kkeut===0?'망통':kkeut+'끗',isDdaeng:false,isAmhaeng,isPatoh};
 }
 function evalHand(cards){
   if(cards.length===2){ return {...evalPair(cards[0].month,cards[1].month), used:[0,1]}; }
@@ -93,6 +95,13 @@ function evalHand(cards){
   let best=null;
   combos.forEach(([i,j])=>{ const r=evalPair(cards[i].month,cards[j].month); if(!best||r.rank>best.rank) best={...r,used:[i,j]}; });
   return best;
+}
+function checkPatohSeats(st,seats){
+  return seats.filter(i=>{
+    const h=st.hands[i];
+    if(!h||h.length<2) return false;
+    return evalPair(h[0].month,h[1].month).isPatoh;
+  });
 }
 
 function makeCardEl(card,w,h){
@@ -193,20 +202,23 @@ async function startHand(){
     const data=await r.json();
     return data.length?data[0].points:STARTING_POINTS;
   }));
+  const carried=room.carry_pot||0;
   const state={
     mode:room.mode, deck, hands,
     folded:players.map(()=>false),
     contributions:players.map(()=>0),
+    lastPaid:players.map(()=>0),
     actedAtBet:players.map(()=>-1),
     exposed:players.map(()=>null),
+    chosenPair:players.map(()=>null),
     pointsSnapshot,
-    pot:0, currentBet:0, openingDone:false,
+    pot:carried, currentBet:0, openingDone:false,
     stage: room.mode==='3card' ? 'expose' : 'bet1',
     turn:0, turnStartedAt:Date.now(),
     result:null
   };
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{
-    method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'playing',state,move_count:0})
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'playing',state,move_count:0,carry_pot:0})
   });
   fetchRoom();
 }
@@ -233,11 +245,31 @@ function dealCardsToActive(st,count){
   }
 }
 function finalizeShowdown(st){
-  st.stage='showdown';
   const act=activeSeats(st);
-  const evals=st.hands.map((h,i)=>st.folded[i]?null:evalHand(h));
-  let winner=act[0];
-  act.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
+  const evals=st.hands.map((h,i)=>{
+    if(st.folded[i]) return null;
+    if(st.mode==='3card'&&st.chosenPair[i]){
+      const [a,b]=st.chosenPair[i];
+      return {...evalPair(h[a].month,h[b].month), used:[a,b]};
+    }
+    return evalHand(h);
+  });
+  const hasAmhaeng = act.some(s=>evals[s].isAmhaeng);
+  let contenders = act;
+  if(hasAmhaeng){
+    contenders = act.filter(s=>!evals[s].isDdaeng);
+    if(!contenders.length) contenders=act;
+  }
+  let winner=contenders[0];
+  contenders.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
+
+  if(evals[winner].isPatoh){
+    st.stage='patohVote';
+    st.pendingResult={winnerSeat:winner,evals};
+    st.patohVotes=st.hands.map(()=>null);
+    return;
+  }
+  st.stage='showdown';
   st.result={winnerSeat:winner,evals};
 }
 function tryAdvanceStage(st){
@@ -247,6 +279,20 @@ function tryAdvanceStage(st){
     if(act.every(s=>st.exposed[s]!==null)){
       resetBettingVars(st);
       st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
+    }
+    return;
+  }
+  if(st.stage==='choose2'){
+    const act=activeSeats(st);
+    if(act.every(s=>st.chosenPair[s]!==null)){ finalizeShowdown(st); }
+    return;
+  }
+  if(st.stage==='patohVote'){
+    if(st.patohVotes.every(v=>v!==null)){
+      const yesCount=st.patohVotes.filter(v=>v===true).length;
+      const need=Math.ceil(n/2);
+      if(yesCount>=need){ st.stage='patohResolved'; }
+      else { st.result=st.pendingResult; st.stage='showdown'; }
     }
     return;
   }
@@ -267,7 +313,7 @@ function tryAdvanceStage(st){
       resetBettingVars(st);
       st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
     } else if(st.stage==='bet2'){
-      finalizeShowdown(st);
+      st.stage='choose2';
     }
   }
 }
@@ -287,7 +333,7 @@ async function patchState(mutator){
     const data=await res.json();
     if(data&&data.length){
       room=data[0];
-      if(room.state.stage==='showdown'&&!room.state._settled){ await settleHand(); }
+      if((room.state.stage==='showdown'||room.state.stage==='patohResolved')&&!room.state._settled){ await settleHand(); }
     } else { fetchRoom(); }
   }catch(e){ console.error(e); }
   finally{ clearTimeout(watchdog); animLock=false; }
@@ -296,20 +342,26 @@ async function patchState(mutator){
 async function settleHand(){
   const st=room.state;
   const players=room.players;
-  const winner=st.result.winnerSeat;
+  const isPatohResolved = st.stage==='patohResolved';
+  const winner = isPatohResolved ? -1 : st.result.winnerSeat;
   await Promise.all(players.map(async(p,i)=>{
-    const delta = i===winner ? (st.pot - st.contributions[i]) : -st.contributions[i];
-    if(delta===0) return;
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
+    const delta = isPatohResolved ? -st.contributions[i] : (i===winner ? (st.pot - st.contributions[i]) : -st.contributions[i]);
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points,wins,losses`,{headers:headers()});
     const data=await r.json();
-    const cur=data.length?data[0].points:STARTING_POINTS;
-    const newPts=Math.max(0,cur+delta);
-    await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:newPts})});
+    const cur=data.length?data[0]:{points:STARTING_POINTS,wins:0,losses:0};
+    const newPts=Math.max(0,cur.points+delta);
+    const body={points:newPts};
+    if(!isPatohResolved){
+      if(i===winner){ body.wins=(cur.wins||0)+1; } else { body.losses=(cur.losses||0)+1; }
+    }
+    await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(body)});
   }));
   const st2=JSON.parse(JSON.stringify(room.state));
   st2._settled=true;
+  const roomPatch={state:st2,move_count:room.move_count+1};
+  if(isPatohResolved){ roomPatch.carry_pot=(room.carry_pot||0)+st.pot; }
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
-    method:'PATCH',headers:jheaders(),body:JSON.stringify({state:st2,move_count:room.move_count+1})
+    method:'PATCH',headers:jheaders(),body:JSON.stringify(roomPatch)
   });
   fetchRoom();
 }
@@ -324,7 +376,7 @@ async function actBbing(){
   const unit=room.base_unit;
   await patchState(s=>{
     s.pot+=unit; s.contributions[mySeat]+=unit; s.currentBet=unit;
-    s.actedAtBet[mySeat]=unit; s.openingDone=true;
+    s.actedAtBet[mySeat]=unit; s.openingDone=true; s.lastPaid[mySeat]=unit;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -335,7 +387,7 @@ async function actDdadang(){
     let newBet = !s.openingDone ? unit*2 : s.currentBet*2;
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
-    s.actedAtBet[mySeat]=newBet; s.openingDone=true;
+    s.actedAtBet[mySeat]=newBet; s.openingDone=true; s.lastPaid[mySeat]=pay;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -344,7 +396,7 @@ async function actCall(){
   await patchState(s=>{
     const pay=s.currentBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=s.currentBet;
-    s.actedAtBet[mySeat]=s.currentBet;
+    s.actedAtBet[mySeat]=s.currentBet; s.lastPaid[mySeat]=pay;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -356,20 +408,32 @@ async function actRaiseFrac(frac){
     const newBet=s.currentBet+raiseAmt;
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
-    s.actedAtBet[mySeat]=newBet;
+    s.actedAtBet[mySeat]=newBet; s.lastPaid[mySeat]=pay;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
 }
 async function actDie(){
   await patchState(s=>{
-    s.folded[mySeat]=true;
+    s.folded[mySeat]=true; s.lastPaid[mySeat]=0;
   });
   render();
 }
 async function chooseExpose(idx){
   await patchState(s=>{
     if(s.exposed[mySeat]===null) s.exposed[mySeat]=idx;
+  });
+  render();
+}
+async function actChoosePair(i,j){
+  await patchState(s=>{
+    if(!s.folded[mySeat] && s.chosenPair[mySeat]===null){ s.chosenPair[mySeat]=[i,j]; }
+  });
+  render();
+}
+async function actPatohVote(voteYes){
+  await patchState(s=>{
+    if(s.patohVotes[mySeat]===null){ s.patohVotes[mySeat]=voteYes; }
   });
   render();
 }
@@ -395,12 +459,13 @@ function renderGame(wrap){
     const isSeatTurn = isBettingStage && st.turn===i;
     html+=`<div class="seat ${isSeatTurn?'turn':''} ${st.folded[i]?'folded':''}">
       <div class="seat-name">${esc(p.username)}${st.folded[i]?' (다이)':''}</div>
-      <div class="seat-pts">${(st.pointsSnapshot[i]-st.contributions[i]).toLocaleString()}P · 배팅 ${st.contributions[i].toLocaleString()}</div>
+      <div class="seat-pts">잔액 ${(st.pointsSnapshot[i]-st.contributions[i]).toLocaleString()}P<br/>이번판 ${st.contributions[i].toLocaleString()} · 이번턴 ${(st.lastPaid&&st.lastPaid[i])||0}</div>
       <div class="cardslot-${i}"></div>
     </div>`;
   });
   html+='</div></div>';
   html+='<div class="myhand" id="myhand"></div>';
+  html+='<div id="myLabel" style="font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#8a1a1a;text-align:center;"></div>';
   html+='<div id="statusTxt" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;text-align:center;"></div>';
   html+='<div class="act-row" id="actRow"></div>';
   html+='<div id="showdownBox"></div>';
@@ -435,6 +500,10 @@ function renderGame(wrap){
       }
       myhand.appendChild(col);
     });
+    const labelEl=document.getElementById('myLabel');
+    if(!st.folded[mySeat]&&st.hands[mySeat].length>=2){
+      labelEl.textContent='내 조합: '+evalHand(st.hands[mySeat]).label+(st.mode==='3card'?' (최고 조합 미리보기)':'');
+    }
   }
 
   const statusTxt=document.getElementById('statusTxt');
@@ -445,24 +514,69 @@ function renderGame(wrap){
     if(st.folded[mySeat]){ statusTxt.textContent='기권했어요'; }
     else if(st.exposed[mySeat]===null){ statusTxt.textContent='공개할 카드 한 장을 선택하세요'; }
     else { statusTxt.textContent='다른 사람들이 카드를 공개하는 중...'; }
+  } else if(st.stage==='choose2'){
+    if(st.folded[mySeat]){ statusTxt.textContent='기권했어요'; }
+    else if(st.chosenPair[mySeat]===null){
+      statusTxt.textContent='낼 카드 2장을 선택하세요';
+      const combos=[[0,1],[0,2],[1,2]];
+      const myCards=st.hands[mySeat];
+      combos.forEach(([i,j])=>{
+        const ev=evalPair(myCards[i].month,myCards[j].month);
+        const btn=document.createElement('div');
+        btn.className='act-btn';
+        btn.style.display='flex'; btn.style.flexDirection='column'; btn.style.alignItems='center'; btn.style.gap='4px';
+        btn.innerHTML=`<span>${myCards[i].month}월+${myCards[j].month}월</span><span style="font-size:11px;">${ev.label}</span>`;
+        btn.addEventListener('click',()=>actChoosePair(i,j));
+        actRow.appendChild(btn);
+      });
+    } else {
+      statusTxt.textContent='다른 사람들의 선택을 기다리는 중...';
+    }
+  } else if(st.stage==='patohVote'){
+    const myVote=st.patohVotes[mySeat];
+    const votedCount=st.patohVotes.filter(v=>v!==null).length;
+    if(myVote===null){
+      statusTxt.innerHTML='사구(4,9) 패가 나왔어요!<br/>이번 판을 무효(파토)로 할까요?';
+      const yesBtn=document.createElement('div'); yesBtn.className='act-btn'; yesBtn.textContent='파토 찬성';
+      yesBtn.addEventListener('click',()=>actPatohVote(true));
+      const noBtn=document.createElement('div'); noBtn.className='act-btn'; noBtn.style.background='#378ADD'; noBtn.textContent='그대로 진행';
+      noBtn.addEventListener('click',()=>actPatohVote(false));
+      actRow.appendChild(yesBtn); actRow.appendChild(noBtn);
+    } else {
+      statusTxt.textContent='투표완료 ('+votedCount+'/'+players.length+'명 투표함) · 다른 사람들 기다리는 중...';
+    }
+  } else if(st.stage==='patohResolved'){
+    statusTxt.textContent='';
+    const box=document.getElementById('showdownBox');
+    let h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">💥 파토 확정!</div>';
+    h+='<div style="text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#666;">투표로 무효 처리됐어요. 이번 판돈 '+st.pot.toLocaleString()+'P는 다음 판으로 이월돼요.</div>';
+    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+    if(isHost){ h+='<div class="big-btn" id="nextHandBtn" style="background:#ff5e3a;color:#fff;margin-top:12px;">다음 판</div>'; }
+    box.innerHTML=h;
+    if(isHost){ document.getElementById('nextHandBtn').addEventListener('click',nextHand); }
   } else if(isBettingStage){
     const turnPlayer=players[st.turn];
     statusTxt.textContent = myTurn?'내 차례!':(esc(turnPlayer.username)+'님 차례');
     if(myTurn){
       const canBbing=!st.openingDone;
       const canCall=st.openingDone&&st.contributions[mySeat]<st.currentBet;
+      const unit=room.base_unit;
+      const halfRaise=Math.max(unit,Math.floor(st.pot*0.5));
+      const halfCost=st.currentBet+halfRaise-st.contributions[mySeat];
+      const quarterRaise=Math.max(unit,Math.floor(st.pot*0.25));
+      const quarterCost=st.currentBet+quarterRaise-st.contributions[mySeat];
       const buttons=[];
-      if(canBbing) buttons.push(['삥',actBbing,room.base_unit]);
-      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:room.base_unit*2]);
+      if(canBbing) buttons.push(['삥',actBbing,unit]);
+      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:unit*2]);
       if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
-      if(st.openingDone) buttons.push(['하프',()=>actRaiseFrac(0.5),null]);
-      if(st.openingDone) buttons.push(['쿼터',()=>actRaiseFrac(0.25),null]);
+      if(st.openingDone) buttons.push(['하프',()=>actRaiseFrac(0.5),halfCost]);
+      if(st.openingDone) buttons.push(['쿼터',()=>actRaiseFrac(0.25),quarterCost]);
       buttons.push(['다이',actDie,0]);
       buttons.forEach(([label,fn,cost])=>{
-        const afford = cost===null?true:myAfford(cost);
+        const afford = label==='다이'?true:myAfford(cost);
         const btn=document.createElement('div');
         btn.className='act-btn'+(afford?'':' disabled');
-        btn.textContent=label+(cost?` (${cost}P)`:'');
+        btn.textContent=label+(label==='다이'?'':` (${cost.toLocaleString()}P)`);
         if(afford) btn.addEventListener('click',fn);
         actRow.appendChild(btn);
       });
@@ -494,7 +608,7 @@ async function leaveRoom(){
       const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
       await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})});
     }
-  } else if(room&&room.status==='playing'&&mySeat>=0&&room.state.stage!=='showdown'&&!room.state.folded[mySeat]){
+  } else if(room&&room.status==='playing'&&mySeat>=0&&room.state.stage!=='showdown'&&room.state.stage!=='patohVote'&&room.state.stage!=='patohResolved'&&!room.state.folded[mySeat]){
     if(confirm('정말 나가시겠어요? 다이(기권) 처리돼요.')){ await actDie(); }
     else return;
   }
