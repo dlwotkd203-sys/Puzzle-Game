@@ -16,17 +16,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;}
 .table-area{width:100%;background:#0b5c34;border-radius:16px;padding:16px 10px;display:flex;flex-direction:column;align-items:center;gap:10px;}
 .seat-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:100%;}
-.seat{background:rgba(255,255,255,0.1);border-radius:12px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:70px;}
+.seat{background:rgba(255,255,255,0.1);border-radius:12px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:76px;}
 .seat.turn{background:rgba(255,209,102,0.35);box-shadow:0 0 0 2px #ffd166;}
 .seat.folded{opacity:0.4;}
 .seat-name{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:#fff;}
 .seat-pts{font-family:-apple-system,sans-serif;font-size:10px;color:#cde8d8;}
 .pot-box{font-family:-apple-system,sans-serif;font-weight:800;font-size:18px;color:#ffd166;}
 .bet-box{font-family:-apple-system,sans-serif;font-size:12px;color:#fff;}
-.myhand{display:flex;gap:6px;justify-content:center;margin:8px 0;}
+.stage-box{font-family:-apple-system,sans-serif;font-size:11px;color:#cde8d8;}
+.myhand{display:flex;gap:8px;justify-content:center;margin:8px 0;}
+.myhand-card{display:flex;flex-direction:column;align-items:center;gap:4px;}
 .act-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px;}
 .act-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;padding:9px 14px;border-radius:14px;background:#8a1a1a;color:#fff;cursor:pointer;}
 .act-btn.disabled{background:#ccc;color:#888;}
+.expose-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:11px;padding:5px 10px;border-radius:10px;background:#c9861a;color:#fff;cursor:pointer;}
+.exposed-tag{font-family:-apple-system,sans-serif;font-size:9px;font-weight:700;color:#c9861a;}
 </style>
 </head>
 <body>
@@ -55,6 +59,8 @@ const HWATU_URLS={
   10:'https://upload.wikimedia.org/wikipedia/commons/b/b3/Hwatu010.svg'
 };
 
+const STAGE_LABEL={bet1:'1구 배팅',expose:'패 공개 대기',bet2:'2구 배팅',showdown:'쇼다운'};
+
 let currentUser=null;
 try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
 const roomId=new URLSearchParams(location.search).get('id');
@@ -62,7 +68,7 @@ function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPA
 function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
 function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
-let room=null,mySeat=-1,pollTimer=null,tickTimer=null,animLock=false;
+let room=null,mySeat=-1,pollTimer=null,animLock=false;
 
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 function buildDeck(){ const d=[]; for(let m=1;m<=10;m++){ d.push({month:m,copy:0}); d.push({month:m,copy:1}); } return shuffle(d); }
@@ -160,22 +166,24 @@ function renderLobby(wrap){
 async function startHand(){
   const players=room.players||[];
   const n=players.length;
-  const cardsPer=room.mode==='3card'?3:2;
+  const initCount=room.mode==='3card'?2:1;
   const deck=buildDeck();
   const hands=Array.from({length:n},()=>[]);
-  for(let r=0;r<cardsPer;r++) for(let s=0;s<n;s++) hands[s].push(deck.pop());
+  for(let r=0;r<initCount;r++) for(let s=0;s<n;s++) hands[s].push(deck.pop());
   const pointsSnapshot=await Promise.all(players.map(async p=>{
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
     const data=await r.json();
     return data.length?data[0].points:RECHARGE_AMOUNT;
   }));
   const state={
-    phase:'betting', deck, hands,
+    mode:room.mode, deck, hands,
     folded:players.map(()=>false),
     contributions:players.map(()=>0),
     actedAtBet:players.map(()=>-1),
+    exposed:players.map(()=>null),
     pointsSnapshot,
     pot:0, currentBet:0, openingDone:false,
+    stage: room.mode==='3card' ? 'expose' : 'bet1',
     turn:0, turnStartedAt:Date.now(),
     result:null
   };
@@ -196,6 +204,55 @@ function roundComplete(st){
   if(act.length<=1) return true;
   return act.every(s=>st.actedAtBet[s]===st.currentBet);
 }
+function resetBettingVars(st){
+  st.currentBet=0; st.openingDone=false;
+  st.actedAtBet=st.actedAtBet.map((v,i)=>st.folded[i]?v:-1);
+}
+function dealCardsToActive(st,count){
+  for(let i=0;i<st.hands.length;i++){
+    if(st.folded[i]) continue;
+    for(let k=0;k<count;k++){ if(st.deck.length) st.hands[i].push(st.deck.pop()); }
+  }
+}
+function finalizeShowdown(st){
+  st.stage='showdown';
+  const act=activeSeats(st);
+  const evals=st.hands.map((h,i)=>st.folded[i]?null:evalHand(h));
+  let winner=act[0];
+  act.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
+  st.result={winnerSeat:winner,evals};
+}
+function tryAdvanceStage(st){
+  const n=st.hands.length;
+  if(st.stage==='expose'){
+    const act=activeSeats(st);
+    if(act.every(s=>st.exposed[s]!==null)){
+      resetBettingVars(st);
+      st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
+    }
+    return;
+  }
+  if(!roundComplete(st)) return;
+  const act=activeSeats(st);
+  if(act.length<=1){ finalizeShowdown(st); return; }
+  if(st.mode==='2card'){
+    if(st.stage==='bet1'){
+      dealCardsToActive(st,1);
+      resetBettingVars(st);
+      st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
+    } else if(st.stage==='bet2'){
+      finalizeShowdown(st);
+    }
+  } else {
+    if(st.stage==='bet1'){
+      dealCardsToActive(st,1);
+      resetBettingVars(st);
+      st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
+    } else if(st.stage==='bet2'){
+      finalizeShowdown(st);
+    }
+  }
+}
 
 async function patchState(mutator){
   if(animLock) return;
@@ -204,14 +261,7 @@ async function patchState(mutator){
   try{
     const st=JSON.parse(JSON.stringify(room.state));
     mutator(st);
-    const act=activeSeats(st);
-    if(st.phase==='betting'&&roundComplete(st)){
-      st.phase='showdown';
-      const evals=st.hands.map((h,i)=>st.folded[i]?null:evalHand(h));
-      let winner=act[0];
-      act.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
-      st.result={winnerSeat:winner, evals};
-    }
+    tryAdvanceStage(st);
     const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
       method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
       body:JSON.stringify({state:st,move_count:room.move_count+1})
@@ -219,9 +269,7 @@ async function patchState(mutator){
     const data=await res.json();
     if(data&&data.length){
       room=data[0];
-      if(room.state.phase==='showdown'&&!room.state._settled){
-        await settleHand();
-      }
+      if(room.state.stage==='showdown'&&!room.state._settled){ await settleHand(); }
     } else { fetchRoom(); }
   }catch(e){ console.error(e); }
   finally{ clearTimeout(watchdog); animLock=false; }
@@ -264,8 +312,7 @@ async function actBbing(){
 }
 async function actDdadang(){
   await patchState(s=>{
-    let newBet;
-    if(!s.openingDone){ newBet=BASE_UNIT*2; } else { newBet=s.currentBet*2; }
+    let newBet = !s.openingDone ? BASE_UNIT*2 : s.currentBet*2;
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
     s.actedAtBet[mySeat]=newBet; s.openingDone=true;
@@ -296,7 +343,12 @@ async function actRaiseFrac(frac){
 async function actDie(){
   await patchState(s=>{
     s.folded[mySeat]=true;
-    if(activeSeats(s).length>1){ s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now(); }
+  });
+  render();
+}
+async function chooseExpose(idx){
+  await patchState(s=>{
+    if(s.exposed[mySeat]===null) s.exposed[mySeat]=idx;
   });
   render();
 }
@@ -314,16 +366,13 @@ function renderGame(wrap){
   const players=room.players;
   const n=players.length;
   const isPlayer=mySeat>=0;
-  const myTurn=isPlayer&&st.phase==='betting'&&st.turn===mySeat&&!st.folded[mySeat];
+  const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
+  const myTurn=isPlayer&&isBettingStage&&st.turn===mySeat&&!st.folded[mySeat];
 
-  let html='<div class="table-area"><div class="pot-box">팟 '+st.pot.toLocaleString()+'P</div><div class="bet-box">현재 배팅액 '+st.currentBet.toLocaleString()+'P</div><div class="seat-row">';
+  let html='<div class="table-area"><div class="stage-box">'+(STAGE_LABEL[st.stage]||'')+'</div><div class="pot-box">팟 '+st.pot.toLocaleString()+'P</div><div class="bet-box">현재 배팅액 '+st.currentBet.toLocaleString()+'P</div><div class="seat-row">';
   players.forEach((p,i)=>{
-    const cnt=room.mode==='3card'?3:2;
-    let cardsHtml='';
-    if(st.phase==='showdown'&&!st.folded[i]){
-      cardsHtml='<div style="display:flex;gap:2px;">'+st.hands[i].map(()=>'').join('')+'</div>';
-    }
-    html+=`<div class="seat ${st.turn===i&&st.phase==='betting'?'turn':''} ${st.folded[i]?'folded':''}" id="seatbox-${i}">
+    const isSeatTurn = isBettingStage && st.turn===i;
+    html+=`<div class="seat ${isSeatTurn?'turn':''} ${st.folded[i]?'folded':''}">
       <div class="seat-name">${esc(p.username)}${st.folded[i]?' (다이)':''}</div>
       <div class="seat-pts">${(st.pointsSnapshot[i]-st.contributions[i]).toLocaleString()}P · 배팅 ${st.contributions[i].toLocaleString()}</div>
       <div class="cardslot-${i}"></div>
@@ -339,42 +388,54 @@ function renderGame(wrap){
   const CW=44,CH=62;
   players.forEach((p,i)=>{
     const slot=wrap.querySelector('.cardslot-'+i);
-    if(!slot) return;
+    if(!slot||st.folded[i]) return;
     slot.style.display='flex'; slot.style.gap='2px'; slot.style.marginTop='2px';
-    const cnt=room.mode==='3card'?3:2;
-    if(i===mySeat){ return; }
-    for(let k=0;k<cnt;k++){
-      if(st.phase==='showdown'&&!st.folded[i]){
-        slot.appendChild(makeCardEl(st.hands[i][k],CW,CH));
-      } else if(!st.folded[i]){
-        slot.appendChild(makeCardBackEl(CW,CH));
-      }
-    }
+    if(i===mySeat) return;
+    st.hands[i].forEach((c,k)=>{
+      const showFace = st.stage==='showdown' || (st.mode==='3card' && st.exposed[i]===k);
+      slot.appendChild(showFace ? makeCardEl(c,CW,CH) : makeCardBackEl(CW,CH));
+    });
   });
 
   const myhand=document.getElementById('myhand');
   if(isPlayer){
-    st.hands[mySeat].forEach(c=>{ myhand.appendChild(makeCardEl(c,60,84)); });
+    st.hands[mySeat].forEach((c,k)=>{
+      const col=document.createElement('div');
+      col.className='myhand-card';
+      col.appendChild(makeCardEl(c,60,84));
+      if(st.mode==='3card'){
+        if(st.exposed[mySeat]===k){
+          const tag=document.createElement('div'); tag.className='exposed-tag'; tag.textContent='공개됨'; col.appendChild(tag);
+        } else if(st.stage==='expose'&&st.exposed[mySeat]===null&&!st.folded[mySeat]){
+          const btn=document.createElement('div'); btn.className='expose-btn'; btn.textContent='이 카드 공개';
+          btn.addEventListener('click',()=>chooseExpose(k));
+          col.appendChild(btn);
+        }
+      }
+      myhand.appendChild(col);
+    });
   }
 
   const statusTxt=document.getElementById('statusTxt');
   const actRow=document.getElementById('actRow');
-  if(st.phase==='betting'){
+  actRow.innerHTML='';
+
+  if(st.stage==='expose'){
+    if(st.folded[mySeat]){ statusTxt.textContent='기권했어요'; }
+    else if(st.exposed[mySeat]===null){ statusTxt.textContent='공개할 카드 한 장을 선택하세요'; }
+    else { statusTxt.textContent='다른 사람들이 카드를 공개하는 중...'; }
+  } else if(isBettingStage){
     const turnPlayer=players[st.turn];
     statusTxt.textContent = myTurn?'내 차례!':(esc(turnPlayer.username)+'님 차례');
-    actRow.innerHTML='';
     if(myTurn){
       const canBbing=!st.openingDone;
-      const canDdadang=true;
       const canCall=st.openingDone&&st.contributions[mySeat]<st.currentBet;
-      const canHalf=st.openingDone;
-      const canQuarter=st.openingDone;
       const buttons=[];
       if(canBbing) buttons.push(['삥',actBbing,BASE_UNIT]);
       buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:BASE_UNIT*2]);
       if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
-      if(canHalf) buttons.push(['하프',()=>actRaiseFrac(0.5),null]);
-      if(canQuarter) buttons.push(['쿼터',()=>actRaiseFrac(0.25),null]);
+      if(st.openingDone) buttons.push(['하프',()=>actRaiseFrac(0.5),null]);
+      if(st.openingDone) buttons.push(['쿼터',()=>actRaiseFrac(0.25),null]);
       buttons.push(['다이',actDie,0]);
       buttons.forEach(([label,fn,cost])=>{
         const afford = cost===null?true:myAfford(cost);
@@ -385,7 +446,7 @@ function renderGame(wrap){
         actRow.appendChild(btn);
       });
     }
-  } else if(st.phase==='showdown'){
+  } else if(st.stage==='showdown'){
     statusTxt.textContent='';
     const box=document.getElementById('showdownBox');
     const winner=players[st.result.winnerSeat];
@@ -412,7 +473,7 @@ async function leaveRoom(){
       const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
       await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})});
     }
-  } else if(room&&room.status==='playing'&&mySeat>=0&&!room.state.folded[mySeat]&&room.state.phase==='betting'){
+  } else if(room&&room.status==='playing'&&mySeat>=0&&room.state.stage!=='showdown'&&!room.state.folded[mySeat]){
     if(confirm('정말 나가시겠어요? 다이(기권) 처리돼요.')){ await actDie(); }
     else return;
   }
