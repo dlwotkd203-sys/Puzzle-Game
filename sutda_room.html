@@ -44,8 +44,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <script>
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
-const BASE_UNIT=100;
-const RECHARGE_AMOUNT=3000;
+const RECHARGE_AMOUNT=5000;
+const STARTING_POINTS=10000;
 const HWATU_URLS={
   1:'https://upload.wikimedia.org/wikipedia/commons/8/8e/Hwatu001.svg',
   2:'https://upload.wikimedia.org/wikipedia/commons/b/bd/Hwatu002.svg',
@@ -133,7 +133,16 @@ function renderLobby(wrap){
   const players=room.players||[];
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
   const allReady=players.length>=2&&players.every(p=>p.ready);
-  let html='<div style="width:100%;padding:0 6px;">';
+  const unitOptions=[50,100,200,500,1000];
+  let html=`<div style="width:100%;text-align:center;font-family:-apple-system,sans-serif;font-size:13px;color:#555;margin-bottom:6px;">기본 배팅액(삥): <b style="color:#8a1a1a;">${room.base_unit}P</b></div>`;
+  if(isHost){
+    html+='<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:10px;">';
+    unitOptions.forEach(u=>{
+      html+=`<div class="unitOpt" data-u="${u}" style="padding:6px 12px;border-radius:10px;font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;cursor:pointer;background:${room.base_unit===u?'#8a1a1a':'#f0f0f0'};color:${room.base_unit===u?'#fff':'#555'};">${u}P</div>`;
+    });
+    html+='</div>';
+  }
+  html+='<div style="width:100%;padding:0 6px;">';
   players.forEach(p=>{
     html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
       <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}</div>
@@ -149,6 +158,15 @@ function renderLobby(wrap){
     html+=`<div class="big-btn" id="startBtn" style="background:${allReady?'#ff5e3a':'#e2e2e2'};color:${allReady?'#fff':'#999'};margin-top:8px;">게임 시작${allReady?'':' (2명 이상 전원 준비 필요)'}</div>`;
   }
   wrap.innerHTML=html;
+  if(isHost){
+    wrap.querySelectorAll('.unitOpt').forEach(el=>{
+      el.addEventListener('click',async()=>{
+        const u=parseInt(el.dataset.u);
+        await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({base_unit:u})});
+        fetchRoom();
+      });
+    });
+  }
   if(mySeat>=0){
     document.getElementById('readyBtn').addEventListener('click',async()=>{
       const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
@@ -173,7 +191,7 @@ async function startHand(){
   const pointsSnapshot=await Promise.all(players.map(async p=>{
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
     const data=await r.json();
-    return data.length?data[0].points:RECHARGE_AMOUNT;
+    return data.length?data[0].points:STARTING_POINTS;
   }));
   const state={
     mode:room.mode, deck, hands,
@@ -284,7 +302,7 @@ async function settleHand(){
     if(delta===0) return;
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
     const data=await r.json();
-    const cur=data.length?data[0].points:RECHARGE_AMOUNT;
+    const cur=data.length?data[0].points:STARTING_POINTS;
     const newPts=Math.max(0,cur+delta);
     await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:newPts})});
   }));
@@ -303,16 +321,18 @@ function myAfford(amount){
 }
 
 async function actBbing(){
+  const unit=room.base_unit;
   await patchState(s=>{
-    s.pot+=BASE_UNIT; s.contributions[mySeat]+=BASE_UNIT; s.currentBet=BASE_UNIT;
-    s.actedAtBet[mySeat]=BASE_UNIT; s.openingDone=true;
+    s.pot+=unit; s.contributions[mySeat]+=unit; s.currentBet=unit;
+    s.actedAtBet[mySeat]=unit; s.openingDone=true;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
 }
 async function actDdadang(){
+  const unit=room.base_unit;
   await patchState(s=>{
-    let newBet = !s.openingDone ? BASE_UNIT*2 : s.currentBet*2;
+    let newBet = !s.openingDone ? unit*2 : s.currentBet*2;
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
     s.actedAtBet[mySeat]=newBet; s.openingDone=true;
@@ -330,8 +350,9 @@ async function actCall(){
   render();
 }
 async function actRaiseFrac(frac){
+  const unit=room.base_unit;
   await patchState(s=>{
-    const raiseAmt=Math.max(BASE_UNIT,Math.floor(s.pot*frac));
+    const raiseAmt=Math.max(unit,Math.floor(s.pot*frac));
     const newBet=s.currentBet+raiseAmt;
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
@@ -431,8 +452,8 @@ function renderGame(wrap){
       const canBbing=!st.openingDone;
       const canCall=st.openingDone&&st.contributions[mySeat]<st.currentBet;
       const buttons=[];
-      if(canBbing) buttons.push(['삥',actBbing,BASE_UNIT]);
-      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:BASE_UNIT*2]);
+      if(canBbing) buttons.push(['삥',actBbing,room.base_unit]);
+      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:room.base_unit*2]);
       if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
       if(st.openingDone) buttons.push(['하프',()=>actRaiseFrac(0.5),null]);
       if(st.openingDone) buttons.push(['쿼터',()=>actRaiseFrac(0.25),null]);
