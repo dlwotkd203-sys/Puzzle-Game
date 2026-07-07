@@ -199,6 +199,7 @@ function getDiff(s){return DIFFS.find(d=>s>=d.range[0]&&s<=d.range[1]);}
 const GAMES=[
   {id:'onecard',name:'원카드',icon:'🃏',available:true},
   {id:'sutda',name:'섯다',icon:'🎴',available:true},
+  {id:'catchmind',name:'캐치마인드',icon:'🎨',available:true},
   {id:'shikaku',name:'시카쿠',icon:'⊞',available:true},
 {id:'sudoku', name:'스도쿠', icon:'#', available:true},
   {id:'2048',name:'2048',icon:'∞',available:true},
@@ -312,6 +313,13 @@ async function getTop1(gameId){
       const data=await res.json();
       return data.length?data[0].username:null;
     }
+    if(gameId==='catchmind'){
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_points?select=username,points&order=points.desc&limit=1`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      return data.length?data[0].username:null;
+    }
     if(gameId==='omok'||gameId==='onecard'){
       const table=gameId==='omok'?'omok_elo':'onecard_elo';
       const res=await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=username,rating&order=rating.desc&limit=1`,{
@@ -404,6 +412,7 @@ function goHome(){renderHome();showScreen('home');}
 function openGame(game){
   if(game.id==='sutda'){ location.href='sutda_rooms.html'; return; }
   if(game.id==='onecard'){ location.href='onecard_rooms.html'; return; }
+  if(game.id==='catchmind'){ location.href='catchmind_rooms.html'; return; }
   if(game.id==='sudoku'){ location.href='sudoku_stages.html'; return; }
   if(game.id==='shikaku'){ location.href='shikaku_stages.html'; return; }
 if(game.id==='2048'){ location.href='2048.html'; return; }

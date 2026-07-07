@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>캐치마인드</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;display:flex;flex-direction:column;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:15px;font-weight:600;color:#111;flex:1;}
+.wrap{padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;flex:1;}
+.center-msg{text-align:center;padding:2rem 1rem;color:#8a8a9a;font-size:13px;line-height:1.8;}
+.big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;text-align:center;}
+.opt-label{font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;color:#666;margin:6px 0 4px;align-self:flex-start;}
+.opt-row{display:flex;gap:6px;flex-wrap:wrap;width:100%;}
+.opt-row div{padding:8px 10px;border-radius:10px;background:#f0f0f0;font-family:-apple-system,sans-serif;font-weight:700;font-size:12px;cursor:pointer;color:#555;}
+.opt-row div.sel{background:#3d5afe;color:#fff;}
+.lobby-row{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;width:100%;}
+.kickBtn{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:#fff;background:#c0392b;padding:4px 9px;border-radius:10px;cursor:pointer;}
+
+.canvas-area{position:relative;width:100%;aspect-ratio:5/4;border:4px solid #e63946;border-radius:12px;background:#fff;overflow:hidden;touch-action:none;}
+.canvas-area canvas{position:absolute;left:0;top:0;width:100%;height:100%;}
+.drawer-badge{display:flex;align-items:center;gap:6px;background:#ffd166;border-radius:16px;padding:6px 14px;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#5c4200;}
+.audience-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;padding:4px 0;}
+.audience-chip{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.audience-circle{width:38px;height:38px;border-radius:50%;background:#e8f0ff;border:2px solid #3d5afe;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#3d5afe;}
+.audience-circle.correct{background:#0f9e75;border-color:#0f9e75;color:#fff;}
+.audience-name{font-family:-apple-system,sans-serif;font-size:9px;color:#666;max-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.timer-wrap{width:100%;height:8px;background:#eee;border-radius:4px;overflow:hidden;}
+.timer-bar{height:100%;background:linear-gradient(90deg,#3d5afe,#7c5cff);transition:width .3s linear;}
+.timer-bar.warn{background:linear-gradient(90deg,#ff5e3a,#e63946);}
+.palette-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;width:100%;}
+.color-dot{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid rgba(0,0,0,0.1);}
+.color-dot.sel{box-shadow:0 0 0 3px #3d5afe;}
+.tool-row{display:flex;gap:6px;justify-content:center;width:100%;flex-wrap:wrap;}
+.tool-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:11px;padding:7px 12px;border-radius:12px;background:#f0f0f0;color:#555;cursor:pointer;}
+.tool-btn.sel{background:#3d5afe;color:#fff;}
+.word-box{font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;background:#fff3e0;padding:6px 14px;border-radius:10px;letter-spacing:2px;}
+.chat-log{width:100%;height:120px;overflow-y:auto;border:1px solid #eee;border-radius:10px;padding:6px 8px;font-family:-apple-system,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:3px;}
+.chat-line{line-height:1.4;word-break:break-all;}
+.chat-line .nick{font-weight:700;color:#3d5afe;}
+.chat-line.correct{color:#0f9e75;font-weight:700;}
+.chat-line.sys{color:#999;font-style:italic;}
+#chatBar{position:sticky;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;padding:8px 12px;display:flex;gap:8px;align-items:center;z-index:40;}
+#chatInput{flex:1;border:1px solid #ddd;border-radius:20px;padding:9px 14px;font-size:13px;font-family:inherit;outline:none;}
+#chatInput:disabled{background:#f5f5f5;color:#bbb;}
+#chatSendBtn{font-weight:700;color:#3d5afe;font-size:13px;cursor:pointer;padding:8px 12px;flex-shrink:0;}
+.score-table{width:100%;border-collapse:collapse;font-family:-apple-system,sans-serif;font-size:13px;}
+.score-table td{padding:8px 6px;border-bottom:1px solid #f0f0f0;}
+.score-table .rank{font-weight:800;color:#c9861a;width:28px;}
+.score-table .delta{color:#0f9e75;font-weight:700;text-align:right;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">캐치마인드</span>
+  </div>
+  <div class="wrap" id="wrap"><div class="center-msg">불러오는 중...</div></div>
+  <div id="chatBar" style="display:none;">
+    <input id="chatInput" maxlength="20" placeholder="정답을 채팅으로 입력하세요">
+    <div id="chatSendBtn">전송</div>
+  </div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const COLORS=['#1a1a1a','#e63946','#f4d35e','#2a9d34','#3d5afe','#ffffff','#ff6fb5','#20c9c9'];
+const PALETTE_BORDER={'#ffffff':'#ccc'};
+
+const WORDS=[
+'강아지','고양이','토끼','호랑이','사자','코끼리','기린','펭귄','부엉이','다람쥐',
+'거북이','문어','상어','악어','캥거루','너구리','고슴도치','앵무새','수달','판다',
+'곰','여우','늑대','사슴','말','당나귀','소','돼지','양','염소',
+'원숭이','침팬지','고릴라','오랑우탄','하마','코뿔소','얼룩말','물소','낙타','알파카',
+'라마','다람쥐원숭이','북극곰','바다표범','물개','바다사자','고래','돌고래','스컹크','두더지',
+'비버','오소리','족제비','수사슴','산양','들소','미어캣','나무늘보','아르마딜로','왈라비',
+'참새','까치','까마귀','비둘기','독수리','매','올빼미','플라밍고','타조','공작',
+'백조','오리','거위','갈매기','두루미','딱따구리','제비','종달새','뻐꾸기','잉꼬',
+'카나리아','벌새','펠리컨','황새','메추라기','칠면조','닭','병아리','개미','벌',
+'나비','잠자리','매미','메뚜기','귀뚜라미','사마귀','무당벌레','반딧불이','파리','모기',
+'바퀴벌레','거미','전갈','지네','달팽이','지렁이','장수풍뎅이','사슴벌레','하늘소','방아깨비',
+'물방개','소금쟁이','베짱이','누에','애벌레','번데기','진드기','흰개미','물고기','금붕어',
+'해파리','불가사리','성게','조개','소라','전복','굴','새우','게','랍스터',
+'오징어','해마','가오리','참치','연어','고등어','복어','멸치','장어','메기',
+'붕어','거북','바다거북','해달','산호','미역','뱀','도마뱀','카멜레온','이구아나',
+'개구리','두꺼비','올챙이','도롱뇽','자라','악어거북','코브라','비단뱀','살모사','왕도마뱀',
+'김치','된장찌개','비빔밥','불고기','삼겹살','갈비','냉면','칼국수','수제비','잡채',
+'전','파전','김치전','부침개','설렁탕','삼계탕','곰탕','육개장','순두부찌개','청국장',
+'물냉면','비빔냉면','떡국','만둣국','갈비탕','추어탕','감자탕','부대찌개','제육볶음','닭갈비',
+'보쌈','족발','순대','떡갈비','장어구이','간장게장','양념게장','도토리묵','콩나물국','미역국',
+'스테이크','스파게티','라자냐','리조또','오믈렛','수프','샌드위치','핫도그','타코','부리또',
+'짜장면','짬뽕','탕수육','마파두부','볶음밥','딤섬','양꼬치','마라탕','훠궈','깐풍기',
+'스시','라멘','우동','돈카츠','규동','오코노미야키','타코야키','텐푸라','가츠동','오니기리',
+'피자','파스타','카레','그라탕','치즈퐁듀','바게트','크로크무슈','팬케이크','와플','베이글',
+'떡볶이','튀김','오뎅','핫바','붕어빵','호떡','계란빵','토스트','호두과자','닭꼬치',
+'솜사탕','뻥튀기','쥐포','어묵꼬치','감자튀김','치즈스틱','고로케','케이크','마카롱','초콜릿',
+'쿠키','도넛','크로플','휘낭시에','타르트','푸딩','젤리','사탕','캐러멜','츄러스',
+'크레페','빙수','아이스크림콘','마들렌','에클레르','생크림케이크','롤케이크','단팥빵','크림빵','소보로빵',
+'바게트빵','식빵','머핀','스콘','파이','시나몬롤','수박','딸기','포도','사과',
+'배','바나나','오렌지','귤','레몬','자몽','복숭아','자두','체리','블루베리',
+'키위','파인애플','망고','메론','석류','무화과','감','밤','대추','앵두',
+'살구','용과','두리안','파파야','코코넛','아보카도','당근','감자','고구마','양파',
+'마늘','파','배추','무','오이','호박','가지','피망','파프리카','브로콜리',
+'시금치','상추','깻잎','콩나물','버섯','옥수수','토마토','고추','생강','부추',
+'우엉','연근','도라지','미나리','쑥갓','아스파라거스','우유','주스','콜라','사이다',
+'커피','녹차','홍차','스무디','밀크셰이크','라떼','에스프레소','아메리카노','카푸치노','핫초코',
+'유자차','식혜','수정과','막걸리','맥주','와인','베개','이불','담요','매트리스',
+'옷걸이','거울','액자','시계','촛불','향초','화분','빗자루','쓰레받기','걸레',
+'수건','휴지','물티슈','비닐봉지','바구니','상자','열쇠고리','우산꽂이','신발장','옷장',
+'서랍장','책장','달력','메모지','포스트잇','풀','테이프','가위','자','칼',
+'도마','냄비','프라이팬','국자','뒤집개','주걱','젓가락','숟가락','포크','그릇',
+'접시','컵','물병','보온병','도시락통','쟁반','칫솔','치약','비누','샴푸',
+'린스','바디워시','헤어드라이어','빗','면도기','세탁기','건조기','청소기','대걸레','고무장갑',
+'세제','섬유유연제','다리미','다림판','빨래집게','텔레비전','냉장고','에어컨','선풍기','전자레인지',
+'오븐','토스터','믹서기','전기밥솥','정수기','가습기','제습기','공기청정기','전기포트','전기장판',
+'스피커','헤드폰','침대','소파','책상','의자','식탁','화장대','커튼','카펫',
+'러그','조명','스탠드','벽시계','행거','수납장','연필','볼펜','지우개','필통',
+'공책','스케치북','크레파스','색연필','물감','붓','팔레트','클립','스테이플러','형광펜',
+'샤프','샤프심','파일','바인더','다이어리','계산기','자석','압정','자로','의사',
+'간호사','경찰관','소방관','요리사','선생님','화가','가수','축구선수','우주비행사','농부',
+'어부','미용사','마술사','과학자','운전기사','제빵사','바리스타','디자이너','건축가','변호사',
+'판사','기자','아나운서','배우','감독','작가','사진작가','조종사','승무원','택배기사',
+'우체부','환경미화원','정비사','전기기사','목수','재봉사','조각가','도예가','플로리스트','수의사',
+'약사','치과의사','한의사','영양사','상담사','통역사','번역가','프로그래머','회계사','학교',
+'병원','놀이터','도서관','수영장','바다','산','사막','동물원','편의점','공원',
+'성','우주정거장','기차역','정류장','시장','백화점','마트','카페','식당','영화관',
+'미술관','박물관','체육관','경기장','목욕탕','헬스장','약국','은행','우체국','주유소',
+'세차장','주차장','지하철역','공항','항구','등대','다리','터널','골목','놀이공원',
+'수족관','식물원','천문대','전망대','절','교회','성당','신전','피라미드','자동차',
+'버스','택시','트럭','오토바이','자전거','스쿠터','기차','지하철','전철','비행기',
+'헬리콥터','열기구','요트','잠수함','유람선','카누','로켓','스케이트보드','킥보드','인력거',
+'마차','썰매','케이블카','곤돌라','유모차','휠체어','손수레','지게차','무지개','눈사람',
+'번개','태풍','폭포','화산','노을','구름','달','별','바람','비',
+'눈','안개','서리','이슬','우박','해','일식','월식','오로라','신기루',
+'지진','해일','산사태','홍수','가뭄','황사','폭설','우레','강','호수',
+'계곡','절벽','동굴','섬','언덕','들판','초원','늪','머리','얼굴',
+'코','입','귀','목','어깨','팔','손','손가락','발','발가락',
+'등','허리','무릎','팔꿈치','손목','티셔츠','바지','청바지','치마','원피스',
+'자켓','코트','패딩','스웨터','조끼','양말','속옷','잠옷','수영복','한복',
+'정장','넥타이','스카프','장갑','목도리','모자','비니','헬멧','신발','운동화',
+'구두','슬리퍼','부츠','샌들','하이힐','가방','백팩','지갑','벨트','팔찌',
+'목걸이','귀걸이','반지','선글라스','축구','야구','농구','배구','탁구','테니스',
+'배드민턴','골프','수영','달리기','마라톤','스키','스노보드','스케이트','볼링','당구',
+'양궁','펜싱','유도','태권도','검도','복싱','레슬링','체조','요가','필라테스',
+'등산','서핑','다이빙','승마','사이클링','스쿼시','핸드볼','럭비','아이스하키','컬링',
+'조정','암벽등반','패러글라이딩','그림그리기','독서','바둑','장기','체스','카드게임','퍼즐',
+'블록쌓기','레고','종이접기','뜨개질','자수','도자기공예','캘리그라피','사진찍기','악기연주','노래방',
+'다트','윷놀이','제기차기','팽이치기','비석치기','고무줄놀이','숨바꼭질','술래잡기','딱지치기','구슬치기',
+'땅따먹기','피아노','기타','바이올린','첼로','플루트','트럼펫','드럼','하모니카','오카리나',
+'우쿨렐레','색소폰','클라리넷','비올라','하프','아코디언','장구','꽹과리','징','북',
+'가야금','동그라미','세모','네모','별모양','하트','타원','정육면체','원기둥','원뿔',
+'다이아몬드','빨간색','파란색','노란색','초록색','보라색','주황색','분홍색','하늘색','검정색',
+'흰색','봄','여름','가을','겨울','설날','추석','크리스마스','발렌타인데이','할로윈',
+'어린이날','어버이날','스승의날','생일','졸업식','입학식','결혼식','환갑잔치','돌잔치','제사',
+'성탄절','행복','슬픔','화남','놀람','부끄러움','지루함','두려움','설렘','피곤함',
+'졸림','웃음','눈물','한숨','하품','딸꾹질','재채기','기침','미소','찡그림',
+'윙크','걷기','뛰기','점프하기','수영하기','자전거타기','스케이트타기','춤추기','노래하기','악기연주하기',
+'책읽기','글쓰기','요리하기','설거지하기','청소하기','빨래하기','다림질하기','운전하기','자전거고치기','낚시하기',
+'캠핑하기','등산하기','줄넘기하기','팔굽혀펴기','윗몸일으키기','물구나무서기','재주넘기','줄다리기','씨름하기','박수치기',
+'손흔들기','포옹하기','악수하기','인사하기','기도하기','명상하기','요가하기','스트레칭하기','잠자기','양치하기',
+'세수하기','샤워하기','머리감기','화장하기','면도하기','다이어트하기','운동하기','헬스하기','조깅하기','마법사',
+'요정','드래곤','유니콘','인어','거인','난쟁이','늑대인간','뱀파이어','미라','프랑켄슈타인',
+'도깨비','귀신','저승사자','천사','악마','기사','왕','왕비','왕자','공주',
+'마법지팡이','마법의양탄자','요술램프','황금알','콩나무','신데렐라','백설공주','잠자는공주','컴퓨터','노트북',
+'키보드','마우스','모니터','프린터','스캐너','usb','충전기','이어폰','스마트폰','태블릿',
+'스마트워치','카메라','캠코더','드론','로봇청소기','게임기','조이스틱','vr기기','와이파이공유기','전선',
+'배터리','리모컨','블루투스스피커','웹캠','마이크','플래시드라이브','외장하드','청진기','주사기','체온계',
+'붕대','반창고','깁스','목발','링거','약','알약','물약','마스크','체중계',
+'혈압계','엑스레이','수술복','수술실','응급실','앰뷸런스','우주선','우주복','인공위성','망원경',
+'현미경','실험관','비커','플라스크','지구','태양','토성','목성','화성','금성',
+'은하수','블랙홀','유성','혜성','운석','외계인','ufo','타임머신','로봇','인공지능',
+'태양광패널','교실','칠판','분필','책가방','교복','급식','시험지','성적표','졸업장',
+'상장','국어','수학','영어','과학','사회','음악','미술','체육','도덕',
+'한국사','립스틱','파운데이션','마스카라','아이섀도우','블러셔','향수','매니큐어','헤어롤','고데기',
+'네일아트','망치','드라이버','톱','펜치','줄자','수평계','전동드릴','사다리','삽',
+'호미','낫','도끼','곡괭이','물뿌리개','안전모','안전화','용접기','볼트','너트',
+'텐트','침낭','랜턴','캠핑의자','캠핑테이블','버너','코펠','아이스박스','모닥불','장작',
+'롤러코스터','회전목마','바이킹','범퍼카','대관람차','유령의집','풍선','폭죽','불꽃놀이','눈썰매',
+'스키장','고드름','눈덩이','눈싸움','벙어리장갑','귀마개','핫팩'
+];
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const roomId=new URLSearchParams(location.search).get('id');
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+let room=null,mySeat=-1,pollTimer=null;
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('wrap').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    render();
+  }catch(e){}
+}
+
+function render(){
+  document.getElementById('roomTitle').textContent=esc(room.host_username)+'님의 방 ('+room.rounds+'라운드 · '+room.time_limit+'초)';
+  const wrap=document.getElementById('wrap');
+  const chatBar=document.getElementById('chatBar');
+  if(room.status==='waiting'){ chatBar.style.display='none'; renderLobby(wrap); }
+  else if(room.status==='playing'){ chatBar.style.display='flex'; renderGame(wrap); }
+}
+
+function renderLobby(wrap){
+  const players=room.players||[];
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const me=mySeat>=0?players[mySeat]:null;
+  const allReady=players.length>=2&&players.every(p=>p.ready);
+  let html='';
+  if(isHost){
+    html+='<div class="opt-label">라운드 수</div><div class="opt-row" id="roundsRow">';
+    [3,5,7,10,15,20].forEach(v=>{ html+=`<div class="roundOpt ${room.rounds===v?'sel':''}" data-v="${v}">${v}</div>`; });
+    html+='</div>';
+    html+='<div class="opt-label">그리는 시간</div><div class="opt-row" id="timeRow">';
+    [30,60,90,120].forEach(v=>{ html+=`<div class="timeOpt ${room.time_limit===v?'sel':''}" data-v="${v}">${v}초</div>`; });
+    html+='</div>';
+  }
+  html+='<div class="opt-label">참가자 ('+players.length+'/8)</div>';
+  html+='<div style="width:100%;">';
+  players.forEach((p,i)=>{
+    const canKick=isHost&&i!==mySeat;
+    html+=`<div class="lobby-row" id="lobby-row-${i}">
+      <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}${String(p.user_id)===String(room.host_user_id)?' 👑':''}</div>
+      <div style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:${p.ready?'#0f9e75':'#bbb'};">${p.ready?'준비완료':'대기중'}</div>
+      ${canKick?`<div class="kickBtn" data-i="${i}">강퇴</div>`:''}
+    </div>`;
+  });
+  html+='</div>';
+  if(me){
+    html+=`<div class="big-btn" id="readyBtn" style="width:100%;margin-top:10px;background:${me.ready?'#eee':'#3d5afe'};color:${me.ready?'#666':'#fff'};">${me.ready?'준비 취소':'준비하기'}</div>`;
+  }
+  if(isHost){
+    html+=`<div class="big-btn" id="startBtn" style="width:100%;margin-top:6px;background:${allReady?'#ff5e3a':'#e2e2e2'};color:${allReady?'#fff':'#999'};">게임 시작</div>`;
+  }
+  wrap.innerHTML=html;
+
+  if(isHost){
+    wrap.querySelectorAll('.roundOpt').forEach(el=>{
+      el.addEventListener('click',async()=>{
+        await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({rounds:parseInt(el.dataset.v)})});
+        fetchRoom();
+      });
+    });
+    wrap.querySelectorAll('.timeOpt').forEach(el=>{
+      el.addEventListener('click',async()=>{
+        await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({time_limit:parseInt(el.dataset.v)})});
+        fetchRoom();
+      });
+    });
+    wrap.querySelectorAll('.kickBtn').forEach(el=>{
+      el.addEventListener('click',()=>kickPlayer(parseInt(el.dataset.i)));
+    });
+    const startBtn=document.getElementById('startBtn');
+    if(startBtn&&allReady) startBtn.addEventListener('click',startMatch);
+  }
+  const readyBtn=document.getElementById('readyBtn');
+  if(readyBtn) readyBtn.addEventListener('click',toggleReady);
+}
+
+async function toggleReady(){
+  const np=room.players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+  await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np,move_count:room.move_count+1})
+  });
+  fetchRoom();
+}
+async function kickPlayer(idx){
+  if(!confirm('정말 이 플레이어를 강퇴하시겠어요?')) return;
+  const np=(room.players||[]).filter((_,i)=>i!==idx).map((p,i)=>({...p,seat:i}));
+  await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np,move_count:room.move_count+1})
+  });
+  fetchRoom();
+}
+
+function pickWord(usedWords){
+  let pool=WORDS.filter(w=>!usedWords.includes(w));
+  if(!pool.length) pool=WORDS.slice();
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+function scoreForElapsed(elapsedMs,timeLimitSec){
+  const frac=Math.min(1,Math.max(0,elapsedMs/(timeLimitSec*1000)));
+  return Math.max(1,Math.round(10-9*frac));
+}
+
+async function startMatch(){
+  const players=room.players||[];
+  const n=players.length;
+  const word=pickWord([]);
+  const state={
+    round:1, drawerSeat:0,
+    word, usedWords:[word],
+    strokes:[], liveStroke:null,
+    correctGuesses:[], scores:players.map(()=>0),
+    stage:'drawing', roundStartedAt:Date.now(),
+    roundEndedAt:null, roundDeltas:null
+  };
+  await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{
+    method:'PATCH',headers:jheaders(),
+    body:JSON.stringify({status:'playing',state,move_count:room.move_count+1})
+  });
+  fetchRoom();
+}
+
+let gameAnimLock=false;
+async function patchGameState(mutator){
+  if(gameAnimLock) return;
+  gameAnimLock=true;
+  const watchdog=setTimeout(()=>{ gameAnimLock=false; },4000);
+  try{
+    const st=JSON.parse(JSON.stringify(room.state));
+    mutator(st);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({state:st,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; } else { await fetchRoom(); }
+  }catch(e){ console.error(e); }
+  finally{ clearTimeout(watchdog); gameAnimLock=false; }
+}
+
+function endRound(st){
+  const players=room.players;
+  const deltas=players.map(()=>0);
+  st.correctGuesses.forEach(g=>{ deltas[g.seat]+=g.points; deltas[st.drawerSeat]+=g.points; });
+  st.scores=st.scores.map((s,i)=>s+deltas[i]);
+  st.roundDeltas=deltas;
+  st.stage='roundResult';
+  st.roundEndedAt=Date.now();
+}
+function goNextRound(st){
+  const n=room.players.length;
+  const nextRoundNum=st.round+1;
+  if(nextRoundNum>room.rounds){
+    st.stage='matchResult';
+    return;
+  }
+  const word=pickWord(st.usedWords);
+  st.round=nextRoundNum;
+  st.drawerSeat=(st.drawerSeat+1)%n;
+  st.word=word;
+  st.usedWords=[...st.usedWords,word];
+  st.strokes=[]; st.liveStroke=null;
+  st.correctGuesses=[];
+  st.stage='drawing';
+  st.roundStartedAt=Date.now();
+  st.roundEndedAt=null;
+  st.roundDeltas=null;
+}
+
+const CANVAS_W=500, CANVAS_H=400;
+let myColor='#1a1a1a', myTool='pen', mySize=6;
+let baseDrawnCount=0, lastStrokesRoundKey=null;
+
+let lastDrawingSkeletonKey=null;
+function renderGame(wrap){
+  const st=room.state;
+  const players=room.players;
+  const isPlayer=mySeat>=0;
+  const isDrawer=isPlayer&&mySeat===st.drawerSeat;
+
+  if(st.stage==='drawing'){
+    const skeletonKey=room.id+':'+st.round+':'+isDrawer;
+    if(lastDrawingSkeletonKey!==skeletonKey){
+      // 라운드/출제자가 바뀔 때만 골격을 새로 그림 (매 폴링마다 다시 그리면 그리던 중간에 캔버스가 끊겨요)
+      lastDrawingSkeletonKey=skeletonKey;
+      let html='';
+      html+=`<div class="opt-label" style="align-self:center;">라운드 ${st.round} / ${room.rounds}</div>`;
+      html+='<div class="canvas-area" id="canvasArea"><canvas id="baseCanvas" width="'+CANVAS_W+'" height="'+CANVAS_H+'"></canvas><canvas id="liveCanvas" width="'+CANVAS_W+'" height="'+CANVAS_H+'"></canvas></div>';
+      html+='<div class="timer-wrap"><div class="timer-bar" id="timerBar" style="width:100%;"></div></div>';
+      html+='<div class="drawer-badge" id="drawerBadge"></div>';
+      if(isDrawer){
+        html+=`<div class="word-box">정답: ${esc(st.word)}</div>`;
+        html+='<div class="palette-row" id="paletteRow">';
+        COLORS.forEach(c=>{ html+=`<div class="color-dot ${myColor===c?'sel':''}" data-c="${c}" style="background:${c};${PALETTE_BORDER[c]?'border-color:'+PALETTE_BORDER[c]+';':''}"></div>`; });
+        html+='</div>';
+        html+=`<div class="tool-row">
+          <div class="tool-btn ${myTool==='pen'?'sel':''}" id="penBtn">✏️ 펜</div>
+          <div class="tool-btn ${myTool==='eraser'?'sel':''}" id="eraserBtn">🧹 지우개</div>
+          <div class="tool-btn" id="clearAllBtn">전체 지우기</div>
+          <div class="tool-btn" id="fillAllBtn">전체 칠하기</div>
+        </div>`;
+      }
+      html+='<div class="audience-row" id="audienceRow"></div>';
+      html+='<div class="chat-log" id="chatLog"></div>';
+      wrap.innerHTML=html;
+      bindCanvasControls(isDrawer);
+      baseDrawnCount=0;
+      redrawBaseFull(st);
+    }
+    // 매 폴링마다 갱신되는 것들
+    const drawerP=players[st.drawerSeat];
+    const badgeEl=document.getElementById('drawerBadge');
+    if(badgeEl) badgeEl.textContent='✏️ '+(drawerP?drawerP.username:'')+' 님이 그리는 중';
+    const audEl=document.getElementById('audienceRow');
+    if(audEl){
+      audEl.innerHTML='';
+      players.forEach((p,i)=>{
+        if(i===st.drawerSeat) return;
+        const correct=st.correctGuesses.some(g=>g.seat===i);
+        const div=document.createElement('div');
+        div.className='audience-chip';
+        div.innerHTML=`<div class="audience-circle ${correct?'correct':''}">${correct?'✔':esc(p.username[0]||'?')}</div><div class="audience-name">${esc(p.username)}</div>`;
+        audEl.appendChild(div);
+      });
+    }
+    if(st.strokes.length!==baseDrawnCount) redrawBaseFull(st);
+    if(!isDrawer) redrawLiveFromState(st);
+    renderChatLog();
+    updateChatBarState(st,isDrawer);
+  } else if(st.stage==='roundResult'){
+    lastDrawingSkeletonKey=null;
+    renderRoundResult(wrap,st,players);
+  } else if(st.stage==='matchResult'){
+    lastDrawingSkeletonKey=null;
+    renderMatchResult(wrap,st,players);
+  }
+}
+
+function updateChatBarState(st,isDrawer){
+  const input=document.getElementById('chatInput');
+  const sendBtn=document.getElementById('chatSendBtn');
+  if(!input) return;
+  const alreadyCorrect=mySeat>=0&&st.correctGuesses.some(g=>g.seat===mySeat);
+  const onCooldown=chatCooldownUntil&&Date.now()<chatCooldownUntil;
+  if(isDrawer){
+    input.disabled=true; input.placeholder='그리는 중에는 채팅할 수 없어요';
+  } else if(alreadyCorrect){
+    input.disabled=true; input.placeholder='이미 정답을 맞췄어요!';
+  } else if(onCooldown){
+    input.disabled=true; input.placeholder='잠시 후 다시 채팅할 수 있어요';
+  } else {
+    input.disabled=false; input.placeholder='정답을 채팅으로 입력하세요';
+  }
+}
+
+function canvasCtx(id){ const c=document.getElementById(id); return c?c.getContext('2d'):null; }
+function drawSegment(ctx,seg){
+  if(!seg||!seg.points||seg.points.length<1) return;
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  if(seg.tool==='eraser'){ ctx.globalCompositeOperation='destination-out'; ctx.strokeStyle='rgba(0,0,0,1)'; }
+  else { ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=seg.color; }
+  ctx.lineWidth=seg.size||6;
+  ctx.beginPath();
+  ctx.moveTo(seg.points[0][0],seg.points[0][1]);
+  for(let i=1;i<seg.points.length;i++) ctx.lineTo(seg.points[i][0],seg.points[i][1]);
+  if(seg.points.length===1){ ctx.lineTo(seg.points[0][0]+0.1,seg.points[0][1]+0.1); }
+  ctx.stroke();
+  ctx.globalCompositeOperation='source-over';
+}
+function redrawBaseFull(st){
+  const ctx=canvasCtx('baseCanvas');
+  if(!ctx) return;
+  ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+  st.strokes.forEach(seg=>{
+    if(seg.type==='fill'){ ctx.fillStyle=seg.color; ctx.fillRect(0,0,CANVAS_W,CANVAS_H); }
+    else drawSegment(ctx,seg);
+  });
+  baseDrawnCount=st.strokes.length;
+}
+function redrawLiveFromState(st){
+  const ctx=canvasCtx('liveCanvas');
+  if(!ctx) return;
+  ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+  if(st.liveStroke) drawSegment(ctx,st.liveStroke);
+}
+
+let drawing=false, curPoints=[], flushTimer=null, globalPointerUpBound=false;
+function toLogicalPoint(e,areaEl){
+  const rect=areaEl.getBoundingClientRect();
+  const cx=e.touches?e.touches[0].clientX:e.clientX;
+  const cy=e.touches?e.touches[0].clientY:e.clientY;
+  return [ (cx-rect.left)/rect.width*CANVAS_W, (cy-rect.top)/rect.height*CANVAS_H ];
+}
+async function flushLive(final){
+  if(curPoints.length<1) return;
+  const seg={color:myColor,size:myTool==='eraser'?24:mySize,tool:myTool,points:curPoints.slice()};
+  if(final){
+    curPoints=[];
+    await patchGameState(s=>{
+      if(s.stage!=='drawing') return;
+      s.strokes=[...s.strokes,seg];
+      s.liveStroke=null;
+    });
+    redrawLocalLive();
+    if(room.state.stage==='drawing') redrawBaseFull(room.state);
+  } else {
+    patchGameState(s=>{ if(s.stage==='drawing') s.liveStroke=seg; });
+  }
+}
+function redrawLocalLive(){
+  const liveCtx=canvasCtx('liveCanvas');
+  if(!liveCtx) return;
+  liveCtx.clearRect(0,0,CANVAS_W,CANVAS_H);
+  drawSegment(liveCtx,{color:myColor,size:myTool==='eraser'?24:mySize,tool:myTool,points:curPoints});
+}
+function onGlobalPointerUp(){
+  if(!drawing) return;
+  drawing=false;
+  if(flushTimer){ clearInterval(flushTimer); flushTimer=null; }
+  flushLive(true);
+}
+function bindCanvasControls(isDrawer){
+  if(!globalPointerUpBound){ window.addEventListener('pointerup',onGlobalPointerUp); globalPointerUpBound=true; }
+  if(!isDrawer) return;
+  const area=document.getElementById('canvasArea');
+  function onDown(e){
+    e.preventDefault();
+    drawing=true; curPoints=[toLogicalPoint(e,area)];
+    redrawLocalLive();
+    if(flushTimer) clearInterval(flushTimer);
+    flushTimer=setInterval(()=>flushLive(false),350);
+  }
+  function onMove(e){
+    if(!drawing) return;
+    e.preventDefault();
+    curPoints.push(toLogicalPoint(e,area));
+    redrawLocalLive();
+  }
+  area.addEventListener('pointerdown',onDown);
+  area.addEventListener('pointermove',onMove);
+
+  document.querySelectorAll('.color-dot').forEach(el=>{
+    el.addEventListener('click',()=>{ myColor=el.dataset.c; myTool='pen'; render(); });
+  });
+  const penBtn=document.getElementById('penBtn');
+  const eraserBtn=document.getElementById('eraserBtn');
+  if(penBtn) penBtn.addEventListener('click',()=>{ myTool='pen'; render(); });
+  if(eraserBtn) eraserBtn.addEventListener('click',()=>{ myTool='eraser'; render(); });
+  const clearBtn=document.getElementById('clearAllBtn');
+  if(clearBtn) clearBtn.addEventListener('click',()=>{
+    if(!confirm('캔버스를 전체 지우시겠어요?')) return;
+    patchGameState(s=>{ s.strokes=[]; s.liveStroke=null; });
+  });
+  const fillBtn=document.getElementById('fillAllBtn');
+  if(fillBtn) fillBtn.addEventListener('click',()=>{
+    patchGameState(s=>{ s.strokes=[...s.strokes,{type:'fill',color:myColor}]; s.liveStroke=null; });
+  });
+}
+
+function renderRoundResult(wrap,st,players){
+  let html=`<div class="opt-label" style="align-self:center;">라운드 ${st.round} 결과</div>`;
+  html+=`<div class="word-box">정답은 "${esc(st.word)}" 였어요</div>`;
+  html+='<table class="score-table"><tbody>';
+  const order=players.map((p,i)=>({p,i,delta:st.roundDeltas?st.roundDeltas[i]:0,total:st.scores[i]}))
+    .sort((a,b)=>b.total-a.total);
+  order.forEach((o,rank)=>{
+    html+=`<tr><td class="rank">${rank+1}</td><td>${esc(o.p.username)}${o.i===st.drawerSeat?' ✏️':''}</td><td class="delta">${o.delta>0?'+':''}${o.delta}</td><td style="text-align:right;font-weight:800;">${o.total}점</td></tr>`;
+  });
+  html+='</tbody></table>';
+  html+='<div class="opt-label" style="align-self:center;">잠시 후 다음 라운드로 넘어가요...</div>';
+  wrap.innerHTML=html;
+}
+
+function renderMatchResult(wrap,st,players){
+  let html='<div class="opt-label" style="align-self:center;font-size:15px;">🏆 최종 결과</div>';
+  html+='<table class="score-table"><tbody>';
+  const order=players.map((p,i)=>({p,i,total:st.scores[i]})).sort((a,b)=>b.total-a.total);
+  order.forEach((o,rank)=>{
+    html+=`<tr><td class="rank">${rank+1}</td><td>${esc(o.p.username)}</td><td style="text-align:right;font-weight:800;">${o.total}점</td></tr>`;
+  });
+  html+='</tbody></table>';
+  html+='<div class="big-btn" id="confirmResultBtn" style="width:100%;margin-top:12px;background:#ff5e3a;color:#fff;">확인</div>';
+  wrap.innerHTML=html;
+  document.getElementById('confirmResultBtn').addEventListener('click',backToLobby);
+}
+
+async function backToLobby(){
+  const np=(room.players||[]).map(p=>({...p,ready:false}));
+  await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'waiting',players:np,state:null})
+  });
+  fetchRoom();
+}
+
+// ---- 채팅/정답 처리 ----
+let lastChatId=0, chatTimer=null, chatCooldownUntil=0, chatCache=[];
+async function initChat(){
+  const input=document.getElementById('chatInput');
+  const sendBtn=document.getElementById('chatSendBtn');
+  sendBtn.addEventListener('click',sendChat);
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); });
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_chat?room_id=eq.${roomId}&select=*&order=id.desc&limit=30`,{headers:headers()});
+    const data=await r.json();
+    if(data&&data.length){ lastChatId=data[0].id; chatCache=data.reverse(); renderChatLog(); }
+  }catch(e){ console.error('채팅 초기화 에러',e); }
+  chatTimer=setInterval(pollChat,1000);
+}
+function normalizeGuess(s){ return String(s||'').trim().replace(/\s+/g,'').toLowerCase(); }
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const msg=input.value.trim().slice(0,20);
+  if(!msg||input.disabled) return;
+  if(chatCooldownUntil&&Date.now()<chatCooldownUntil) return;
+  const st=room.state;
+  const isDrawer=mySeat===st.drawerSeat;
+  if(isDrawer||mySeat<0) return;
+  if(st.correctGuesses.some(g=>g.seat===mySeat)) return;
+  input.value='';
+  const isCorrect = st.stage==='drawing' && normalizeGuess(msg)===normalizeGuess(st.word);
+  chatCooldownUntil=Date.now()+5000;
+  updateChatBarState(st,isDrawer);
+  try{
+    await fetch(`${SUPABASE_URL}/rest/v1/catchmind_chat`,{
+      method:'POST',headers:jheaders(),
+      body:JSON.stringify({room_id:String(roomId),seat:mySeat,username:currentUser.username,message:isCorrect?'':msg,correct:isCorrect})
+    });
+  }catch(e){ console.error('채팅 전송 에러',e); }
+  if(isCorrect){
+    await patchGameState(s=>{
+      if(s.stage!=='drawing') return;
+      if(s.correctGuesses.some(g=>g.seat===mySeat)) return;
+      const elapsed=Date.now()-s.roundStartedAt;
+      const points=scoreForElapsed(elapsed,room.time_limit);
+      s.correctGuesses=[...s.correctGuesses,{seat:mySeat,atMs:elapsed,points}];
+      const nonDrawerActive=room.players.map((_,i)=>i).filter(i=>i!==s.drawerSeat);
+      if(nonDrawerActive.every(i=>s.correctGuesses.some(g=>g.seat===i))){
+        endRound(s);
+      }
+    });
+  }
+  render();
+}
+async function pollChat(){
+  if(!roomId) return;
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_chat?room_id=eq.${roomId}&id=gt.${lastChatId}&order=id.asc&limit=30`,{headers:headers()});
+    if(!r.ok) return;
+    const data=await r.json();
+    if(data.length){
+      data.forEach(m=>{ lastChatId=m.id; });
+      chatCache=[...chatCache,...data].slice(-40);
+      renderChatLog();
+    }
+  }catch(e){ console.error('채팅 폴링 에러',e); }
+}
+function renderChatLog(){
+  const log=document.getElementById('chatLog');
+  if(!log) return;
+  log.innerHTML=chatCache.map(m=>{
+    if(m.correct) return `<div class="chat-line correct">🎉 ${esc(m.username)}님 정답!</div>`;
+    return `<div class="chat-line"><span class="nick">${esc(m.username)}</span> : ${esc(m.message)}</div>`;
+  }).join('');
+  log.scrollTop=log.scrollHeight;
+}
+
+// ---- 타이머/자동 라운드 진행 ----
+let roundEndTriggeredKey=null, nextRoundTriggeredKey=null;
+function tick(){
+  if(!(room&&room.status==='playing'&&room.state)) return;
+  const st=room.state;
+  if(st.stage==='drawing'){
+    const bar=document.getElementById('timerBar');
+    const elapsed=Date.now()-st.roundStartedAt;
+    const frac=Math.max(0,1-elapsed/(room.time_limit*1000));
+    if(bar){
+      bar.style.width=(frac*100)+'%';
+      bar.classList.toggle('warn',frac<0.25);
+    }
+    const key=room.id+':'+st.round;
+    if(elapsed>=room.time_limit*1000&&roundEndTriggeredKey!==key){
+      roundEndTriggeredKey=key;
+      patchGameState(s=>{ if(s.stage==='drawing') endRound(s); });
+    }
+  } else if(st.stage==='roundResult'){
+    const key=room.id+':'+st.round+':result';
+    const elapsed=Date.now()-(st.roundEndedAt||Date.now());
+    if(elapsed>=4500&&nextRoundTriggeredKey!==key){
+      nextRoundTriggeredKey=key;
+      patchGameState(s=>{ if(s.stage==='roundResult') goNextRound(s); });
+    }
+  } else if(st.stage==='matchResult'){
+    persistMatchPointsIfNeeded();
+  }
+}
+
+let matchPointsPersistedKey=null;
+async function persistMatchPointsIfNeeded(){
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const key=room.id+':'+room.move_count;
+  if(matchPointsPersistedKey===key) return;
+  matchPointsPersistedKey=key;
+  const players=room.players;
+  const scores=room.state.scores;
+  try{
+    await Promise.all(players.map(async(p,i)=>{
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_points?user_id=eq.${p.user_id}&select=points,matches`,{headers:headers()});
+      const data=await r.json();
+      const cur=data.length?data[0]:null;
+      const newPts=(cur?cur.points:0)+scores[i];
+      const newMatches=(cur?cur.matches:0)+1;
+      if(cur){
+        await fetch(`${SUPABASE_URL}/rest/v1/catchmind_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:newPts,matches:newMatches,username:p.username})});
+      } else {
+        await fetch(`${SUPABASE_URL}/rest/v1/catchmind_points`,{method:'POST',headers:jheaders(),body:JSON.stringify({user_id:p.user_id,username:p.username,points:newPts,matches:newMatches})});
+      }
+    }));
+  }catch(e){ console.error('캐치마인드 포인트 저장 에러',e); }
+}
+
+async function leaveRoom(){
+  if(room&&room.status==='waiting'&&mySeat>=0){
+    await removeSelfFromRoom();
+  } else if(room&&room.status==='playing'&&mySeat>=0){
+    await removeSelfFromRoom();
+  }
+  location.href='catchmind_rooms.html';
+}
+async function removeSelfFromRoom(){
+  const wasHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+  if(np.length===0){
+    let deleted=false;
+    try{
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{method:'DELETE',headers:{...headers(),'Prefer':'return=representation'}});
+      const data=await res.json().catch(()=>null);
+      deleted=res.ok&&data&&data.length>0;
+    }catch(e){ console.error(e); }
+    if(!deleted){
+      try{ await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'finished',players:[]})}); }catch(e){}
+    }
+    return;
+  }
+  const patch={players:np};
+  if(wasHost){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+  await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+
+if(!currentUser){
+  document.getElementById('wrap').innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>';
+} else if(!roomId){
+  document.getElementById('wrap').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>';
+} else {
+  fetchRoom();
+  pollTimer=setInterval(fetchRoom,1000);
+  setInterval(tick,400);
+  initChat();
+}
+</script>
+</body>
+</html>
