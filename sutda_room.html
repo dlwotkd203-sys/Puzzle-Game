@@ -25,7 +25,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .slot-left .seat{transform:rotate(-4deg);}
 .slot-right{grid-column:3;grid-row:2;}
 .slot-right .seat{transform:rotate(4deg);}
-.center-slot{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;min-height:150px;}
+.center-slot{grid-column:2;grid-row:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;min-height:150px;}
 .deck-pile{position:relative;width:44px;height:60px;margin-bottom:2px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:3px 3px 0 -1px rgba(0,0,0,0.2),0 2px 6px rgba(0,0,0,0.3);}
 .deck-count{font-family:-apple-system,sans-serif;font-size:9px;color:#cde8d8;margin-bottom:2px;}
 .stage-box{font-family:-apple-system,sans-serif;font-size:11px;color:#cde8d8;background:rgba(0,0,0,0.2);padding:3px 10px;border-radius:10px;}
@@ -299,10 +299,10 @@ function makePeekCard(card,w,h,onRevealed){
   const wrap=document.createElement('div');
   wrap.style.cssText=`position:relative;width:${w}px;height:${h}px;flex-shrink:0;touch-action:none;`;
   const face=makeCardEl(card,w,h);
-  face.style.position='absolute'; face.style.left='0'; face.style.top='0';
+  face.style.position='absolute'; face.style.left='0'; face.style.top='0'; face.style.zIndex='1';
   wrap.appendChild(face);
   const cover=document.createElement('div');
-  cover.style.cssText=`position:absolute;left:0;top:0;width:${w}px;height:${h}px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 1px 3px rgba(0,0,0,0.25);cursor:grab;clip-path:inset(0 0 0 0);transition:clip-path .18s ease;`;
+  cover.style.cssText=`position:absolute;left:0;top:0;width:${w}px;height:${h}px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:grab;z-index:2;transform-origin:50% 100%;transition:transform .2s ease,opacity .2s ease;`;
   const hint=document.createElement('div');
   hint.textContent='DRAG';
   hint.style.cssText='position:absolute;left:50%;bottom:5px;transform:translateX(-50%);font-family:-apple-system,sans-serif;font-weight:800;font-size:9px;color:#ffd166;letter-spacing:1px;pointer-events:none;transition:opacity .15s ease;';
@@ -310,8 +310,11 @@ function makePeekCard(card,w,h,onRevealed){
   wrap.appendChild(cover);
 
   let startY=null, dragging=false, revealed=false;
-  const maxDrag=h*0.85;
-  function setReveal(frac){ cover.style.clipPath=`inset(0 0 ${Math.round(frac*100)}% 0)`; }
+  const maxDrag=h*0.95;
+  function applyLift(frac){
+    cover.style.transform=`translateY(${-frac*maxDrag}px) rotate(${-10*frac}deg)`;
+    cover.style.opacity=String(1-frac*0.2);
+  }
   function onDown(e){
     if(revealed) return;
     dragging=true; startY=(e.touches?e.touches[0].clientY:e.clientY);
@@ -320,20 +323,22 @@ function makePeekCard(card,w,h,onRevealed){
   function onMove(e){
     if(!dragging||revealed) return;
     const y=(e.touches?e.touches[0].clientY:e.clientY);
-    setReveal(Math.min(1,Math.max(0,startY-y)/maxDrag));
+    applyLift(Math.min(1,Math.max(0,startY-y)/maxDrag));
   }
   function onUp(e){
     if(!dragging||revealed) return;
-    dragging=false; cover.style.transition='clip-path .18s ease';
+    dragging=false; cover.style.transition='transform .22s ease,opacity .22s ease';
     const y=(e.changedTouches?e.changedTouches[0].clientY:e.clientY);
     const frac=Math.min(1,Math.max(0,startY-y)/maxDrag);
-    if(frac>=0.7){
-      revealed=true; setReveal(1);
+    if(frac>=0.55){
+      revealed=true;
+      cover.style.transform=`translateY(${-h*1.3}px) rotate(-20deg)`;
+      cover.style.opacity='0';
       window.removeEventListener('pointermove',onMove);
       window.removeEventListener('pointerup',onUp);
-      setTimeout(()=>{ cover.remove(); onRevealed&&onRevealed(); },160);
+      setTimeout(()=>{ cover.remove(); onRevealed&&onRevealed(); },220);
     } else {
-      setReveal(0); hint.style.opacity='1'; cover.style.cursor='grab';
+      applyLift(0); hint.style.opacity='1'; cover.style.cursor='grab';
     }
   }
   cover.addEventListener('pointerdown',onDown);
