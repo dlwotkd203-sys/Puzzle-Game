@@ -22,6 +22,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .kickBtn{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:#fff;background:#c0392b;padding:4px 9px;border-radius:10px;cursor:pointer;}
 
 .canvas-area{position:relative;width:100%;aspect-ratio:5/4;border:4px solid #e63946;border-radius:12px;background:#fff;overflow:hidden;touch-action:none;}
+.canvas-area.erasing{cursor:none;}
 .canvas-area canvas{position:absolute;left:0;top:0;width:100%;height:100%;}
 .round-popup{position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(255,255,255,0.88);z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px;overflow-y:auto;}
 .drawer-badge{display:flex;align-items:center;gap:6px;background:#ffd166;border-radius:16px;padding:6px 14px;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#5c4200;}
@@ -39,6 +40,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tool-row{display:flex;gap:6px;justify-content:center;width:100%;flex-wrap:wrap;}
 .tool-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:11px;padding:7px 12px;border-radius:12px;background:#f0f0f0;color:#555;cursor:pointer;}
 .tool-btn.sel{background:#3d5afe;color:#fff;}
+.size-row{display:flex;gap:8px;justify-content:center;width:100%;align-items:center;}
+.size-btn{width:34px;height:34px;border-radius:50%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.size-btn.sel{background:#e8ecff;box-shadow:0 0 0 2px #3d5afe;}
+.size-btn span{display:block;border-radius:50%;background:#333;}
+.eraser-cursor{position:fixed;border-radius:50%;border:2px solid #1a1a1a;background:transparent;pointer-events:none;z-index:500;transform:translate(-50%,-50%);display:none;}
 .word-box{font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;background:#fff3e0;padding:6px 14px;border-radius:10px;letter-spacing:2px;}
 .chat-log{width:100%;height:120px;overflow-y:auto;border:1px solid #eee;border-radius:10px;padding:6px 8px;font-family:-apple-system,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:3px;}
 .chat-line{line-height:1.4;word-break:break-all;}
@@ -317,21 +323,27 @@ async function startMatch(){
 
 let gameAnimLock=false;
 async function patchGameState(mutator){
-  // 잠겨있으면 그냥 무시하지 않고 잠깐 기다렸다가 재시도 (그림 커밋이 유실되면 안 되므로)
+  // 잠겨있으면 그냥 무시하지 않고 잠깐 기다렸다가 재시도 (그림 커밋/정답 처리가 유실되면 안 되므로)
   let waited=0;
   while(gameAnimLock&&waited<3000){ await new Promise(r=>setTimeout(r,40)); waited+=40; }
   if(gameAnimLock) return; // 그래도 안 풀리면 포기 (워치독이 곧 풀어줄 것)
   gameAnimLock=true;
   const watchdog=setTimeout(()=>{ gameAnimLock=false; },4000);
   try{
-    const st=JSON.parse(JSON.stringify(room.state));
-    mutator(st);
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
-      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
-      body:JSON.stringify({state:st,move_count:room.move_count+1})
-    });
-    const data=await res.json();
-    if(data&&data.length){ room=data[0]; } else { await fetchRoom(); }
+    let attempts=0;
+    while(attempts<6){
+      attempts++;
+      const st=JSON.parse(JSON.stringify(room.state));
+      mutator(st);
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/catchmind_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+        method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+        body:JSON.stringify({state:st,move_count:room.move_count+1})
+      });
+      const data=await res.json();
+      if(data&&data.length){ room=data[0]; break; }
+      // 다른 사람이 그 사이에 먼저 patch해서 충돌났을 뿐이니, 최신 상태를 다시 받아와서 재시도
+      await fetchRoom();
+    }
   }catch(e){ console.error(e); }
   finally{ clearTimeout(watchdog); gameAnimLock=false; }
 }
@@ -371,7 +383,9 @@ function goNextRound(st){
 }
 
 const CANVAS_W=500, CANVAS_H=400;
-let myColor='#1a1a1a', myTool='pen', mySize=6;
+let myColor='#1a1a1a', myTool='pen', mySize=6, myEraserSize=24;
+const PEN_SIZES=[3,6,10,16];
+const ERASER_SIZES=[16,26,38,52];
 let baseDrawnCount=0, lastStrokesRoundKey=null;
 
 let lastDrawingSkeletonKey=null;
@@ -402,6 +416,14 @@ function renderGame(wrap){
           <div class="tool-btn" id="clearAllBtn">전체 지우기</div>
           <div class="tool-btn" id="fillAllBtn">전체 칠하기</div>
         </div>`;
+        html+='<div class="size-row" id="sizeRow">';
+        const sizeOpts=myTool==='eraser'?ERASER_SIZES:PEN_SIZES;
+        const curSize=myTool==='eraser'?myEraserSize:mySize;
+        sizeOpts.forEach(sz=>{
+          const dotPx=Math.round(8+sz*0.5);
+          html+=`<div class="size-btn ${curSize===sz?'sel':''}" data-sz="${sz}"><span style="width:${dotPx}px;height:${dotPx}px;"></span></div>`;
+        });
+        html+='</div>';
       }
       html+='<div class="audience-row" id="audienceRow"></div>';
       html+='<div class="chat-log" id="chatLog"></div>';
@@ -458,14 +480,8 @@ function updateChatBarState(st,isDrawer){
   const input=document.getElementById('chatInput');
   const sendBtn=document.getElementById('chatSendBtn');
   if(!input) return;
-  const alreadyCorrect=mySeat>=0&&st.correctGuesses.some(g=>g.seat===mySeat);
-  const onCooldown=chatCooldownUntil&&Date.now()<chatCooldownUntil;
   if(isDrawer){
     input.disabled=true; input.placeholder='그리는 중에는 채팅할 수 없어요';
-  } else if(alreadyCorrect){
-    input.disabled=true; input.placeholder='이미 정답을 맞췄어요!';
-  } else if(onCooldown){
-    input.disabled=true; input.placeholder='잠시 후 다시 채팅할 수 있어요';
   } else {
     input.disabled=false; input.placeholder='정답을 채팅으로 입력하세요';
   }
@@ -511,7 +527,7 @@ function toLogicalPoint(e,areaEl){
 }
 async function flushLive(final){
   if(curPoints.length<1) return;
-  const seg={color:myColor,size:myTool==='eraser'?24:mySize,tool:myTool,points:curPoints.slice()};
+  const seg={color:myColor,size:myTool==='eraser'?myEraserSize:mySize,tool:myTool,points:curPoints.slice()};
   if(final){
     curPoints=[];
     await patchGameState(s=>{
@@ -529,7 +545,7 @@ function redrawLocalLive(){
   const liveCtx=canvasCtx('liveCanvas');
   if(!liveCtx) return;
   liveCtx.clearRect(0,0,CANVAS_W,CANVAS_H);
-  drawSegment(liveCtx,{color:myColor,size:myTool==='eraser'?24:mySize,tool:myTool,points:curPoints});
+  drawSegment(liveCtx,{color:myColor,size:myTool==='eraser'?myEraserSize:mySize,tool:myTool,points:curPoints});
 }
 function onGlobalPointerUp(){
   if(!drawing) return;
@@ -537,10 +553,32 @@ function onGlobalPointerUp(){
   if(flushTimer){ clearInterval(flushTimer); flushTimer=null; }
   flushLive(true);
 }
+let eraserCursorEl=null;
+function getEraserCursorEl(){
+  if(!eraserCursorEl){
+    eraserCursorEl=document.createElement('div');
+    eraserCursorEl.className='eraser-cursor';
+    document.body.appendChild(eraserCursorEl);
+  }
+  return eraserCursorEl;
+}
+function updateEraserCursor(e,area){
+  const el=getEraserCursorEl();
+  if(myTool!=='eraser'){ el.style.display='none'; return; }
+  const rect=area.getBoundingClientRect();
+  const scale=rect.width/CANVAS_W; // 논리 좌표계 대비 실제 화면 배율
+  const pxSize=myEraserSize*scale;
+  const cx=e.touches?e.touches[0].clientX:e.clientX;
+  const cy=e.touches?e.touches[0].clientY:e.clientY;
+  el.style.width=pxSize+'px'; el.style.height=pxSize+'px';
+  el.style.left=cx+'px'; el.style.top=cy+'px';
+  el.style.display='block';
+}
 function bindCanvasControls(isDrawer){
   if(!globalPointerUpBound){ window.addEventListener('pointerup',onGlobalPointerUp); globalPointerUpBound=true; }
-  if(!isDrawer) return;
+  if(!isDrawer){ if(eraserCursorEl) eraserCursorEl.style.display='none'; return; }
   const area=document.getElementById('canvasArea');
+  area.classList.toggle('erasing',myTool==='eraser');
   function onDown(e){
     if(!room||!room.state||room.state.stage!=='drawing') return;
     e.preventDefault();
@@ -550,6 +588,7 @@ function bindCanvasControls(isDrawer){
     flushTimer=setInterval(()=>flushLive(false),350);
   }
   function onMove(e){
+    updateEraserCursor(e,area);
     if(!drawing) return;
     e.preventDefault();
     curPoints.push(toLogicalPoint(e,area));
@@ -557,14 +596,22 @@ function bindCanvasControls(isDrawer){
   }
   area.addEventListener('pointerdown',onDown);
   area.addEventListener('pointermove',onMove);
+  area.addEventListener('pointerleave',()=>{ if(eraserCursorEl) eraserCursorEl.style.display='none'; });
 
   document.querySelectorAll('.color-dot').forEach(el=>{
-    el.addEventListener('click',()=>{ myColor=el.dataset.c; myTool='pen'; render(); });
+    el.addEventListener('click',()=>{ myColor=el.dataset.c; myTool='pen'; area.classList.remove('erasing'); render(); });
   });
   const penBtn=document.getElementById('penBtn');
   const eraserBtn=document.getElementById('eraserBtn');
-  if(penBtn) penBtn.addEventListener('click',()=>{ myTool='pen'; render(); });
-  if(eraserBtn) eraserBtn.addEventListener('click',()=>{ myTool='eraser'; render(); });
+  if(penBtn) penBtn.addEventListener('click',()=>{ myTool='pen'; area.classList.remove('erasing'); render(); });
+  if(eraserBtn) eraserBtn.addEventListener('click',()=>{ myTool='eraser'; area.classList.add('erasing'); render(); });
+  document.querySelectorAll('.size-btn').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const sz=parseInt(el.dataset.sz);
+      if(myTool==='eraser') myEraserSize=sz; else mySize=sz;
+      render();
+    });
+  });
   const clearBtn=document.getElementById('clearAllBtn');
   if(clearBtn) clearBtn.addEventListener('click',()=>{
     if(!confirm('캔버스를 전체 지우시겠어요?')) return;
@@ -598,7 +645,7 @@ async function backToLobby(){
 }
 
 // ---- 채팅/정답 처리 ----
-let lastChatId=0, chatTimer=null, chatCooldownUntil=0, chatCache=[];
+let lastChatId=0, chatTimer=null, chatCache=[];
 async function initChat(){
   const input=document.getElementById('chatInput');
   const sendBtn=document.getElementById('chatSendBtn');
@@ -616,15 +663,12 @@ async function sendChat(){
   const input=document.getElementById('chatInput');
   const msg=input.value.trim().slice(0,20);
   if(!msg||input.disabled) return;
-  if(chatCooldownUntil&&Date.now()<chatCooldownUntil) return;
   const st=room.state;
   const isDrawer=mySeat===st.drawerSeat;
   if(isDrawer||mySeat<0) return;
-  if(st.correctGuesses.some(g=>g.seat===mySeat)) return;
   input.value='';
-  const isCorrect = st.stage==='drawing' && normalizeGuess(msg)===normalizeGuess(st.word);
-  chatCooldownUntil=Date.now()+5000;
-  updateChatBarState(st,isDrawer);
+  const alreadyCredited=st.correctGuesses.some(g=>g.seat===mySeat);
+  const isCorrect = !alreadyCredited && st.stage==='drawing' && normalizeGuess(msg)===normalizeGuess(st.word);
   try{
     await fetch(`${SUPABASE_URL}/rest/v1/catchmind_chat`,{
       method:'POST',headers:jheaders(),
