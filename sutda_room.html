@@ -14,7 +14,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .wrap{padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;min-height:560px;}
 .center-msg{text-align:center;padding:2rem 1rem;color:#8a8a9a;font-size:13px;line-height:1.8;}
 .big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;}
-.table-area{width:100%;background:radial-gradient(ellipse at center,#0f7a45 0%,#0b5c34 70%,#08431f 100%);border-radius:20px;padding:14px 8px;position:relative;box-shadow:inset 0 0 0 6px rgba(212,175,55,0.35);}
+.table-area{width:100%;background:radial-gradient(ellipse at center,#0f7a45 0%,#0b5c34 70%,#08431f 100%);border-radius:28px;padding:22px 10px;position:relative;box-shadow:inset 0 0 0 6px rgba(212,175,55,0.35),0 6px 16px rgba(0,0,0,0.25);}
 .table-grid{display:grid;grid-template-columns:1fr 1.15fr 1fr;grid-template-rows:auto auto;gap:16px 4px;width:100%;position:relative;}
 .seat-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:74px;justify-content:flex-start;}
 .seat-slot.slot-left,.seat-slot.slot-right{justify-content:center;min-height:100px;}
@@ -22,8 +22,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .slot-top{grid-column:2;grid-row:1;}
 .slot-tr{grid-column:3;grid-row:1;}
 .slot-left{grid-column:1;grid-row:2;}
+.slot-left .seat{transform:rotate(-4deg);}
 .slot-right{grid-column:3;grid-row:2;}
-.center-slot{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;position:relative;min-height:150px;}
+.slot-right .seat{transform:rotate(4deg);}
+.center-slot{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;min-height:150px;}
+.deck-pile{position:relative;width:44px;height:60px;margin-bottom:2px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:3px 3px 0 -1px rgba(0,0,0,0.2),0 2px 6px rgba(0,0,0,0.3);}
+.deck-count{font-family:-apple-system,sans-serif;font-size:9px;color:#cde8d8;margin-bottom:2px;}
 .stage-box{font-family:-apple-system,sans-serif;font-size:11px;color:#cde8d8;background:rgba(0,0,0,0.2);padding:3px 10px;border-radius:10px;}
 .pot-chip-pile{position:relative;width:76px;height:56px;}
 .pot-box{font-family:-apple-system,sans-serif;font-weight:800;font-size:19px;color:#ffd166;text-shadow:0 1px 2px rgba(0,0,0,0.4);}
@@ -82,6 +86,8 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 
 let room=null,mySeat=-1,pollTimer=null,animLock=false;
 let prevContributions=null,lastMoveCount=-1;
+let dealAnimDone=false;
+let prevHandCounts=null;
 
 function slotsForCount(o){
   if(o<=0) return [];
@@ -109,12 +115,14 @@ function flyPiece(pieceEl,fromEl,toEl,duration){
   if(!fromEl||!toEl){ pieceEl.remove&&pieceEl.remove(); return; }
   const fr=fromEl.getBoundingClientRect(), tr=toEl.getBoundingClientRect();
   if(!fr.width||!tr.width){ pieceEl.remove&&pieceEl.remove(); return; }
-  pieceEl.style.left=(fr.left+fr.width/2-11)+'px'; pieceEl.style.top=(fr.top+fr.height/2-11)+'px';
-  pieceEl.style.transition=`left ${duration}ms ease,top ${duration}ms ease,opacity ${duration}ms ease`;
+  pieceEl.style.position='fixed'; pieceEl.style.zIndex='999'; pieceEl.style.margin='0'; pieceEl.style.pointerEvents='none';
   document.body.appendChild(pieceEl);
+  const pw=pieceEl.offsetWidth||22, ph=pieceEl.offsetHeight||22;
+  pieceEl.style.left=(fr.left+fr.width/2-pw/2)+'px'; pieceEl.style.top=(fr.top+fr.height/2-ph/2)+'px';
+  pieceEl.style.transition=`left ${duration}ms ease,top ${duration}ms ease,opacity ${duration}ms ease`;
   requestAnimationFrame(()=>{
-    pieceEl.style.left=(tr.left+tr.width/2-11)+'px';
-    pieceEl.style.top=(tr.top+tr.height/2-11)+'px';
+    pieceEl.style.left=(tr.left+tr.width/2-pw/2)+'px';
+    pieceEl.style.top=(tr.top+tr.height/2-ph/2)+'px';
   });
   setTimeout(()=>pieceEl.remove(),duration+40);
 }
@@ -145,6 +153,57 @@ function checkBetEffects(st){
   }
   prevContributions=st.contributions.slice();
   lastMoveCount=room.move_count;
+}
+
+function playShuffleAndDeal(){
+  const deckEl=document.getElementById('deckPile');
+  if(!deckEl||!room||!room.state) return;
+  const st=room.state;
+  const n=room.players.length;
+  const initCount=st.mode==='3card'?2:1;
+  let shakes=0;
+  deckEl.style.transition='transform .11s ease';
+  const shakeTimer=setInterval(()=>{
+    deckEl.style.transform = shakes%2===0?'rotate(-7deg) scale(1.07)':'rotate(7deg) scale(1.07)';
+    shakes++;
+    if(shakes>7){
+      clearInterval(shakeTimer);
+      deckEl.style.transform='rotate(0deg) scale(1)';
+      dealRound(0);
+    }
+  },85);
+  function dealRound(r){
+    if(r>=initCount) return;
+    for(let seat=0;seat<n;seat++){
+      setTimeout(()=>{
+        const fromEl=document.getElementById('deckPile');
+        const toEl=getSeatSlotEl(seat);
+        const card=document.createElement('div');
+        card.style.cssText='width:30px;height:42px;border-radius:6px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 2px 4px rgba(0,0,0,0.3);';
+        flyPiece(card,fromEl,toEl,300);
+      },seat*95);
+    }
+    setTimeout(()=>dealRound(r+1), n*95+90);
+  }
+}
+function flyOneCard(seat,delayMs){
+  setTimeout(()=>{
+    const fromEl=document.getElementById('deckPile');
+    const toEl=getSeatSlotEl(seat);
+    const card=document.createElement('div');
+    card.style.cssText='width:30px;height:42px;border-radius:6px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 2px 4px rgba(0,0,0,0.3);';
+    flyPiece(card,fromEl,toEl,300);
+  },delayMs);
+}
+function checkDealEffects(st){
+  const n=st.hands.length;
+  if(prevHandCounts&&prevHandCounts.length===n&&room.move_count>0){
+    for(let s=0;s<n;s++){
+      const delta=st.hands[s].length-prevHandCounts[s];
+      for(let k=0;k<delta;k++){ flyOneCard(s,k*120); }
+    }
+  }
+  prevHandCounts=st.hands.map(h=>h.length);
 }
 
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
@@ -230,6 +289,8 @@ function render(){
 }
 
 function renderLobby(wrap){
+  dealAnimDone=false;
+  prevHandCounts=null;
   const players=room.players||[];
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
   const allReady=players.length>=2&&players.every(p=>p.ready);
@@ -300,6 +361,7 @@ async function startHand(){
     contributions:players.map(()=>0),
     lastPaid:players.map(()=>0),
     actedAtBet:players.map(()=>-1),
+    calledLock:players.map(()=>false),
     exposed:players.map(()=>null),
     chosenPair:players.map(()=>null),
     pointsSnapshot,
@@ -328,6 +390,7 @@ function roundComplete(st){
 function resetBettingVars(st){
   st.currentBet=0; st.openingDone=false;
   st.actedAtBet=st.actedAtBet.map((v,i)=>st.folded[i]?v:-1);
+  st.calledLock=(st.calledLock||st.actedAtBet.map(()=>false)).map((v,i)=>st.folded[i]?v:false);
 }
 function dealCardsToActive(st,count){
   for(let i=0;i<st.hands.length;i++){
@@ -488,6 +551,8 @@ async function actCall(){
     const pay=s.currentBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=s.currentBet;
     s.actedAtBet[mySeat]=s.currentBet; s.lastPaid[mySeat]=pay;
+    if(!s.calledLock) s.calledLock=s.hands.map(()=>false);
+    s.calledLock[mySeat]=true;
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -577,6 +642,8 @@ function renderGame(wrap){
   html+=seatSlotHtml('tl')+seatSlotHtml('top')+seatSlotHtml('tr');
   html+=seatSlotHtml('left');
   html+=`<div class="center-slot" id="centerSlot">
+    <div class="deck-pile" id="deckPile"></div>
+    <div class="deck-count" id="deckCount">${st.deck.length}장 남음</div>
     <div class="pot-chip-pile" id="potChipPile">${potChips}</div>
     <div class="pot-box">팟 ${st.pot.toLocaleString()}P</div>
     <div class="pot-sub">이번판 배팅 합계 ${totalContrib.toLocaleString()}P</div>
@@ -604,6 +671,12 @@ function renderGame(wrap){
   });
 
   checkBetEffects(st);
+  checkDealEffects(st);
+
+  if(room.move_count===0&&!dealAnimDone&&(Date.now()-st.turnStartedAt<4000)){
+    dealAnimDone=true;
+    setTimeout(()=>playShuffleAndDeal(),150);
+  }
 
   const myhand=document.getElementById('myhand');
   if(isPlayer){
@@ -680,7 +753,8 @@ function renderGame(wrap){
     const turnPlayer=players[st.turn];
     statusTxt.textContent = myTurn?'내 차례!':(esc(turnPlayer.username)+'님 차례');
     if(myTurn){
-      const canBbing=!st.openingDone;
+      const locked = !!(st.calledLock && st.calledLock[mySeat]);
+      const canBbing=!st.openingDone&&!locked;
       const canCall=st.openingDone&&st.contributions[mySeat]<st.currentBet;
       const unit=room.base_unit;
       const halfRaise=Math.max(unit,Math.floor(st.pot*0.5));
@@ -689,10 +763,10 @@ function renderGame(wrap){
       const quarterCost=st.currentBet+quarterRaise-st.contributions[mySeat];
       const buttons=[];
       if(canBbing) buttons.push(['삥',actBbing,unit]);
-      buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:unit*2]);
+      if(!locked) buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:unit*2]);
       if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
-      if(st.openingDone) buttons.push(['하프',()=>actRaiseFrac(0.5),halfCost]);
-      if(st.openingDone) buttons.push(['쿼터',()=>actRaiseFrac(0.25),quarterCost]);
+      if(st.openingDone&&!locked) buttons.push(['하프',()=>actRaiseFrac(0.5),halfCost]);
+      if(st.openingDone&&!locked) buttons.push(['쿼터',()=>actRaiseFrac(0.25),quarterCost]);
       buttons.push(['다이',actDie,0]);
       buttons.forEach(([label,fn,cost])=>{
         const afford = label==='다이'?true:myAfford(cost);
