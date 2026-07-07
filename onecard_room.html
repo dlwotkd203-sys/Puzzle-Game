@@ -168,9 +168,10 @@ function render(){
   document.getElementById('roomTitle').textContent=esc(room.host_username)+'님의 방';
   ensureCardbacks((room.players||[]).map(p=>p.user_id));
   const wrap=document.getElementById('wrap');
+  if(room.status!=='finished'){ document.getElementById('resultOverlay')?.remove(); }
   if(room.status==='waiting') return renderLobby(wrap);
   if(room.status==='playing') return renderGame(wrap);
-  if(room.status==='finished') return renderFinished(wrap);
+  if(room.status==='finished'){ renderGame(wrap); showResultPopup(); return; }
 }
 
 function showRules(){
@@ -332,6 +333,7 @@ function checkOneCardTrigger(st,seat){
 function checkWinner(st,seat){ return st.hands[seat].length===0; }
 
 async function playCard(cardId){
+  if(!room||room.status!=='playing') return;
   const st=room.state; const hand=st.hands[mySeat];
   const card=hand.find(c=>c.id===cardId);
   if(!card) return;
@@ -374,7 +376,11 @@ async function playCard(cardId){
     }
   });
 
-  if(winnerSeat!==null){ await finishGame(winnerSeat); return; }
+  if(winnerSeat!==null){
+    render();
+    setTimeout(()=>finishGame(winnerSeat),450);
+    return;
+  }
   render();
   if(room.state._needSuitPick){ showSuitPick(); }
 }
@@ -403,6 +409,7 @@ function showSuitPick(){
 }
 
 async function drawCard(){
+  if(!room||room.status!=='playing') return;
   const st=room.state;
   if(st.turn!==mySeat) return;
   await patchState(s=>{
@@ -689,8 +696,8 @@ function renderGame(wrap){
     <div id="handRow" style="display:flex;justify-content:center;align-items:flex-end;min-height:100px;padding:0 10px;flex-wrap:wrap;"></div>
     <div id="oneCardOverlay" style="display:none;position:absolute;z-index:45;"></div>
     `;
-    document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
-    document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(room&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
+    document.getElementById('deckPile').addEventListener('pointerdown',()=>{ if(room&&room.status==='playing'&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
+    document.getElementById('drawBtn').addEventListener('pointerdown',()=>{ if(room&&room.status==='playing'&&room.state&&mySeat>=0&&room.state.turn===mySeat) drawCard(); });
     if(!tickTimer) tickTimer=setInterval(tick,300);
     const t0=topCard(st);
     prevTopId=t0.id; prevPendingTier=st.pending?st.pending.tier:null; prevDir=st.dir; prevDeclaredSuit=st.declaredSuit; gameInited=true;
@@ -769,7 +776,7 @@ function renderGame(wrap){
     const playable=playableCards(st,myHand);
     const CW=76,CH=106,OVERLAP=38;
     myHand.forEach((c,i)=>{
-      const can=myTurn&&playable.some(pc=>pc.id===c.id);
+      const can=myTurn&&room.status==='playing'&&playable.some(pc=>pc.id===c.id);
       const el=makeCardFace(c,CW,CH);
       el.style.cursor=can?'pointer':'default';
       el.style.border='2px solid '+(can?'#7c5cff':'#ddd');
@@ -839,22 +846,50 @@ function tick(){
   renderOneCardUI(st);
 }
 
-function renderFinished(wrap){
+let dismissedFinishedKey=null;
+function showResultPopup(){
+  const key=room.id+'-'+room.winner_seat;
+  if(dismissedFinishedKey===key) return;
+  if(document.getElementById('resultOverlay')) return;
   const st=room.state;
   const players=room.players;
   const winner=players[room.winner_seat];
   const leftSeats=(st&&st.leftSeats)||[];
   const order=computeFinalRankOrder(st,room.winner_seat,players);
-  let html=`<div class="center-msg">${winner?esc(winner.username)+'님 승리! 🎉':'게임 종료'}</div><div style="width:100%;">`;
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+
+  const box=document.createElement('div');
+  box.id='resultOverlay';
+  box.style.cssText='position:fixed;inset:0;background:rgba(20,18,30,0.55);display:flex;align-items:center;justify-content:center;z-index:500;padding:16px;';
+  let inner=`<div style="background:#fff;border-radius:18px;padding:22px;width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <div style="font-family:-apple-system,sans-serif;font-weight:900;font-size:18px;color:#1a1a2e;">${winner?'🏆 '+esc(winner.username)+'님 승리!':'게임 종료'}</div>
+    <div style="width:100%;">`;
   order.forEach((seat,i)=>{
     const p=players[seat];
     const isLeft=leftSeats.includes(seat);
     const cnt=isLeft?null:(seat===room.winner_seat?0:(st&&st.hands&&st.hands[seat]?st.hands[seat].length:0));
-    html+=`<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-family:-apple-system,sans-serif;font-size:13px;"><span>${i+1}등 ${esc(p.username)}${i===0?' 🏆':''}${isLeft?' <span style="color:#e53935;font-size:11px;">(몰수패)</span>':''}</span><span style="color:#999;">${isLeft?'중도퇴장':cnt+'장 남음'}</span></div>`;
+    inner+=`<div style="display:flex;justify-content:space-between;padding:8px 6px;border-bottom:1px solid #f0f0f0;font-family:-apple-system,sans-serif;font-size:13px;"><span>${i+1}등 ${esc(p.username)}${i===0?' 🏆':''}${isLeft?' <span style="color:#e53935;font-size:11px;">(몰수패)</span>':''}</span><span style="color:#999;">${isLeft?'중도퇴장':cnt+'장 남음'}</span></div>`;
   });
-  html+='</div><div class="big-btn" id="backBtn" style="background:#7c5cff;color:#fff;margin-top:10px;">방 목록으로</div>';
-  wrap.innerHTML=html;
-  document.getElementById('backBtn').addEventListener('click',()=>location.href='onecard_rooms.html');
+  inner+=`</div>
+    <div class="big-btn" id="resultConfirmBtn" style="background:#7c5cff;color:#fff;width:100%;text-align:center;margin-top:6px;">확인</div>
+    ${isHost?'':'<div style="font-family:-apple-system,sans-serif;font-size:11px;color:#aaa;">방장이 다음 판을 준비하면 대기실로 이동해요</div>'}
+  </div>`;
+  box.innerHTML=inner;
+  document.body.appendChild(box);
+
+  document.getElementById('resultConfirmBtn').addEventListener('click',async()=>{
+    if(isHost){
+      const np=(room.players||[]).map(p=>({...p,ready:false}));
+      await fetch(`${SUPABASE_URL}/rest/v1/onecard_rooms?id=eq.${room.id}`,{
+        method:'PATCH',headers:jheaders(),
+        body:JSON.stringify({status:'waiting',players:np,state:null,winner_seat:null})
+      });
+      fetchRoom();
+    } else {
+      dismissedFinishedKey=room.id+'-'+room.winner_seat;
+      box.remove();
+    }
+  });
 }
 
 async function leaveDuringGame(){
