@@ -92,6 +92,7 @@ let room=null,mySeat=-1,pollTimer=null,animLock=false;
 let prevContributions=null,lastMoveCount=-1;
 let dealAnimDone=false;
 let prevHandCounts=null;
+let peekCardEl=null, peekCardLen=-1, lastCardRevealed=false;
 
 function slotsForCount(o){
   if(o<=0) return [];
@@ -140,6 +141,28 @@ function flyChipsFromSeat(seat,count){
       chip.className='flying-chip';
       flyPiece(chip,fromEl,toEl,360);
     },i*70);
+  }
+}
+function showActionPopup(text){
+  const anchor=document.getElementById('centerSlot')||document.getElementById('wrap');
+  if(!anchor) return;
+  const rect=anchor.getBoundingClientRect();
+  if(!rect.width&&!rect.height) return;
+  const el=document.createElement('div');
+  el.textContent=text;
+  el.style.cssText=`position:fixed;left:${rect.left+rect.width/2}px;top:${rect.top+rect.height/2}px;transform:translate(-50%,-50%) scale(0.4);opacity:0;font-family:-apple-system,sans-serif;font-weight:900;font-size:20px;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,0.5);z-index:300;pointer-events:none;white-space:nowrap;transition:transform .25s cubic-bezier(.34,1.56,.64,1),opacity .2s;background:rgba(20,18,30,0.55);padding:10px 18px;border-radius:16px;`;
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1)'; });
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translate(-50%,-50%) scale(0.85)'; },850);
+  setTimeout(()=>{ el.remove(); },1100);
+}
+let lastActionMoveCount=-1;
+function checkActionPopup(st){
+  if(room.move_count===lastActionMoveCount) return;
+  lastActionMoveCount=room.move_count;
+  if(st.lastAction){
+    const p=room.players[st.lastAction.seat];
+    if(p) showActionPopup(p.username+' '+st.lastAction.label+'!');
   }
 }
 function checkBetEffects(st){
@@ -272,6 +295,52 @@ function makeCardBackEl(w,h){
   el.style.cssText=`width:${w}px;height:${h}px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 1px 3px rgba(0,0,0,0.25);flex-shrink:0;`;
   return el;
 }
+function makePeekCard(card,w,h,onRevealed){
+  const wrap=document.createElement('div');
+  wrap.style.cssText=`position:relative;width:${w}px;height:${h}px;flex-shrink:0;touch-action:none;`;
+  const face=makeCardEl(card,w,h);
+  face.style.position='absolute'; face.style.left='0'; face.style.top='0';
+  wrap.appendChild(face);
+  const cover=document.createElement('div');
+  cover.style.cssText=`position:absolute;left:0;top:0;width:${w}px;height:${h}px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:0 1px 3px rgba(0,0,0,0.25);cursor:grab;clip-path:inset(0 0 0 0);transition:clip-path .18s ease;`;
+  const hint=document.createElement('div');
+  hint.textContent='DRAG';
+  hint.style.cssText='position:absolute;left:50%;bottom:5px;transform:translateX(-50%);font-family:-apple-system,sans-serif;font-weight:800;font-size:9px;color:#ffd166;letter-spacing:1px;pointer-events:none;transition:opacity .15s ease;';
+  cover.appendChild(hint);
+  wrap.appendChild(cover);
+
+  let startY=null, dragging=false, revealed=false;
+  const maxDrag=h*0.85;
+  function setReveal(frac){ cover.style.clipPath=`inset(0 0 ${Math.round(frac*100)}% 0)`; }
+  function onDown(e){
+    if(revealed) return;
+    dragging=true; startY=(e.touches?e.touches[0].clientY:e.clientY);
+    cover.style.transition='none'; cover.style.cursor='grabbing'; hint.style.opacity='0';
+  }
+  function onMove(e){
+    if(!dragging||revealed) return;
+    const y=(e.touches?e.touches[0].clientY:e.clientY);
+    setReveal(Math.min(1,Math.max(0,startY-y)/maxDrag));
+  }
+  function onUp(e){
+    if(!dragging||revealed) return;
+    dragging=false; cover.style.transition='clip-path .18s ease';
+    const y=(e.changedTouches?e.changedTouches[0].clientY:e.clientY);
+    const frac=Math.min(1,Math.max(0,startY-y)/maxDrag);
+    if(frac>=0.7){
+      revealed=true; setReveal(1);
+      window.removeEventListener('pointermove',onMove);
+      window.removeEventListener('pointerup',onUp);
+      setTimeout(()=>{ cover.remove(); onRevealed&&onRevealed(); },160);
+    } else {
+      setReveal(0); hint.style.opacity='1'; cover.style.cursor='grab';
+    }
+  }
+  cover.addEventListener('pointerdown',onDown);
+  window.addEventListener('pointermove',onMove);
+  window.addEventListener('pointerup',onUp);
+  return wrap;
+}
 
 async function fetchRoom(){
   try{
@@ -295,6 +364,8 @@ function render(){
 function renderLobby(wrap){
   dealAnimDone=false;
   prevHandCounts=null;
+  lastActionMoveCount=-1;
+  peekCardEl=null; peekCardLen=-1; lastCardRevealed=false;
   const players=room.players||[];
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
   const allReady=players.length>=2&&players.every(p=>p.ready);
@@ -445,7 +516,7 @@ function tryAdvanceStage(st){
     const act=activeSeats(st);
     if(act.every(s=>st.exposed[s]!==null)){
       resetBettingVars(st);
-      st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
+      st.stage='bet1'; st.turn=act[0]; st.turnStartedAt=Date.now();
     }
     return;
   }
@@ -564,6 +635,7 @@ async function actBbing(){
   await patchState(s=>{
     s.pot+=unit; s.contributions[mySeat]+=unit; s.currentBet=unit;
     s.actedAtBet[mySeat]=unit; s.openingDone=true; s.lastPaid[mySeat]=unit;
+    s.lastAction={seat:mySeat,label:'삥'};
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -575,6 +647,7 @@ async function actDdadang(){
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
     s.actedAtBet[mySeat]=newBet; s.openingDone=true; s.lastPaid[mySeat]=pay;
+    s.lastAction={seat:mySeat,label:'따당'};
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -586,6 +659,7 @@ async function actCall(){
     s.actedAtBet[mySeat]=s.currentBet; s.lastPaid[mySeat]=pay;
     if(!s.calledLock) s.calledLock=s.hands.map(()=>false);
     s.calledLock[mySeat]=true;
+    s.lastAction={seat:mySeat,label:'콜'};
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -598,6 +672,7 @@ async function actRaiseFrac(frac){
     const pay=newBet-s.contributions[mySeat];
     s.pot+=pay; s.contributions[mySeat]=newBet; s.currentBet=newBet;
     s.actedAtBet[mySeat]=newBet; s.lastPaid[mySeat]=pay;
+    s.lastAction={seat:mySeat,label:frac===0.5?'하프':'쿼터'};
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -605,6 +680,7 @@ async function actRaiseFrac(frac){
 async function actDie(){
   await patchState(s=>{
     s.folded[mySeat]=true; s.lastPaid[mySeat]=0;
+    s.lastAction={seat:mySeat,label:'다이'};
     if((s.stage==='bet1'||s.stage==='bet2'||s.stage==='bet3')&&s.turn===mySeat){
       s.turn=nextActiveSeat(s,room.players.length,mySeat);
     }
@@ -623,6 +699,7 @@ async function actAllIn(){
     s.openingDone=true;
     if(!s.allIn) s.allIn=s.hands.map(()=>false);
     s.allIn[mySeat]=true;
+    s.lastAction={seat:mySeat,label:'올인'};
     s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
@@ -661,6 +738,13 @@ function renderGame(wrap){
   const isPlayer=mySeat>=0;
   const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
   const myTurn=isPlayer&&isBettingStage&&st.turn===mySeat&&!st.folded[mySeat];
+  const initCountForPeek = st.mode==='3card'?2:1;
+  if(isPlayer&&peekCardLen!==st.hands[mySeat].length){
+    peekCardLen=st.hands[mySeat].length;
+    lastCardRevealed=false;
+    peekCardEl=null;
+  }
+  const peekActive = isPlayer && st.hands[mySeat].length>initCountForPeek && st.stage!=='showdown' && !st.folded[mySeat];
 
   const oppCount = isPlayer ? n-1 : n;
   const usedSlots = slotsForCount(Math.min(oppCount,5));
@@ -706,7 +790,7 @@ function renderGame(wrap){
   if(isPlayer){
     html+=`<div id="myBalance" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;margin-top:8px;">내 잔액 <span style="color:#8a1a1a;">${(st.pointsSnapshot[mySeat]-st.contributions[mySeat]).toLocaleString()}P</span></div>`;
   }
-  html+='<div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:26px;color:#8a1a1a;margin:2px 0;"></div>';
+  html+='<div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:26px;color:#8a1a1a;margin:2px 0;min-height:32px;line-height:32px;visibility:hidden;">15초</div>';
   html+='<div class="myhand" id="myhand"></div>';
   html+='<div id="myLabel" style="font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#8a1a1a;text-align:center;"></div>';
   html+='<div id="statusTxt" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;text-align:center;"></div>';
@@ -728,6 +812,7 @@ function renderGame(wrap){
 
   checkBetEffects(st);
   checkDealEffects(st);
+  checkActionPopup(st);
 
   if(room.move_count===0&&!dealAnimDone&&(Date.now()-st.turnStartedAt<4000)){
     dealAnimDone=true;
@@ -736,10 +821,19 @@ function renderGame(wrap){
 
   const myhand=document.getElementById('myhand');
   if(isPlayer){
-    st.hands[mySeat].forEach((c,k)=>{
+    const myHandArr=st.hands[mySeat];
+    myHandArr.forEach((c,k)=>{
       const col=document.createElement('div');
       col.className='myhand-card';
-      col.appendChild(makeCardEl(c,60,84));
+      const isLastCard = k===myHandArr.length-1;
+      if(peekActive&&isLastCard&&!lastCardRevealed){
+        if(!peekCardEl){
+          peekCardEl=makePeekCard(c,60,84,()=>{ lastCardRevealed=true; render(); });
+        }
+        col.appendChild(peekCardEl);
+      } else {
+        col.appendChild(makeCardEl(c,60,84));
+      }
       if(st.mode==='3card'){
         if(st.exposed[mySeat]===k){
           const tag=document.createElement('div'); tag.className='exposed-tag'; tag.textContent='공개됨'; col.appendChild(tag);
@@ -752,8 +846,11 @@ function renderGame(wrap){
       myhand.appendChild(col);
     });
     const labelEl=document.getElementById('myLabel');
-    if(!st.folded[mySeat]&&st.hands[mySeat].length>=2){
-      labelEl.textContent='내 조합: '+evalHand(st.hands[mySeat]).label+(st.mode==='3card'?' (최고 조합 미리보기)':'');
+    const hidingForPeek = peekActive&&!lastCardRevealed;
+    if(!st.folded[mySeat]&&myHandArr.length>=2&&!hidingForPeek){
+      labelEl.textContent='내 조합: '+evalHand(myHandArr).label+(st.mode==='3card'?' (최고 조합 미리보기)':'');
+    } else {
+      labelEl.textContent=hidingForPeek?'마지막 카드를 드래그해서 확인하세요':'';
     }
   }
 
@@ -767,7 +864,9 @@ function renderGame(wrap){
     else { statusTxt.textContent='다른 사람들이 카드를 공개하는 중...'; }
   } else if(st.stage==='choose2'){
     if(st.folded[mySeat]){ statusTxt.textContent='기권했어요'; }
-    else if(st.chosenPair[mySeat]===null){
+    else if(peekActive&&!lastCardRevealed){
+      statusTxt.textContent='마지막 카드를 먼저 확인하세요 (위에서 드래그)';
+    } else if(st.chosenPair[mySeat]===null){
       statusTxt.textContent='낼 카드 2장을 선택하세요';
       const combos=[[0,1],[0,2],[1,2]];
       const myCards=st.hands[mySeat];
@@ -883,12 +982,12 @@ function tick(){
   const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
   const el=document.getElementById('timerNum');
   if(!isBettingStage||mySeat<0||st.turn!==mySeat||st.folded[mySeat]){
-    if(el) el.textContent='';
+    if(el) el.style.visibility='hidden';
     return;
   }
   const elapsed=Date.now()-st.turnStartedAt;
   const remain=Math.max(0,TURN_SECONDS-Math.floor(elapsed/1000));
-  if(el) el.textContent=remain+'초';
+  if(el){ el.style.visibility='visible'; el.textContent=remain+'초'; }
   const key=room.id+':'+room.move_count;
   if(elapsed>=TURN_SECONDS*1000&&autoDieKey!==key){
     autoDieKey=key;
