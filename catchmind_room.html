@@ -306,8 +306,9 @@ async function startMatch(){
   const players=room.players||[];
   const n=players.length;
   const word=pickWord([]);
+  const startSeat=Math.floor(Math.random()*n);
   const state={
-    round:1, drawerSeat:0,
+    round:1, drawerSeat:startSeat,
     word, usedWords:[word],
     strokes:[], liveStroke:null,
     correctGuesses:[], scores:players.map(()=>0),
