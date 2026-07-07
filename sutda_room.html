@@ -165,6 +165,27 @@ function checkActionPopup(st){
     if(p) showActionPopup(p.username+' '+st.lastAction.label+'!');
   }
 }
+let potFlyKey=null;
+function checkPotDistributionEffect(st){
+  if(!st.postHandAt) return;
+  const key=room.id+':'+room.move_count;
+  if(potFlyKey===key) return;
+  potFlyKey=key;
+  let winnerSeat=-1;
+  if(st.stage==='showdown'&&st.result) winnerSeat=st.result.winnerSeat;
+  if(winnerSeat>=0){
+    const fromEl=document.getElementById('centerSlot');
+    const toEl=getSeatSlotEl(winnerSeat);
+    for(let i=0;i<5;i++){
+      setTimeout(()=>{
+        const chip=document.createElement('div');
+        chip.className='flying-chip';
+        flyPiece(chip,fromEl,toEl,420);
+      },i*90);
+    }
+  }
+  loadLivePoints(room.players,key);
+}
 function checkBetEffects(st){
   const n=st.contributions.length;
   if(room.move_count<lastMoveCount||lastMoveCount===-1){
@@ -388,6 +409,22 @@ async function loadLobbyPoints(players){
     lobbyPoints=map;
     if(room&&room.status==='waiting') render();
   }catch(e){ console.error('로비 포인트 조회 에러',e); }
+}
+
+let livePoints={};
+let livePointsFetchKey=null;
+async function loadLivePoints(players,key){
+  if(livePointsFetchKey===key) return;
+  livePointsFetchKey=key;
+  try{
+    const ids=players.map(p=>p.user_id);
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=in.(${ids.join(',')})&select=user_id,points`,{headers:headers()});
+    const data=await r.json();
+    const map={};
+    data.forEach(d=>{ map[d.user_id]=d.points; });
+    livePoints=map;
+    render();
+  }catch(e){ console.error('실시간 포인트 조회 에러',e); }
 }
 
 function renderLobby(wrap){
@@ -785,8 +822,9 @@ function buildPostHandHtml(players){
     if(players[mySeat].ready){
       h+='<div style="text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#0f9e75;margin-top:6px;">계속하기 선택했어요 · 다른 사람 기다리는 중</div>';
     } else {
+      const remainNow=Math.max(0,POST_HAND_SECONDS-Math.floor((Date.now()-room.state.postHandAt)/1000));
       h+=`<div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">
-        <div class="big-btn" id="continueBtn" style="background:#ff5e3a;color:#fff;">다시하기 (<span id="postHandCountdown">${POST_HAND_SECONDS}</span>)</div>
+        <div class="big-btn" id="continueBtn" style="background:#ff5e3a;color:#fff;">다시하기 (<span id="postHandCountdown">${remainNow}</span>)</div>
         <div class="big-btn" id="leaveAfterBtn" style="background:#eee;color:#555;">나가기</div>
       </div>`;
     }
@@ -863,6 +901,12 @@ function renderGame(wrap){
   const base = isPlayer ? mySeat : 0;
   const slotToSeat = {};
   usedSlots.forEach((slotName,i)=>{ slotToSeat[slotName]=(base+startOffset+i)%n; });
+  const settledView = !!st.postHandAt;
+  function seatBalance(seatIdx){
+    const p=players[seatIdx];
+    if(settledView && livePoints[p.user_id]!==undefined) return livePoints[p.user_id];
+    return st.pointsSnapshot[seatIdx]-st.contributions[seatIdx];
+  }
   function seatSlotHtml(slotName){
     const seatIdx=slotToSeat[slotName];
     const cls='seat-slot slot-'+slotName;
@@ -872,7 +916,7 @@ function renderGame(wrap){
     return `<div class="${cls}" id="seat-${slotName}">
       <div class="seat ${isSeatTurn?'turn':''} ${st.folded[seatIdx]?'folded':''}">
         <div class="seat-name">${esc(p.username)}${st.folded[seatIdx]?' (다이)':(st.allIn&&st.allIn[seatIdx]?' (올인)':'')}</div>
-        <div class="seat-pts">잔액 ${(st.pointsSnapshot[seatIdx]-st.contributions[seatIdx]).toLocaleString()}P</div>
+        <div class="seat-pts">잔액 ${seatBalance(seatIdx).toLocaleString()}P</div>
         ${st.contributions[seatIdx]>0?`<div class="seat-bet-chip">이번판 ${st.contributions[seatIdx].toLocaleString()}P</div>`:''}
         <div class="cardslot-${seatIdx}"></div>
       </div>
@@ -899,7 +943,7 @@ function renderGame(wrap){
   html+=seatSlotHtml('right');
   html+='</div></div>';
   if(isPlayer){
-    html+=`<div id="myBalance" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;margin-top:8px;">내 잔액 <span style="color:#8a1a1a;">${(st.pointsSnapshot[mySeat]-st.contributions[mySeat]).toLocaleString()}P</span></div>`;
+    html+=`<div id="myBalance" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;margin-top:8px;">내 잔액 <span style="color:#8a1a1a;">${seatBalance(mySeat).toLocaleString()}P</span></div>`;
   }
   html+='<div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:26px;color:#8a1a1a;margin:2px 0;min-height:32px;line-height:32px;visibility:hidden;">15초</div>';
   html+='<div class="myhand" id="myhand"></div>';
@@ -925,6 +969,7 @@ function renderGame(wrap){
   checkBetEffects(st);
   checkDealEffects(st);
   checkActionPopup(st);
+  checkPotDistributionEffect(st);
 
   if(room.move_count===0&&!dealAnimDone&&(Date.now()-st.turnStartedAt<4000)){
     dealAnimDone=true;
