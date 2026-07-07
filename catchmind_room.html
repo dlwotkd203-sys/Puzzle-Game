@@ -440,7 +440,7 @@ function renderGame(wrap){
     const wordEl=document.getElementById('wordReveal');
     if(wordEl){
       const alreadyCorrect=mySeat>=0&&st.correctGuesses.some(g=>g.seat===mySeat);
-      const canSeeWord=isDrawer||mySeat<0||alreadyCorrect||st.stage==='roundResult';
+      const canSeeWord=isDrawer||alreadyCorrect||st.stage==='roundResult';
       wordEl.innerHTML=canSeeWord?`<div class="word-box">정답: ${esc(st.word)}</div>`:'';
     }
     const audEl=document.getElementById('audienceRow');
