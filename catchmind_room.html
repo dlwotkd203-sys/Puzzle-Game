@@ -405,8 +405,8 @@ function renderGame(wrap){
       html+='<div class="canvas-area" id="canvasArea"><canvas id="baseCanvas" width="'+CANVAS_W+'" height="'+CANVAS_H+'"></canvas><canvas id="liveCanvas" width="'+CANVAS_W+'" height="'+CANVAS_H+'"></canvas><div class="round-popup" id="roundPopup" style="display:none;"></div></div>';
       html+='<div class="timer-wrap"><div class="timer-bar" id="timerBar" style="width:100%;"></div></div>';
       html+='<div class="drawer-badge" id="drawerBadge"></div>';
+      html+='<div id="wordReveal"></div>';
       if(isDrawer){
-        html+=`<div class="word-box">정답: ${esc(st.word)}</div>`;
         html+='<div class="palette-row" id="paletteRow">';
         COLORS.forEach(c=>{ html+=`<div class="color-dot ${myColor===c?'sel':''}" data-c="${c}" style="background:${c};${PALETTE_BORDER[c]?'border-color:'+PALETTE_BORDER[c]+';':''}"></div>`; });
         html+='</div>';
@@ -415,6 +415,7 @@ function renderGame(wrap){
           <div class="tool-btn ${myTool==='eraser'?'sel':''}" id="eraserBtn">🧹 지우개</div>
           <div class="tool-btn" id="clearAllBtn">전체 지우기</div>
           <div class="tool-btn" id="fillAllBtn">전체 칠하기</div>
+          <div class="tool-btn" id="skipTurnBtn" style="background:#e63946;color:#fff;">턴 넘기기</div>
         </div>`;
         html+='<div class="size-row" id="sizeRow">';
         const sizeOpts=myTool==='eraser'?ERASER_SIZES:PEN_SIZES;
@@ -436,6 +437,12 @@ function renderGame(wrap){
     const drawerP=players[st.drawerSeat];
     const badgeEl=document.getElementById('drawerBadge');
     if(badgeEl) badgeEl.textContent='✏️ '+(drawerP?drawerP.username:'')+' 님이 그리는 중';
+    const wordEl=document.getElementById('wordReveal');
+    if(wordEl){
+      const alreadyCorrect=mySeat>=0&&st.correctGuesses.some(g=>g.seat===mySeat);
+      const canSeeWord=isDrawer||mySeat<0||alreadyCorrect||st.stage==='roundResult';
+      wordEl.innerHTML=canSeeWord?`<div class="word-box">정답: ${esc(st.word)}</div>`:'';
+    }
     const audEl=document.getElementById('audienceRow');
     if(audEl){
       audEl.innerHTML='';
@@ -450,6 +457,7 @@ function renderGame(wrap){
     }
     if(st.strokes.length!==baseDrawnCount) redrawBaseFull(st);
     if(!isDrawer) redrawLiveFromState(st);
+    checkCorrectGuessPopup(st,players);
     renderChatLog();
     updateChatBarState(st,isDrawer);
 
@@ -457,7 +465,10 @@ function renderGame(wrap){
     if(popup){
       if(st.stage==='roundResult'){
         popup.style.display='flex';
-        let h=`<div class="opt-label" style="align-self:center;">정답은 "${esc(st.word)}" 였어요</div>`;
+        const noOneGuessed=st.correctGuesses.length===0;
+        let h = noOneGuessed
+          ? `<div class="opt-label" style="align-self:center;font-size:15px;color:#e63946;">😢 정답자가 없습니다!</div><div class="opt-label" style="align-self:center;">정답은 "${esc(st.word)}" 였습니다</div>`
+          : `<div class="opt-label" style="align-self:center;">정답은 "${esc(st.word)}" 였어요</div>`;
         h+='<table class="score-table"><tbody>';
         const order=players.map((p,i)=>({p,i,delta:st.roundDeltas?st.roundDeltas[i]:0,total:st.scores[i]})).sort((a,b)=>b.total-a.total);
         order.forEach((o,rank)=>{
@@ -485,6 +496,36 @@ function updateChatBarState(st,isDrawer){
   } else {
     input.disabled=false; input.placeholder='정답을 채팅으로 입력하세요';
   }
+}
+
+let correctPopupKey=null, lastSeenCorrectCount=0;
+function checkCorrectGuessPopup(st,players){
+  const key=room.id+':'+st.round;
+  if(correctPopupKey!==key){
+    correctPopupKey=key;
+    lastSeenCorrectCount=st.correctGuesses.length; // 새 라운드 시작시엔 알림 없이 기준값만 맞춤
+    return;
+  }
+  if(st.correctGuesses.length>lastSeenCorrectCount){
+    st.correctGuesses.slice(lastSeenCorrectCount).forEach(g=>{
+      const p=players[g.seat];
+      if(p) showGuessPopup((p.username||'')+'님 정답! (+'+g.points+'점)');
+    });
+  }
+  lastSeenCorrectCount=st.correctGuesses.length;
+}
+function showGuessPopup(text){
+  const anchor=document.getElementById('canvasArea')||document.getElementById('wrap');
+  if(!anchor) return;
+  const rect=anchor.getBoundingClientRect();
+  if(!rect.width&&!rect.height) return;
+  const el=document.createElement('div');
+  el.textContent='🎉 '+text;
+  el.style.cssText=`position:fixed;left:${rect.left+rect.width/2}px;top:${rect.top+rect.height/2}px;transform:translate(-50%,-50%) scale(0.4);opacity:0;font-family:-apple-system,sans-serif;font-weight:900;font-size:16px;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,0.5);z-index:600;pointer-events:none;white-space:nowrap;transition:transform .22s cubic-bezier(.34,1.56,.64,1),opacity .18s;background:rgba(15,158,117,0.9);padding:9px 16px;border-radius:14px;`;
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='translate(-50%,-50%) scale(1)'; });
+  setTimeout(()=>{ el.style.opacity='0'; },1200);
+  setTimeout(()=>{ el.remove(); },1450);
 }
 
 function canvasCtx(id){ const c=document.getElementById(id); return c?c.getContext('2d'):null; }
@@ -621,6 +662,11 @@ function bindCanvasControls(isDrawer){
   if(fillBtn) fillBtn.addEventListener('click',()=>{
     patchGameState(s=>{ s.strokes=[...s.strokes,{type:'fill',color:myColor}]; s.liveStroke=null; });
   });
+  const skipBtn=document.getElementById('skipTurnBtn');
+  if(skipBtn) skipBtn.addEventListener('click',()=>{
+    if(!confirm('이번 라운드를 넘기시겠어요?')) return;
+    patchGameState(s=>{ if(s.stage==='drawing') endRound(s); });
+  });
 }
 
 function renderMatchResult(wrap,st,players){
@@ -683,7 +729,7 @@ async function sendChat(){
       const points=scoreForElapsed(elapsed,room.time_limit);
       s.correctGuesses=[...s.correctGuesses,{seat:mySeat,atMs:elapsed,points}];
       const nonDrawerActive=room.players.map((_,i)=>i).filter(i=>i!==s.drawerSeat);
-      if(nonDrawerActive.every(i=>s.correctGuesses.some(g=>g.seat===i))){
+      if(nonDrawerActive.length>0&&nonDrawerActive.every(i=>s.correctGuesses.some(g=>g.seat===i))){
         endRound(s);
       }
     });
