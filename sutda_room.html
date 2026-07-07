@@ -56,6 +56,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span class="top-title" id="roomTitle">섯다 대전방</span>
   </div>
   <div class="wrap" id="wrap"><div class="center-msg">불러오는 중...</div></div>
+  <div id="chatBar" style="position:sticky;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;padding:8px 12px;display:flex;gap:8px;align-items:center;z-index:40;">
+    <input id="chatInput" maxlength="15" placeholder="채팅 (최대 15자)" style="flex:1;border:1px solid #ddd;border-radius:20px;padding:9px 14px;font-size:13px;font-family:inherit;outline:none;">
+    <div id="chatSendBtn" style="font-weight:700;color:#8a1a1a;font-size:13px;cursor:pointer;padding:8px 12px;flex-shrink:0;">전송</div>
+  </div>
 </div>
 <script>
 const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
@@ -304,8 +308,8 @@ function renderLobby(wrap){
     html+='</div>';
   }
   html+='<div style="width:100%;padding:0 6px;">';
-  players.forEach(p=>{
-    html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
+  players.forEach((p,i)=>{
+    html+=`<div id="lobby-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
       <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}</div>
       <div style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:${p.ready?'#0f9e75':'#bbb'};">${p.ready?'준비완료':'대기중'}</div>
     </div>`;
@@ -378,14 +382,17 @@ async function startHand(){
 
 function nextActiveSeat(st,n,from){
   let t=from;
-  for(let k=0;k<n;k++){ t=(t+1)%n; if(!st.folded[t]) return t; }
+  for(let k=0;k<n;k++){ t=(t+1)%n; if(!st.folded[t]&&!(st.allIn&&st.allIn[t])) return t; }
   return from;
 }
 function activeSeats(st){ return st.folded.map((f,i)=>f?-1:i).filter(i=>i>=0); }
+function actingSeats(st){ return activeSeats(st).filter(i=>!(st.allIn&&st.allIn[i])); }
 function roundComplete(st){
   const act=activeSeats(st);
   if(act.length<=1) return true;
-  return act.every(s=>st.actedAtBet[s]===st.currentBet);
+  const acting=actingSeats(st);
+  if(acting.length===0) return true;
+  return acting.every(s=>st.actedAtBet[s]===st.currentBet);
 }
 function resetBettingVars(st){
   st.currentBet=0; st.openingDone=false;
@@ -400,6 +407,12 @@ function dealCardsToActive(st,count){
 }
 function finalizeShowdown(st){
   const act=activeSeats(st);
+  if(act.length===1){
+    // 전원 다이 -> 남은 한 명 기권승 (패 비교 없이 승리)
+    st.stage='showdown';
+    st.result={winnerSeat:act[0],evals:st.hands.map(()=>null),byFold:true};
+    return;
+  }
   const evals=st.hands.map((h,i)=>{
     if(st.folded[i]) return null;
     if(st.mode==='3card'&&st.chosenPair[i]){
@@ -424,7 +437,7 @@ function finalizeShowdown(st){
     return;
   }
   st.stage='showdown';
-  st.result={winnerSeat:winner,evals};
+  st.result={winnerSeat:winner,evals,byFold:false};
 }
 function tryAdvanceStage(st){
   const n=st.hands.length;
@@ -498,8 +511,28 @@ async function settleHand(){
   const players=room.players;
   const isPatohResolved = st.stage==='patohResolved';
   const winner = isPatohResolved ? -1 : st.result.winnerSeat;
+  // 올인 미콜분 환급: 다이 안 한 사람들 중 아무도 못 받아친(따라오지 못한) 초과 배팅분은
+  // 그 초과분을 낸 사람에게 그대로 돌려줌 (받은 사람이 없으니 판돈 경쟁 대상이 아님)
+  let refundSeat=-1, refundAmt=0;
+  if(!isPatohResolved){
+    const nonFolded=players.map((_,i)=>i).filter(i=>!st.folded[i]);
+    const sorted=nonFolded.map(i=>st.contributions[i]).sort((a,b)=>b-a);
+    if(sorted.length>=1){
+      const top=sorted[0], second=sorted.length>1?sorted[1]:0;
+      if(top>second){
+        refundSeat=nonFolded.find(i=>st.contributions[i]===top);
+        refundAmt=top-second;
+      }
+    }
+  }
+  const effPot = st.pot-refundAmt;
   await Promise.all(players.map(async(p,i)=>{
-    const delta = isPatohResolved ? -st.contributions[i] : (i===winner ? (st.pot - st.contributions[i]) : -st.contributions[i]);
+    let delta;
+    if(isPatohResolved){ delta=-st.contributions[i]; }
+    else{
+      const effContrib = st.contributions[i]-(i===refundSeat?refundAmt:0);
+      delta = (i===winner?effPot:0) - effContrib;
+    }
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points,wins,losses`,{headers:headers()});
     const data=await r.json();
     const cur=data.length?data[0]:{points:STARTING_POINTS,wins:0,losses:0};
@@ -572,6 +605,25 @@ async function actRaiseFrac(frac){
 async function actDie(){
   await patchState(s=>{
     s.folded[mySeat]=true; s.lastPaid[mySeat]=0;
+    if((s.stage==='bet1'||s.stage==='bet2'||s.stage==='bet3')&&s.turn===mySeat){
+      s.turn=nextActiveSeat(s,room.players.length,mySeat);
+    }
+    s.turnStartedAt=Date.now();
+  });
+  render();
+}
+async function actAllIn(){
+  await patchState(s=>{
+    const remain=s.pointsSnapshot[mySeat]-s.contributions[mySeat];
+    if(remain<=0) return;
+    const newTotal=s.contributions[mySeat]+remain;
+    s.pot+=remain; s.contributions[mySeat]=newTotal;
+    if(newTotal>s.currentBet) s.currentBet=newTotal;
+    s.actedAtBet[mySeat]=newTotal; s.lastPaid[mySeat]=remain;
+    s.openingDone=true;
+    if(!s.allIn) s.allIn=s.hands.map(()=>false);
+    s.allIn[mySeat]=true;
+    s.turn=nextActiveSeat(s,room.players.length,mySeat); s.turnStartedAt=Date.now();
   });
   render();
 }
@@ -624,7 +676,7 @@ function renderGame(wrap){
     const isSeatTurn = isBettingStage && st.turn===seatIdx;
     return `<div class="${cls}" id="seat-${slotName}">
       <div class="seat ${isSeatTurn?'turn':''} ${st.folded[seatIdx]?'folded':''}">
-        <div class="seat-name">${esc(p.username)}${st.folded[seatIdx]?' (다이)':''}</div>
+        <div class="seat-name">${esc(p.username)}${st.folded[seatIdx]?' (다이)':(st.allIn&&st.allIn[seatIdx]?' (올인)':'')}</div>
         <div class="seat-pts">잔액 ${(st.pointsSnapshot[seatIdx]-st.contributions[seatIdx]).toLocaleString()}P</div>
         ${st.contributions[seatIdx]>0?`<div class="seat-bet-chip">이번판 ${st.contributions[seatIdx].toLocaleString()}P</div>`:''}
         <div class="cardslot-${seatIdx}"></div>
@@ -651,6 +703,10 @@ function renderGame(wrap){
   </div>`;
   html+=seatSlotHtml('right');
   html+='</div></div>';
+  if(isPlayer){
+    html+=`<div id="myBalance" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;margin-top:8px;">내 잔액 <span style="color:#8a1a1a;">${(st.pointsSnapshot[mySeat]-st.contributions[mySeat]).toLocaleString()}P</span></div>`;
+  }
+  html+='<div id="timerNum" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:900;font-size:26px;color:#8a1a1a;margin:2px 0;"></div>';
   html+='<div class="myhand" id="myhand"></div>';
   html+='<div id="myLabel" style="font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#8a1a1a;text-align:center;"></div>';
   html+='<div id="statusTxt" style="font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;text-align:center;"></div>';
@@ -762,11 +818,13 @@ function renderGame(wrap){
       const quarterRaise=Math.max(unit,Math.floor(st.pot*0.25));
       const quarterCost=st.currentBet+quarterRaise-st.contributions[mySeat];
       const buttons=[];
+      const myRemain=st.pointsSnapshot[mySeat]-st.contributions[mySeat];
       if(canBbing) buttons.push(['삥',actBbing,unit]);
       if(!locked) buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.contributions[mySeat]:unit*2]);
       if(canCall) buttons.push(['콜',actCall,st.currentBet-st.contributions[mySeat]]);
       if(st.openingDone&&!locked) buttons.push(['하프',()=>actRaiseFrac(0.5),halfCost]);
       if(st.openingDone&&!locked) buttons.push(['쿼터',()=>actRaiseFrac(0.25),quarterCost]);
+      if(myRemain>0) buttons.push(['올인',actAllIn,myRemain]);
       buttons.push(['다이',actDie,0]);
       buttons.forEach(([label,fn,cost])=>{
         const afford = label==='다이'?true:myAfford(cost);
@@ -781,13 +839,18 @@ function renderGame(wrap){
     statusTxt.textContent='';
     const box=document.getElementById('showdownBox');
     const winner=players[st.result.winnerSeat];
-    let h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">🏆 '+esc(winner.username)+'님 승리! ('+st.result.evals[st.result.winnerSeat].label+')</div>';
-    h+='<div style="width:100%;">';
-    players.forEach((p,i)=>{
-      if(st.folded[i]) return;
-      h+='<div style="display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #eee;font-family:-apple-system,sans-serif;font-size:12px;"><span>'+esc(p.username)+(i===st.result.winnerSeat?' 🏆':'')+'</span><span>'+st.result.evals[i].label+'</span></div>';
-    });
-    h+='</div>';
+    let h;
+    if(st.result.byFold){
+      h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">🏆 '+esc(winner.username)+'님 승리! (전원 다이 · 기권승)</div>';
+    } else {
+      h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">🏆 '+esc(winner.username)+'님 승리! ('+st.result.evals[st.result.winnerSeat].label+')</div>';
+      h+='<div style="width:100%;">';
+      players.forEach((p,i)=>{
+        if(st.folded[i]) return;
+        h+='<div style="display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #eee;font-family:-apple-system,sans-serif;font-size:12px;"><span>'+esc(p.username)+(i===st.result.winnerSeat?' 🏆':'')+'</span><span>'+st.result.evals[i].label+'</span></div>';
+      });
+      h+='</div>';
+    }
     const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
     if(isHost){ h+='<div class="big-btn" id="nextHandBtn" style="background:#ff5e3a;color:#fff;margin-top:12px;">다음 판</div>'; }
     box.innerHTML=h;
@@ -812,6 +875,27 @@ async function leaveRoom(){
 }
 document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
 
+const TURN_SECONDS=15;
+let autoDieKey=null;
+function tick(){
+  if(!(room&&room.status==='playing'&&room.state)) return;
+  const st=room.state;
+  const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
+  const el=document.getElementById('timerNum');
+  if(!isBettingStage||mySeat<0||st.turn!==mySeat||st.folded[mySeat]){
+    if(el) el.textContent='';
+    return;
+  }
+  const elapsed=Date.now()-st.turnStartedAt;
+  const remain=Math.max(0,TURN_SECONDS-Math.floor(elapsed/1000));
+  if(el) el.textContent=remain+'초';
+  const key=room.id+':'+room.move_count;
+  if(elapsed>=TURN_SECONDS*1000&&autoDieKey!==key){
+    autoDieKey=key;
+    actDie();
+  }
+}
+
 if(!currentUser){
   document.getElementById('wrap').innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>';
 } else if(!roomId){
@@ -819,7 +903,72 @@ if(!currentUser){
 } else {
   fetchRoom();
   pollTimer=setInterval(fetchRoom,1000);
+  setInterval(tick,500);
+  initChat();
 }
+
+// ---- 채팅 ----
+let lastChatId=0;
+let chatTimer=null;
+
+async function initChat(){
+  const input=document.getElementById('chatInput');
+  const sendBtn=document.getElementById('chatSendBtn');
+  sendBtn.addEventListener('click',sendChat);
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(); });
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_chat?room_id=eq.${roomId}&select=id&order=id.desc&limit=1`,{headers:headers()});
+    const data=await r.json();
+    if(data&&data.length) lastChatId=data[0].id;
+  }catch(e){ console.error('채팅 초기화 에러',e); }
+  chatTimer=setInterval(pollChat,1000);
+}
+
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const msg=input.value.trim().slice(0,15);
+  if(!msg) return;
+  if(mySeat<0){ alert('참가자만 채팅을 보낼 수 있어요.'); return; }
+  input.value='';
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_chat`,{
+      method:'POST',headers:jheaders(),
+      body:JSON.stringify({room_id:String(roomId),seat:mySeat,username:currentUser.username,message:msg})
+    });
+    if(!res.ok){ console.error('채팅 전송 실패',res.status,await res.text()); }
+  }catch(e){ console.error('채팅 전송 에러',e); }
+}
+
+async function pollChat(){
+  if(!roomId) return;
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_chat?room_id=eq.${roomId}&id=gt.${lastChatId}&order=id.asc&limit=30`,{headers:headers()});
+    if(!r.ok){ console.error('채팅 조회 실패',r.status,await r.text()); return; }
+    const data=await r.json();
+    data.forEach(m=>{
+      lastChatId=m.id;
+      showChatBubble(m.seat,m.message);
+    });
+  }catch(e){ console.error('채팅 폴링 에러',e); }
+}
+
+function showChatBubble(seat,message){
+  let anchor=null;
+  if(room&&room.status==='playing'){ anchor=getSeatSlotEl(seat); }
+  else if(room&&room.status==='waiting'){ anchor=document.getElementById('lobby-row-'+seat); }
+  if(!anchor) anchor=document.getElementById('wrap');
+  if(!anchor) return;
+  const rect=anchor.getBoundingClientRect();
+  if(!rect.width&&!rect.height) return;
+  const bubble=document.createElement('div');
+  bubble.textContent=message;
+  bubble.style.cssText=`position:fixed;left:${rect.left+rect.width/2}px;top:${rect.top-6}px;transform:translate(-50%,-100%);background:#1a1a2e;color:#fff;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;padding:6px 12px;border-radius:14px;white-space:nowrap;z-index:200;box-shadow:0 3px 10px rgba(0,0,0,0.3);pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease;`;
+  document.body.appendChild(bubble);
+  requestAnimationFrame(()=>{ bubble.style.opacity='1'; bubble.style.transform='translate(-50%,-108%)'; });
+  setTimeout(()=>{ bubble.style.opacity='0'; },2500);
+  setTimeout(()=>{ bubble.remove(); },2750);
+}
+
 </script>
 </body>
 </html>
