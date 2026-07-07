@@ -577,8 +577,13 @@ function finalizeShowdown(st){
     contenders = act.filter(s=>!evals[s].isDdaeng);
     if(!contenders.length) contenders=act;
   }
-  let winner=contenders[0];
-  contenders.forEach(s=>{ if(evals[s].rank>evals[winner].rank) winner=s; });
+  const maxRank=Math.max(...contenders.map(s=>evals[s].rank));
+  const tied=contenders.filter(s=>evals[s].rank===maxRank);
+  if(tied.length>1){
+    redealForTiebreak(st,tied,act);
+    return;
+  }
+  const winner=tied[0];
 
   if(evals[winner].isPatoh){
     st.stage='patohVote';
@@ -588,6 +593,21 @@ function finalizeShowdown(st){
   }
   st.stage='showdown';
   st.result={winnerSeat:winner,evals,byFold:false};
+}
+function redealForTiebreak(st,tiedSeats,allActiveSeats){
+  // 동점 -> 동점자 외에는 이번 판 패배 확정(폴드 처리), 동점자끼리 새 카드 2장씩 받고 즉시 재배팅
+  allActiveSeats.forEach(s=>{ if(!tiedSeats.includes(s)) st.folded[s]=true; });
+  tiedSeats.forEach(s=>{
+    st.hands[s]=[st.deck.pop(),st.deck.pop()];
+    st.exposed[s]=null;
+    st.chosenPair[s]=null;
+  });
+  st.tieBreak=true;
+  st.tieBreakRound=(st.tieBreakRound||0)+1;
+  resetBettingVars(st);
+  st.stage='bet1';
+  st.turn=tiedSeats[0];
+  st.turnStartedAt=Date.now();
 }
 function tryAdvanceStage(st){
   const n=st.hands.length;
@@ -616,6 +636,10 @@ function tryAdvanceStage(st){
   if(!roundComplete(st)) return;
   const act=activeSeats(st);
   if(act.length<=1){ finalizeShowdown(st); return; }
+  if(st.tieBreak){
+    if(st.stage==='bet1'){ finalizeShowdown(st); }
+    return;
+  }
   if(st.mode==='2card'){
     if(st.stage==='bet1'){
       dealCardsToActive(st,1);
@@ -888,12 +912,13 @@ function renderGame(wrap){
   const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
   const myTurn=isPlayer&&isBettingStage&&st.turn===mySeat&&!st.folded[mySeat];
   const initCountForPeek = st.mode==='3card'?2:1;
-  if(isPlayer&&peekCardLen!==st.hands[mySeat].length){
-    peekCardLen=st.hands[mySeat].length;
+  const peekTrackKey=st.hands[mySeat]?st.hands[mySeat].length+':'+(st.tieBreakRound||0):null;
+  if(isPlayer&&peekCardLen!==peekTrackKey){
+    peekCardLen=peekTrackKey;
     lastCardRevealed=false;
     peekCardEl=null;
   }
-  const peekActive = isPlayer && st.hands[mySeat].length>initCountForPeek && st.stage!=='showdown' && !st.folded[mySeat];
+  const peekActive = isPlayer && (st.tieBreak ? st.hands[mySeat].length>1 : st.hands[mySeat].length>initCountForPeek) && st.stage!=='showdown' && !st.folded[mySeat];
 
   const oppCount = isPlayer ? n-1 : n;
   const usedSlots = slotsForCount(Math.min(oppCount,5));
@@ -928,7 +953,7 @@ function renderGame(wrap){
   for(let i=0;i<chipCount;i++){ potChips+=`<div style="position:absolute;left:${28+i*3}px;bottom:${i*3}px;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#ffd166 55%,#c9861a 100%);border:2px solid #8a1a1a;box-shadow:0 2px 4px rgba(0,0,0,0.35);"></div>`; }
 
   let html='<div class="table-area">';
-  html+='<div class="stage-box" style="text-align:center;margin:0 auto 8px;width:fit-content;">'+(STAGE_LABEL[st.stage]||'')+'</div>';
+  html+='<div class="stage-box" style="text-align:center;margin:0 auto 8px;width:fit-content;">'+(st.tieBreak?'⚔️ 동점 재대결'+(st.tieBreakRound>1?' ('+st.tieBreakRound+'차)':'') :(STAGE_LABEL[st.stage]||''))+'</div>';
   html+='<div class="table-grid">';
   html+=seatSlotHtml('tl')+seatSlotHtml('top')+seatSlotHtml('tr');
   html+=seatSlotHtml('left');
