@@ -240,8 +240,8 @@ const GWANG_MONTHS={1:1,3:1,8:1};
 const GWANG_ORDER={3:3,1:2,8:1};
 // 비페어 광 조합(38광땡 최상위, 13/18광땡 동급 차상위) - 페어로 만든 n광땡보다 위, 암행어사에게는 짐
 const CROSS_GWANG={'3,8':{rank:400,label:'38광땡'},'1,3':{rank:390,label:'13광땡'},'1,8':{rank:390,label:'18광땡'}};
-const SPECIALS={'1,2':5,'1,4':4,'1,9':3,'4,10':2,'4,6':1};
-const SPECIAL_NAME={'1,2':'알리','1,4':'독사','1,9':'구삥','4,10':'장사','4,6':'세륙'};
+const SPECIALS={'1,2':6,'1,4':5,'1,9':4,'1,10':3,'4,10':2,'4,6':1};
+const SPECIAL_NAME={'1,2':'알리','1,4':'독사','1,9':'구삥','1,10':'장삥','4,10':'장사','4,6':'세륙'};
 function evalPair(c1,c2){
   const m1=c1.month,m2=c2.month;
   const isAmhaeng = (m1===4&&m2===7)||(m1===7&&m2===4);
@@ -359,11 +359,37 @@ async function fetchRoom(){
   }catch(e){}
 }
 
+let lastRoomStatus=null;
 function render(){
   document.getElementById('roomTitle').textContent=esc(room.host_username)+'님의 방 ('+(room.mode==='3card'?'3장':'2장')+')';
   const wrap=document.getElementById('wrap');
-  if(room.status==='waiting') return renderLobby(wrap);
-  if(room.status==='playing') return renderGame(wrap);
+  if(room.status==='waiting'){
+    if(lastRoomStatus==='playing') lobbyPointsFetchKey=null;
+    lastRoomStatus='waiting';
+    return renderLobby(wrap);
+  }
+  if(room.status==='playing'){
+    lastRoomStatus='playing';
+    return renderGame(wrap);
+  }
+}
+
+let lobbyPoints={};
+let lobbyPointsFetchKey=null;
+async function loadLobbyPoints(players){
+  const key=players.map(p=>p.user_id).join(',');
+  if(lobbyPointsFetchKey===key) return;
+  lobbyPointsFetchKey=key;
+  try{
+    const ids=players.map(p=>p.user_id);
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=in.(${ids.join(',')})&select=user_id,points`,{headers:headers()});
+    const data=await r.json();
+    const map={};
+    data.forEach(d=>{ map[d.user_id]=d.points; });
+    players.forEach(p=>{ if(!(p.user_id in map)) map[p.user_id]=STARTING_POINTS; });
+    lobbyPoints=map;
+    if(room&&room.status==='waiting') render();
+  }catch(e){ console.error('로비 포인트 조회 에러',e); }
 }
 
 function renderLobby(wrap){
@@ -372,6 +398,7 @@ function renderLobby(wrap){
   lastActionMoveCount=-1;
   peekCardEl=null; peekCardLen=-1; lastCardRevealed=false;
   const players=room.players||[];
+  loadLobbyPoints(players);
   const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
   const allReady=players.length>=2&&players.every(p=>p.ready);
   const unitOptions=[50,100,200,500,1000];
@@ -385,9 +412,13 @@ function renderLobby(wrap){
   }
   html+='<div style="width:100%;padding:0 6px;">';
   players.forEach((p,i)=>{
+    const pts=lobbyPoints[p.user_id];
+    const canKick=isHost&&i!==mySeat;
     html+=`<div id="lobby-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #f5f5f5;">
       <div style="font-family:-apple-system,sans-serif;font-size:13px;flex:1;">${esc(p.username)}</div>
+      <div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:700;color:#8a1a1a;">${pts!==undefined?pts.toLocaleString()+'P':'···'}</div>
       <div style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:${p.ready?'#0f9e75':'#bbb'};">${p.ready?'준비완료':'대기중'}</div>
+      ${canKick?`<div class="kickBtn" data-i="${i}" style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;color:#fff;background:#c0392b;padding:4px 9px;border-radius:10px;cursor:pointer;">강퇴</div>`:''}
     </div>`;
   });
   html+='</div>';
@@ -406,6 +437,9 @@ function renderLobby(wrap){
         await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({base_unit:u})});
         fetchRoom();
       });
+    });
+    wrap.querySelectorAll('.kickBtn').forEach(el=>{
+      el.addEventListener('click',()=>kickPlayer(parseInt(el.dataset.i)));
     });
   }
   if(mySeat>=0){
@@ -621,7 +655,9 @@ async function settleHand(){
   }));
   const st2=JSON.parse(JSON.stringify(room.state));
   st2._settled=true;
-  const roomPatch={state:st2,move_count:room.move_count+1};
+  st2.postHandAt=Date.now();
+  const resetPlayers=players.map(p=>({...p,ready:false}));
+  const roomPatch={state:st2,players:resetPlayers,move_count:room.move_count+1};
   if(isPatohResolved){ roomPatch.carry_pot=(room.carry_pot||0)+st.pot; }
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
     method:'PATCH',headers:jheaders(),body:JSON.stringify(roomPatch)
@@ -736,6 +772,69 @@ async function nextHand(){
   fetchRoom();
 }
 
+function buildPostHandHtml(players){
+  const readyCount=players.filter(p=>p.ready).length;
+  let h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-size:11px;color:#888;margin-top:10px;">'+readyCount+'/'+players.length+'명 계속하기 선택함</div>';
+  if(mySeat>=0){
+    if(players[mySeat].ready){
+      h+='<div style="text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#0f9e75;margin-top:6px;">계속하기 선택했어요 · 다른 사람 기다리는 중</div>';
+    } else {
+      h+=`<div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">
+        <div class="big-btn" id="continueBtn" style="background:#ff5e3a;color:#fff;">다시하기 (<span id="postHandCountdown">5</span>)</div>
+        <div class="big-btn" id="leaveAfterBtn" style="background:#eee;color:#555;">나가기</div>
+      </div>`;
+    }
+  }
+  return h;
+}
+function wirePostHandButtons(players){
+  if(mySeat>=0&&!players[mySeat].ready){
+    const cBtn=document.getElementById('continueBtn');
+    const lBtn=document.getElementById('leaveAfterBtn');
+    if(cBtn) cBtn.addEventListener('click',()=>actContinueAfterHand());
+    if(lBtn) lBtn.addEventListener('click',()=>actLeaveAfterHand());
+  }
+  maybeAutoRestart();
+}
+
+let postHandDeciding=false;
+async function actContinueAfterHand(){
+  if(mySeat<0||postHandDeciding) return;
+  if(room.players[mySeat] && room.players[mySeat].ready) return;
+  postHandDeciding=true;
+  try{
+    const np=room.players.map((p,i)=>i===mySeat?{...p,ready:true}:p);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},body:JSON.stringify({players:np,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; }
+    await fetchRoom();
+    maybeAutoRestart();
+  } finally{ postHandDeciding=false; }
+}
+let restartTriggeredKey=null;
+async function maybeAutoRestart(){
+  if(!room||room.status!=='playing'||!room.state) return;
+  if(room.state.stage!=='showdown'&&room.state.stage!=='patohResolved') return;
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const players=room.players||[];
+  const key=room.id+':'+room.move_count;
+  if(players.length>=2&&players.every(p=>p.ready)&&restartTriggeredKey!==key){
+    restartTriggeredKey=key;
+    await startHand();
+  }
+}
+async function kickPlayer(idx){
+  if(!confirm('정말 이 플레이어를 강퇴하시겠어요?')) return;
+  const np=(room.players||[]).filter((_,i)=>i!==idx).map((p,i)=>({...p,seat:i}));
+  await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+    method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np,move_count:room.move_count+1})
+  });
+  fetchRoom();
+}
+
 function renderGame(wrap){
   const st=room.state;
   const players=room.players;
@@ -810,7 +909,8 @@ function renderGame(wrap){
     slot.style.display='flex'; slot.style.gap='2px'; slot.style.marginTop='2px';
     if(i===mySeat) return;
     st.hands[i].forEach((c,k)=>{
-      const showFace = st.stage==='showdown' || (st.mode==='3card' && st.exposed[i]===k);
+      const isFoldWin = st.stage==='showdown' && st.result && st.result.byFold;
+      const showFace = (st.stage==='showdown' && !isFoldWin) || (st.mode==='3card' && st.exposed[i]===k);
       slot.appendChild(showFace ? makeCardEl(c,CW,CH) : makeCardBackEl(CW,CH));
     });
   });
@@ -905,10 +1005,9 @@ function renderGame(wrap){
     const box=document.getElementById('showdownBox');
     let h='<div style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:16px;color:#8a1a1a;margin:10px 0;">💥 파토 확정!</div>';
     h+='<div style="text-align:center;font-family:-apple-system,sans-serif;font-size:12px;color:#666;">투표로 무효 처리됐어요. 이번 판돈 '+st.pot.toLocaleString()+'P는 다음 판으로 이월돼요.</div>';
-    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
-    if(isHost){ h+='<div class="big-btn" id="nextHandBtn" style="background:#ff5e3a;color:#fff;margin-top:12px;">다음 판</div>'; }
+    h+=buildPostHandHtml(players);
     box.innerHTML=h;
-    if(isHost){ document.getElementById('nextHandBtn').addEventListener('click',nextHand); }
+    wirePostHandButtons(players);
   } else if(isBettingStage){
     const turnPlayer=players[st.turn];
     statusTxt.textContent = myTurn?'내 차례!':(esc(turnPlayer.username)+'님 차례');
@@ -955,25 +1054,39 @@ function renderGame(wrap){
       });
       h+='</div>';
     }
-    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
-    if(isHost){ h+='<div class="big-btn" id="nextHandBtn" style="background:#ff5e3a;color:#fff;margin-top:12px;">다음 판</div>'; }
+    h+=buildPostHandHtml(players);
     box.innerHTML=h;
-    if(isHost){ document.getElementById('nextHandBtn').addEventListener('click',nextHand); }
+    wirePostHandButtons(players);
   }
 }
 
+async function removeSelfAndLeave(){
+  const wasHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+  if(np.length===0){
+    await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'DELETE',headers:headers()});
+    return;
+  }
+  const patch={players:np};
+  if(wasHost){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+  await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+}
+async function actLeaveAfterHand(){
+  if(mySeat<0) return;
+  await removeSelfAndLeave();
+  location.href='sutda_rooms.html';
+}
 async function leaveRoom(){
-  if(room&&room.status==='waiting'){
-    const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
-    if(isHost){
-      await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'DELETE',headers:headers()});
-    } else if(mySeat>=0){
-      const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
-      await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})});
+  if(room&&room.status==='waiting'&&mySeat>=0){
+    await removeSelfAndLeave();
+  } else if(room&&room.status==='playing'&&mySeat>=0){
+    const st=room.state;
+    if(st.stage==='showdown'||st.stage==='patohResolved'){
+      await removeSelfAndLeave();
+    } else if(st.stage!=='patohVote'&&!st.folded[mySeat]){
+      if(confirm('정말 나가시겠어요? 다이(기권) 처리돼요.')){ await actDie(); await removeSelfAndLeave(); }
+      else return;
     }
-  } else if(room&&room.status==='playing'&&mySeat>=0&&room.state.stage!=='showdown'&&room.state.stage!=='patohVote'&&room.state.stage!=='patohResolved'&&!room.state.folded[mySeat]){
-    if(confirm('정말 나가시겠어요? 다이(기권) 처리돼요.')){ await actDie(); }
-    else return;
   }
   location.href='sutda_rooms.html';
 }
@@ -988,16 +1101,25 @@ function tick(){
   const el=document.getElementById('timerNum');
   if(!isBettingStage||mySeat<0||st.turn!==mySeat||st.folded[mySeat]){
     if(el) el.style.visibility='hidden';
-    return;
+  } else {
+    const elapsed=Date.now()-st.turnStartedAt;
+    const remain=Math.max(0,TURN_SECONDS-Math.floor(elapsed/1000));
+    el.style.visibility='visible'; el.textContent=remain+'초';
+    const key=room.id+':'+room.move_count;
+    if(elapsed>=TURN_SECONDS*1000&&autoDieKey!==key){
+      autoDieKey=key;
+      actDie();
+    }
   }
-  const elapsed=Date.now()-st.turnStartedAt;
-  const remain=Math.max(0,TURN_SECONDS-Math.floor(elapsed/1000));
-  if(el){ el.style.visibility='visible'; el.textContent=remain+'초'; }
-  const key=room.id+':'+room.move_count;
-  if(elapsed>=TURN_SECONDS*1000&&autoDieKey!==key){
-    autoDieKey=key;
-    actDie();
+
+  if((st.stage==='showdown'||st.stage==='patohResolved')&&st.postHandAt&&mySeat>=0&&room.players[mySeat]&&!room.players[mySeat].ready){
+    const cdEl=document.getElementById('postHandCountdown');
+    const elapsed2=Date.now()-st.postHandAt;
+    const remain2=Math.max(0,5-Math.floor(elapsed2/1000));
+    if(cdEl) cdEl.textContent=String(remain2);
+    if(elapsed2>=5000){ actContinueAfterHand(); }
   }
+  maybeAutoRestart();
 }
 
 if(!currentUser){

@@ -87,7 +87,12 @@ async function ensurePoints(){
   return data[0];
 }
 async function claimRecharge(){
+  if(!confirm('이 게임을 만들어주신 이재상님에게 감사를 표합니다')) return;
   const p=await ensurePoints();
+  if(p.points>=RECHARGE_AMOUNT){
+    alert('이미 '+RECHARGE_AMOUNT.toLocaleString()+'P 이상 보유하고 있어요!');
+    return;
+  }
   const newPts=p.points+RECHARGE_AMOUNT;
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${currentUser.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:newPts})});
   await loadMyRecord();
@@ -97,12 +102,11 @@ async function loadMyRecord(){
   const el=document.getElementById('myRecord');
   if(!currentUser){ el.textContent='로그인하면 포인트가 표시돼요'; return; }
   const p=await ensurePoints();
-  if(p.points<=0){
-    el.innerHTML=`<span style="color:#c0392b;">0P</span> (${p.wins||0}승 ${p.losses||0}패) <span id="rechargeBtn" style="display:inline-block;margin-left:6px;font-weight:700;font-size:11px;padding:5px 10px;border-radius:12px;background:#ff5e3a;color:#fff;cursor:pointer;">🎁 무료충전 +${RECHARGE_AMOUNT}P</span>`;
-    document.getElementById('rechargeBtn').addEventListener('click',claimRecharge);
-  } else {
-    el.innerHTML=`보유 <b>${p.points.toLocaleString()}</b>P (${p.wins||0}승 ${p.losses||0}패)`;
-  }
+  const ptsHtml = p.points<=0
+    ? `<span style="color:#c0392b;">0P</span>`
+    : `보유 <b>${p.points.toLocaleString()}</b>P`;
+  el.innerHTML=`${ptsHtml} (${p.wins||0}승 ${p.losses||0}패) <span id="rechargeBtn" style="display:inline-block;margin-left:6px;font-weight:700;font-size:11px;padding:5px 10px;border-radius:12px;background:#ff5e3a;color:#fff;cursor:pointer;">🎁 무료충전 +${RECHARGE_AMOUNT}P</span>`;
+  document.getElementById('rechargeBtn').addEventListener('click',claimRecharge);
 }
 
 async function loadRooms(){
