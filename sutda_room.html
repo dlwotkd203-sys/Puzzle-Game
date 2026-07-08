@@ -14,18 +14,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .wrap{padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;min-height:560px;}
 .center-msg{text-align:center;padding:2rem 1rem;color:#8a8a9a;font-size:13px;line-height:1.8;}
 .big-btn{font-family:-apple-system,sans-serif;font-weight:700;font-size:14px;padding:11px 22px;border-radius:20px;cursor:pointer;}
-.table-area{width:100%;background:radial-gradient(ellipse at center,#0f7a45 0%,#0b5c34 70%,#08431f 100%);border-radius:28px;padding:22px 10px;position:relative;box-shadow:inset 0 0 0 6px rgba(212,175,55,0.35),0 6px 16px rgba(0,0,0,0.25);}
-.table-grid{display:grid;grid-template-columns:1fr 1.15fr 1fr;grid-template-rows:auto auto;gap:16px 4px;width:100%;position:relative;}
-.seat-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:74px;justify-content:flex-start;}
-.seat-slot.slot-left,.seat-slot.slot-right{justify-content:center;min-height:100px;}
-.slot-tl{grid-column:1;grid-row:1;}
-.slot-top{grid-column:2;grid-row:1;}
-.slot-tr{grid-column:3;grid-row:1;}
-.slot-left{grid-column:1;grid-row:2;}
-.slot-left .seat{transform:rotate(-4deg);}
-.slot-right{grid-column:3;grid-row:2;}
-.slot-right .seat{transform:rotate(4deg);}
-.center-slot{grid-column:2;grid-row:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;min-height:150px;}
+.table-area{width:100%;background:radial-gradient(ellipse at center,#0f7a45 0%,#0b5c34 70%,#08431f 100%);border-radius:28px;padding:16px 10px;position:relative;box-shadow:inset 0 0 0 6px rgba(212,175,55,0.35),0 6px 16px rgba(0,0,0,0.25);}
+.table-grid{display:flex;align-items:flex-start;justify-content:space-between;gap:4px;width:100%;position:relative;}
+.seat-col{display:flex;flex-direction:column;gap:6px;flex:0 0 30%;max-width:30%;}
+.seat-col.col-right{align-items:flex-end;}
+.seat-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;justify-content:flex-start;width:100%;}
+.seat-col.col-left .seat{transform:rotate(-3deg);}
+.seat-col.col-right .seat{transform:rotate(3deg);}
+.center-slot{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;position:relative;min-height:150px;padding-top:2px;}
 .deck-pile{position:relative;width:44px;height:60px;margin-bottom:2px;border-radius:8px;background:repeating-linear-gradient(45deg,#8a1a1a,#8a1a1a 6px,#6b1212 6px,#6b1212 12px);border:2px solid #d4af37;box-shadow:3px 3px 0 -1px rgba(0,0,0,0.2),0 2px 6px rgba(0,0,0,0.3);}
 .deck-count{font-family:-apple-system,sans-serif;font-size:9px;color:#cde8d8;margin-bottom:2px;}
 .stage-box{font-family:-apple-system,sans-serif;font-size:11px;color:#cde8d8;background:rgba(0,0,0,0.2);padding:3px 10px;border-radius:10px;}
@@ -96,11 +92,11 @@ let peekCardEl=null, peekCardLen=-1, lastCardRevealed=false;
 
 function slotsForCount(o){
   if(o<=0) return [];
-  if(o===1) return ['top'];
-  if(o===2) return ['left','right'];
-  if(o===3) return ['left','top','right'];
-  if(o===4) return ['left','tl','tr','right'];
-  return ['left','tl','top','tr','right'];
+  if(o===1) return ['r1'];
+  if(o===2) return ['l1','r1'];
+  if(o===3) return ['l1','r1','r2'];
+  if(o===4) return ['l1','l2','r1','r2'];
+  return ['l1','l2','r1','r2','r3'];
 }
 function getSeatSlotEl(seat){
   const players=room.players||[];
@@ -570,6 +566,7 @@ function dealCardsToActive(st,count){
   }
 }
 function finalizeShowdown(st){
+  st.lastAction=null; // 쇼다운 진입시 예전 배팅 액션 정보 정리 (다시하기 등으로 재표시되는 것 방지)
   const act=activeSeats(st);
   if(act.length===1){
     // 전원 다이 -> 남은 한 명 기권승 (패 비교 없이 승리)
@@ -1000,8 +997,7 @@ function renderGame(wrap){
   let html='<div class="table-area">';
   html+='<div class="stage-box" style="text-align:center;margin:0 auto 8px;width:fit-content;">'+(st.tieBreak?'⚔️ 동점 재대결'+(st.tieBreakRound>1?' ('+st.tieBreakRound+'차)':'') :(STAGE_LABEL[st.stage]||''))+'</div>';
   html+='<div class="table-grid">';
-  html+=seatSlotHtml('tl')+seatSlotHtml('top')+seatSlotHtml('tr');
-  html+=seatSlotHtml('left');
+  html+='<div class="seat-col col-left">'+seatSlotHtml('l1')+seatSlotHtml('l2')+'</div>';
   html+=`<div class="center-slot" id="centerSlot">
     <div class="deck-pile" id="deckPile"></div>
     <div class="deck-count" id="deckCount">${st.deck.length}장 남음</div>
@@ -1010,7 +1006,7 @@ function renderGame(wrap){
     <div class="pot-sub">이번판 배팅 합계 ${totalContrib.toLocaleString()}P</div>
     <div class="bet-box">현재 배팅액 ${st.currentBet.toLocaleString()}P</div>
   </div>`;
-  html+=seatSlotHtml('right');
+  html+='<div class="seat-col col-right">'+seatSlotHtml('r1')+seatSlotHtml('r2')+seatSlotHtml('r3')+'</div>';
   html+='</div></div>';
   if(isPlayer){
     html+=`<div id="myBalance" style="text-align:center;font-family:-apple-system,sans-serif;font-weight:800;font-size:13px;color:#1a1a2e;margin-top:8px;">내 잔액 <span style="color:#8a1a1a;">${seatBalance(mySeat).toLocaleString()}P</span></div>`;
