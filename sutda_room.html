@@ -255,29 +255,44 @@ function checkDealEffects(st){
 }
 
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-function buildDeck(){ const d=[]; for(let m=1;m<=10;m++){ d.push({month:m,copy:0,isGwang:!!GWANG_MONTHS[m]}); d.push({month:m,copy:1,isGwang:false}); } return shuffle(d); }
+function buildDeck(){
+  const d=[];
+  for(let m=1;m<=10;m++){
+    d.push({month:m,copy:0,isGwang:!!GWANG_MONTHS[m],isYeolkkeut:!!YEOLKKEUT_MONTHS[m]});
+    d.push({month:m,copy:1,isGwang:false,isYeolkkeut:false});
+  }
+  return shuffle(d);
+}
 
 const GWANG_MONTHS={1:1,3:1,8:1};
+// 땡잡이(3광+7열끗:돼지)/암행어사(4열끗:새+7열끗:돼지)/멍텅구리사구(4열끗:새+9열끗:꽃) 판정용 - 각 월의 '그림 맞는' 쪽 카드
+const YEOLKKEUT_MONTHS={4:1,7:1,9:1};
 // 비페어 광 조합만 광땡으로 인정 (38광땡 최상위, 13/18광땡 동급 차상위) - 장땡보다 위, 암행어사에게는 짐
 const CROSS_GWANG={'3,8':{rank:400,label:'38광땡'},'1,3':{rank:390,label:'13광땡'},'1,8':{rank:390,label:'18광땡'}};
 const SPECIALS={'1,2':6,'1,4':5,'1,9':4,'1,10':3,'4,10':2,'4,6':1};
 const SPECIAL_NAME={'1,2':'알리','1,4':'독사','1,9':'구삥','1,10':'장삥','4,10':'장사','4,6':'세륙'};
 function evalPair(c1,c2){
   const m1=c1.month,m2=c2.month;
-  const isAmhaeng = (m1===4&&m2===7)||(m1===7&&m2===4);
-  const isPatoh = (m1===4&&m2===9)||(m1===9&&m2===4);
+  // 암행어사: 4월 열끗(새) + 7월 열끗(돼지) - 그림이 맞아야만 성립
+  const isAmhaeng = (m1===4&&m2===7&&c1.isYeolkkeut&&c2.isYeolkkeut)||(m1===7&&m2===4&&c1.isYeolkkeut&&c2.isYeolkkeut);
+  // 땡잡이: 3월 광 + 7월 열끗(돼지) - 그림이 맞아야만 성립
+  const isDdaengJabi = (m1===3&&m2===7&&c1.isGwang&&c2.isYeolkkeut)||(m1===7&&m2===3&&c2.isGwang&&c1.isYeolkkeut);
+  // 멍텅구리 사구: 4월 열끗(새) + 9월 열끗(꽃) - 그림이 맞아야만 성립 (땡까지 재경기, 광땡 제외)
+  const isMeongSagu = (m1===4&&m2===9&&c1.isYeolkkeut&&c2.isYeolkkeut)||(m1===9&&m2===4&&c1.isYeolkkeut&&c2.isYeolkkeut);
+  // 그냥 사구: 4+9 조합인데 멍텅구리(그림 둘 다 맞음)가 아닌 경우 - 알리 이하까지만 재경기
+  const isPlainSagu = ((m1===4&&m2===9)||(m1===9&&m2===4)) && !isMeongSagu;
   if(m1===m2){
     // 페어(같은 월 2장)는 광땡 승급 없이 그냥 n땡. 1땡<2땡<...<9땡<장땡(10땡) 순서
-    return {rank:100+m1,label:(m1===10?'장땡':m1+'땡'),isDdaeng:true,isAmhaeng:false,isPatoh:false};
+    return {rank:100+m1,label:(m1===10?'장땡':m1+'땡'),isDdaeng:true,isAmhaeng:false,isDdaengJabi:false,isMeongSagu:false,isPlainSagu:false};
   }
   const key=[m1,m2].sort((a,b)=>a-b).join(',');
   // 비페어 광 조합(38/13/18광땡)은 두 장 모두 '진짜 광패'일 때만 인정, 장땡보다 위
   if(CROSS_GWANG[key] && c1.isGwang && c2.isGwang){
-    return {rank:CROSS_GWANG[key].rank,label:CROSS_GWANG[key].label,isDdaeng:true,isAmhaeng:false,isPatoh:false};
+    return {rank:CROSS_GWANG[key].rank,label:CROSS_GWANG[key].label,isDdaeng:true,isAmhaeng:false,isDdaengJabi:false,isMeongSagu:false,isPlainSagu:false};
   }
-  if(SPECIALS[key]) return {rank:50+SPECIALS[key],label:SPECIAL_NAME[key],isDdaeng:false,isAmhaeng,isPatoh};
+  if(SPECIALS[key]) return {rank:50+SPECIALS[key],label:SPECIAL_NAME[key],isDdaeng:false,isAmhaeng,isDdaengJabi,isMeongSagu,isPlainSagu};
   const kkeut=(m1+m2)%10;
-  return {rank:kkeut,label:kkeut===9?'갑오':kkeut===0?'망통':kkeut+'끗',isDdaeng:false,isAmhaeng,isPatoh};
+  return {rank:kkeut,label:kkeut===9?'갑오':kkeut===0?'망통':kkeut+'끗',isDdaeng:false,isAmhaeng,isDdaengJabi,isMeongSagu,isPlainSagu};
 }
 function evalHand(cards){
   if(cards.length===2){ return {...evalPair(cards[0],cards[1]), used:[0,1]}; }
@@ -285,13 +300,6 @@ function evalHand(cards){
   let best=null;
   combos.forEach(([i,j])=>{ const r=evalPair(cards[i],cards[j]); if(!best||r.rank>best.rank) best={...r,used:[i,j]}; });
   return best;
-}
-function checkPatohSeats(st,seats){
-  return seats.filter(i=>{
-    const h=st.hands[i];
-    if(!h||h.length<2) return false;
-    return evalPair(h[0],h[1]).isPatoh;
-  });
 }
 
 function makeCardEl(card,w,h){
@@ -366,6 +374,7 @@ function makePeekCard(card,w,h,onRevealed){
   return wrap;
 }
 
+let lastHeartbeatAt=0;
 async function fetchRoom(){
   try{
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
@@ -375,6 +384,11 @@ async function fetchRoom(){
     const players=room.players||[];
     mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
     render();
+    const now=Date.now();
+    if(mySeat>=0&&now-lastHeartbeatAt>20000){
+      lastHeartbeatAt=now;
+      fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
   }catch(e){}
 }
 
@@ -571,26 +585,46 @@ function finalizeShowdown(st){
     }
     return evalHand(h);
   });
-  const hasAmhaeng = act.some(s=>evals[s].isAmhaeng);
-  let contenders = act;
-  if(hasAmhaeng){
-    contenders = act.filter(s=>!evals[s].isDdaeng);
-    if(!contenders.length) contenders=act;
+
+  // 1) 땡잡이(1~9땡 타깃)/암행어사(13,18광땡 타깃) 순위 보정 - 타깃이 있을 때만 승격, 없으면 원래 끗값 그대로(0끗/1끗)
+  const adjRank=act.map(s=>evals[s].rank);
+  const rankOf=s=>adjRank[act.indexOf(s)];
+  act.forEach(s=>{
+    if(evals[s].isDdaengJabi){
+      const hasTarget=act.some(o=>o!==s&&evals[o].rank>=101&&evals[o].rank<=109);
+      if(hasTarget){ adjRank[act.indexOf(s)]=109.5; evals[s]={...evals[s],label:'땡잡이'}; } // 9땡과 장땡 사이
+    }
+    if(evals[s].isAmhaeng){
+      const hasTarget=act.some(o=>o!==s&&evals[o].rank===390);
+      if(hasTarget){ adjRank[act.indexOf(s)]=395; evals[s]={...evals[s],label:'암행어사'}; } // 13/18광땡과 38광땡 사이
+    }
+  });
+
+  // 2) 사구/멍텅구리사구 재경기 조건 체크 (다른 사람들의 "원래" 끗수 기준, 땡잡이/암행어사 보정 전 값으로 비교)
+  for(const s of act){
+    const e=evals[s];
+    if(!e.isPlainSagu&&!e.isMeongSagu) continue;
+    const others=act.filter(o=>o!==s);
+    const bestOtherRank=others.length?Math.max(...others.map(o=>rankOf(o))):-Infinity;
+    const threshold=e.isMeongSagu?390:100; // 멍텅구리: 광땡(390) 미만이면 재경기 / 그냥사구: 땡(100) 미만이면 재경기
+    if(bestOtherRank<threshold){
+      // 재경기 여부를 투표에 부치되, 부결시를 대비해 정상 판정 결과도 같이 계산해둠
+      const winnerIdxNormal=act.reduce((best,cur)=>rankOf(cur)>rankOf(best)?cur:best,act[0]);
+      st.stage='patohVote';
+      st.pendingResult={winnerSeat:winnerIdxNormal,evals,byFold:false};
+      st.patohVotes=st.hands.map(()=>null);
+      return;
+    }
   }
-  const maxRank=Math.max(...contenders.map(s=>evals[s].rank));
-  const tied=contenders.filter(s=>evals[s].rank===maxRank);
+
+  // 3) 정상 승자 결정 (땡잡이/암행어사 보정된 랭크 기준)
+  const winner=act.reduce((best,cur)=>rankOf(cur)>rankOf(best)?cur:best,act[0]);
+  const tied=act.filter(s=>rankOf(s)===rankOf(winner));
   if(tied.length>1){
     redealForTiebreak(st,tied,act);
     return;
   }
-  const winner=tied[0];
 
-  if(evals[winner].isPatoh){
-    st.stage='patohVote';
-    st.pendingResult={winnerSeat:winner,evals};
-    st.patohVotes=st.hands.map(()=>null);
-    return;
-  }
   st.stage='showdown';
   st.result={winnerSeat:winner,evals,byFold:false};
 }
@@ -654,7 +688,13 @@ function tryAdvanceStage(st){
       resetBettingVars(st);
       st.stage='bet2'; st.turn=act[0]; st.turnStartedAt=Date.now();
     } else if(st.stage==='bet2'){
-      st.stage='choose2';
+      if(actingSeats(st).length===0){
+        // 전원 올인 -> 수동 선택 없이 각자 최고 조합 자동 선택 후 바로 쇼다운
+        act.forEach(s=>{ st.chosenPair[s]=evalHand(st.hands[s]).used; });
+        finalizeShowdown(st);
+      } else {
+        st.stage='choose2';
+      }
     }
   }
 }
@@ -871,13 +911,18 @@ async function actContinueAfterHand(){
   if(room.players[mySeat] && room.players[mySeat].ready) return;
   postHandDeciding=true;
   try{
-    const np=room.players.map((p,i)=>i===mySeat?{...p,ready:true}:p);
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
-      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},body:JSON.stringify({players:np,move_count:room.move_count+1})
-    });
-    const data=await res.json();
-    if(data&&data.length){ room=data[0]; }
-    await fetchRoom();
+    let attempts=0;
+    while(attempts<8){
+      attempts++;
+      if(room.players[mySeat] && room.players[mySeat].ready) break; // 이미 반영됨
+      const np=room.players.map((p,i)=>i===mySeat?{...p,ready:true}:p);
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
+        method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},body:JSON.stringify({players:np,move_count:room.move_count+1})
+      });
+      const data=await res.json();
+      if(data&&data.length){ room=data[0]; break; } // 성공
+      await fetchRoom(); // 충돌났으니 최신 상태 받아서 재시도
+    }
     maybeAutoRestart();
   } finally{ postHandDeciding=false; }
 }
@@ -1181,6 +1226,21 @@ async function leaveRoom(){
 }
 document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
 
+// 뒤로가기/탭 닫기 등으로 정식 나가기 버튼을 안 누르고 나갈 때를 대비한 최선의 정리 시도
+// (100% 보장은 안 되지만, 방치된 방이 목록에 계속 남는 걸 줄여줘요)
+window.addEventListener('pagehide',()=>{
+  try{
+    if(!room||mySeat<0) return;
+    const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+    const wasHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+    const patch={players:np};
+    if(wasHost&&np.length){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+    fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{
+      method:'PATCH',headers:jheaders(),body:JSON.stringify(patch),keepalive:true
+    });
+  }catch(e){}
+});
+
 const TURN_SECONDS=15;
 const POST_HAND_SECONDS=10;
 let autoDieKey=null;
@@ -1200,6 +1260,11 @@ function tick(){
       autoDieKey=key;
       actDie();
     }
+  }
+
+  if(isBettingStage&&actingSeats(st).length===0&&activeSeats(st).length>1){
+    // 전원 올인 등 아무도 더 배팅할 수 없는 상태 -> 자동으로 다음 단계(카드 배분/쇼다운)로 진행
+    patchState(s=>{});
   }
 
   if((st.stage==='showdown'||st.stage==='patohResolved')&&st.postHandAt&&mySeat>=0&&room.players[mySeat]&&!room.players[mySeat].ready){

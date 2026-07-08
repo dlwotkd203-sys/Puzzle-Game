@@ -111,8 +111,9 @@ async function loadMyRecord(){
 
 async function loadRooms(){
   try{
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?status=neq.finished&select=*&order=created_at.desc&limit=50`,{headers:headers()});
-    rooms=await r.json();
+    const staleBefore=new Date(Date.now()-10*60*1000).toISOString();
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?status=neq.finished&last_active_at=gt.${staleBefore}&select=*&order=created_at.desc&limit=50`,{headers:headers()});
+    rooms=(await r.json()).filter(room=>(room.players||[]).length>0);
     renderRooms();
   }catch(e){}
 }
@@ -195,7 +196,7 @@ document.getElementById('confirmCreateBtn').addEventListener('click',async()=>{
       host_user_id:currentUser.id, host_username:currentUser.username,
       mode:selectedMode, status:'waiting',
       players:[{user_id:currentUser.id,username:currentUser.username,ready:false,seat:0}],
-      move_count:0
+      move_count:0, last_active_at:new Date().toISOString()
     })
   });
   const data=await res.json();
