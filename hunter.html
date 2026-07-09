@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>필드헌터</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:#87ceeb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+#gameCanvas{position:fixed;left:0;top:0;width:100%;height:100%;touch-action:none;}
+#topBar{position:fixed;left:0;top:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 12px;z-index:20;background:linear-gradient(rgba(0,0,0,0.35),transparent);}
+.back-btn{background:rgba(0,0,0,0.35);border:none;color:#fff;font-size:18px;padding:5px 11px;border-radius:10px;cursor:pointer;}
+#topTitle{color:#fff;font-weight:700;font-size:14px;flex:1;text-shadow:0 1px 3px rgba(0,0,0,0.5);}
+#onlineCount{color:#fff;font-size:11px;font-weight:700;background:rgba(0,0,0,0.35);padding:4px 10px;border-radius:10px;}
+#leftBtn,#rightBtn,#jumpBtn{position:fixed;border-radius:50%;background:rgba(255,255,255,0.35);border:2px solid rgba(255,255,255,0.55);color:#1a1a2e;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:25;cursor:pointer;}
+#leftBtn{left:24px;bottom:36px;width:64px;height:64px;}
+#rightBtn{left:98px;bottom:36px;width:64px;height:64px;}
+#jumpBtn{right:28px;bottom:40px;width:78px;height:78px;background:rgba(61,139,255,0.55);border-color:rgba(61,139,255,0.8);color:#fff;font-size:14px;}
+#leftBtn:active,#rightBtn:active,#jumpBtn:active{background:rgba(255,255,255,0.6);}
+#portalBtn{position:fixed;left:50%;bottom:130px;transform:translateX(-50%);background:rgba(138,79,255,0.9);color:#fff;font-weight:800;font-size:14px;padding:12px 22px;border-radius:24px;z-index:30;cursor:pointer;display:none;box-shadow:0 4px 14px rgba(0,0,0,0.3);}
+#portalBtn.show{display:block;}
+#chatPanel{position:fixed;left:8px;right:8px;bottom:128px;z-index:28;display:flex;flex-direction:column;background:rgba(10,10,20,0.45);border-radius:12px;overflow:hidden;backdrop-filter:blur(2px);}
+#chatLogView{flex:1;overflow-y:auto;padding:2px 10px;font-family:-apple-system,sans-serif;font-size:12px;color:#fff;}
+.chat-line{padding:2px 0;line-height:1.4;word-break:break-all;text-shadow:0 1px 2px rgba(0,0,0,0.6);}
+.chat-line .cn{font-weight:800;color:#ffd166;}
+#chatInputRow{display:flex;gap:6px;padding:6px 8px;flex-shrink:0;background:rgba(0,0,0,0.25);}
+#chatInputBox{flex:1;border:none;border-radius:16px;padding:8px 12px;font-size:12px;font-family:inherit;outline:none;background:rgba(255,255,255,0.9);}
+#chatSendBtn{background:#3d5afe;color:#fff;font-weight:700;font-size:12px;padding:8px 14px;border-radius:16px;cursor:pointer;flex-shrink:0;}
+.center-msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#1a1a2e;font-family:-apple-system,sans-serif;font-size:13px;text-align:center;padding:2rem;background:#87ceeb;}
+.edit-overlay-item{position:fixed;border:2px dashed #3d5afe;background:rgba(61,90,254,0.18);z-index:500;touch-action:none;border-radius:8px;box-sizing:border-box;}
+.edit-label{position:absolute;top:-22px;left:0;background:#3d5afe;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;}
+.edit-resize-handle{position:absolute;right:-9px;bottom:-9px;width:22px;height:22px;background:#3d5afe;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);}
+#editModeBar{position:fixed;left:0;right:0;top:0;z-index:510;display:none;justify-content:space-between;align-items:center;padding:10px 14px;background:#1a1a2e;color:#fff;font-family:-apple-system,sans-serif;}
+#editModeBar.show{display:flex;}
+#editModeBar .em-btn{font-size:12px;font-weight:700;padding:7px 12px;border-radius:10px;cursor:pointer;}
+#editModeBg{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:400;display:none;}
+#editModeBg.show{display:block;}
+</style>
+</head>
+<body>
+<div id="editModeBg"></div>
+<div id="editModeBar">
+  <span style="font-size:12px;">🎛️ 원하는 위치로 드래그, 우하단 동그라미로 크기 조절</span>
+  <div style="display:flex;gap:6px;">
+    <div class="em-btn" id="resetLayoutBtn" style="background:#555;">기본값</div>
+    <div class="em-btn" id="doneLayoutBtn" style="background:#0f9e75;">완료</div>
+  </div>
+</div>
+<canvas id="gameCanvas"></canvas>
+<div id="topBar">
+  <button class="back-btn" id="leaveBtn">←</button>
+  <span id="topTitle">🚶 필드헌터</span>
+  <span id="onlineCount">접속중 0명</span>
+  <span id="adminLink" style="display:none;background:rgba(0,0,0,0.35);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;cursor:pointer;">🖼️ 에셋관리</span>
+  <span id="uiEditBtn" style="background:rgba(0,0,0,0.35);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;cursor:pointer;">⚙️ 화면설정</span>
+</div>
+<div id="leftBtn">◀</div>
+<div id="rightBtn">▶</div>
+<div id="jumpBtn">점프</div>
+<div id="portalBtn">🌀 이동하기</div>
+<div id="chatPanel" style="height:130px;">
+  <div id="chatLogView"></div>
+  <div id="chatInputRow">
+    <input id="chatInputBox" maxlength="30" placeholder="채팅 (최대 30자)">
+    <div id="chatSendBtn">전송</div>
+  </div>
+</div>
+<div id="loadingMsg" class="center-msg">접속하는 중...</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const H={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+
+// ---- 물리 설정 ----
+const DEFAULT_WORLD_W=6000;
+const GRAVITY=1800;
+const JUMP_SPEED=620;
+const MOVE_SPEED=260;
+const FIGURE_HEIGHT=46;
+const CHAR_HALF_W=14;
+
+const PLAYER_COLORS=['#e63946','#3d8bff','#2a9d34','#c9861a','#8a4fff','#ff6fb5','#20c9c9','#ff9f4a'];
+function colorFor(id){
+  let h=0; for(let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))>>>0;
+  return PLAYER_COLORS[h%PLAYER_COLORS.length];
+}
+
+const myId = currentUser ? String(currentUser.id) : ('guest_'+Math.random().toString(36).slice(2));
+const myName = currentUser ? currentUser.username : '손님';
+const myColor = colorFor(myId);
+
+let me = { x:DEFAULT_WORLD_W/2, vy:0, yOff:0, onGround:true, facing:1, moving:false };
+const remotePlayers={};
+const namesByPlayer={ [myId]: myName };
+let myChatBubble=null; // {message,until}
+let chatLog=[]; // {name,message}
+
+function addChatLine(name,message){
+  chatLog.push({name,message});
+  if(chatLog.length>60) chatLog=chatLog.slice(-60);
+  renderChatLog();
+}
+function renderChatLog(){
+  const view=document.getElementById('chatLogView');
+  if(!view) return;
+  view.innerHTML=chatLog.map(c=>`<div class="chat-line"><span class="cn">${escHtml(c.name)}</span> : ${escHtml(c.message)}</div>`).join('');
+  view.scrollTop=view.scrollHeight;
+}
+function escHtml(s){ return String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+function sendChatMessage(){
+  const input=document.getElementById('chatInputBox');
+  const msg=input.value.trim().slice(0,30);
+  if(!msg) return;
+  input.value='';
+  addChatLine(myName,msg);
+  myChatBubble={message:msg,until:Date.now()+5000};
+  safeSend({type:'broadcast',event:'chat',payload:{id:myId,name:myName,message:msg}});
+}
+document.getElementById('chatSendBtn').addEventListener('click',sendChatMessage);
+document.getElementById('chatInputBox').addEventListener('keydown',e=>{ if(e.key==='Enter') sendChatMessage(); });
+document.getElementById('chatInputBox').addEventListener('focus',()=>{
+  Object.keys(keys).forEach(k=>keys[k]=false);
+});
+
+const ADMIN_USERNAMES=['이재상'];
+if(currentUser&&ADMIN_USERNAMES.includes(currentUser.username)){
+  const link=document.getElementById('adminLink');
+  link.style.display='inline-block';
+  link.addEventListener('click',()=>location.href='hunter_admin.html');
+}
+
+// ==== UI 레이아웃 커스터마이징 (위치/크기 조절 가능한 모든 화면 요소) ====
+// 나중에 HP/MP/레벨 같은 걸 추가할 땐 이 목록에 항목만 하나 더 넣으면 똑같이 편집 가능해져요.
+const UI_ELEMENTS = [
+  {id:'leftBtn', label:'◀ 이동'},
+  {id:'rightBtn', label:'▶ 이동'},
+  {id:'jumpBtn', label:'점프'},
+  {id:'chatPanel', label:'채팅창'},
+  {id:'portalBtn', label:'포탈 이동 버튼'}
+];
+function defaultUiLayout(){
+  const w=window.innerWidth, h=window.innerHeight;
+  return {
+    leftBtn:{left:24,top:h-100,width:64,height:64},
+    rightBtn:{left:98,top:h-100,width:64,height:64},
+    jumpBtn:{left:w-106,top:h-118,width:78,height:78},
+    chatPanel:{left:8,top:h-258,width:w-16,height:130},
+    portalBtn:{left:w/2-70,top:h-350,width:140,height:46}
+  };
+}
+let uiLayout=null;
+function loadUiLayout(){
+  try{
+    const raw=localStorage.getItem('hunter_ui_layout');
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return null;
+}
+function saveUiLayout(){
+  try{ localStorage.setItem('hunter_ui_layout', JSON.stringify(uiLayout)); }catch(e){}
+}
+function applyUiLayout(){
+  if(!uiLayout) uiLayout=loadUiLayout()||defaultUiLayout();
+  UI_ELEMENTS.forEach(({id})=>{
+    const el=document.getElementById(id);
+    const r=uiLayout[id];
+    if(!el||!r) return;
+    el.style.position='fixed';
+    el.style.left=r.left+'px'; el.style.top=r.top+'px';
+    el.style.right='auto'; el.style.bottom='auto';
+    el.style.width=r.width+'px'; el.style.height=r.height+'px';
+    if(id!=='chatPanel'&&id!=='portalBtn'){
+      el.style.fontSize=Math.max(10,Math.round(r.height*0.24))+'px';
+    }
+  });
+}
+applyUiLayout();
+
+// ---- 편집 모드 ----
+let editModeActive=false;
+let editDragState=null;
+function enterEditMode(){
+  editModeActive=true;
+  document.getElementById('editModeBg').classList.add('show');
+  document.getElementById('editModeBar').classList.add('show');
+  UI_ELEMENTS.forEach(({id,label})=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    if(id==='portalBtn') el.style.display='block'; // 편집중엔 항상 보이게
+    const r=uiLayout[id];
+    const overlay=document.createElement('div');
+    overlay.className='edit-overlay-item';
+    overlay.id='editOverlay-'+id;
+    overlay.style.left=r.left+'px'; overlay.style.top=r.top+'px';
+    overlay.style.width=r.width+'px'; overlay.style.height=r.height+'px';
+    overlay.innerHTML=`<div class="edit-label">${label}</div><div class="edit-resize-handle" data-resize="${id}"></div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('pointerdown',e=>{
+      if(e.target.dataset.resize) return; // 리사이즈 핸들은 별도 처리
+      editDragState={id,mode:'move',startX:e.clientX,startY:e.clientY,origLeft:r.left,origTop:r.top};
+    });
+    overlay.querySelector('.edit-resize-handle').addEventListener('pointerdown',e=>{
+      e.stopPropagation();
+      editDragState={id,mode:'resize',startX:e.clientX,startY:e.clientY,origW:r.width,origH:r.height};
+    });
+  });
+}
+function exitEditMode(){
+  editModeActive=false;
+  document.getElementById('editModeBg').classList.remove('show');
+  document.getElementById('editModeBar').classList.remove('show');
+  UI_ELEMENTS.forEach(({id})=>{
+    const ov=document.getElementById('editOverlay-'+id);
+    if(ov) ov.remove();
+  });
+  const portalBtn=document.getElementById('portalBtn');
+  if(portalBtn) portalBtn.style.display='';
+}
+window.addEventListener('pointermove',e=>{
+  if(!editDragState) return;
+  const {id,mode}=editDragState;
+  const r=uiLayout[id];
+  const ov=document.getElementById('editOverlay-'+id);
+  if(mode==='move'){
+    r.left=Math.max(0,editDragState.origLeft+(e.clientX-editDragState.startX));
+    r.top=Math.max(0,editDragState.origTop+(e.clientY-editDragState.startY));
+  } else {
+    r.width=Math.max(30,editDragState.origW+(e.clientX-editDragState.startX));
+    r.height=Math.max(30,editDragState.origH+(e.clientY-editDragState.startY));
+  }
+  if(ov){
+    ov.style.left=r.left+'px'; ov.style.top=r.top+'px';
+    ov.style.width=r.width+'px'; ov.style.height=r.height+'px';
+  }
+  applyUiLayout();
+});
+window.addEventListener('pointerup',()=>{ editDragState=null; });
+
+document.getElementById('uiEditBtn').addEventListener('click',enterEditMode);
+document.getElementById('doneLayoutBtn').addEventListener('click',()=>{ saveUiLayout(); exitEditMode(); });
+document.getElementById('resetLayoutBtn').addEventListener('click',()=>{
+  if(!confirm('화면 배치를 기본값으로 되돌릴까요?')) return;
+  uiLayout=defaultUiLayout();
+  applyUiLayout();
+  exitEditMode();
+  enterEditMode();
+});
+
+// ---- 데이터 상태 ----
+let categoriesList=[], assetsList=[], maps=[];
+let currentMap=null;
+let placements=[]; // 현재 맵의 배치 (경계 계산까지 미리 포함)
+const customAssets={ character:null, sky_background:null }; // {img,anchorX,anchorY}
+const charParts={}; // partKey -> {img,anchorX,anchorY} | null
+
+function computeBounds(x,yAboveGround,width,height,anchorX,anchorY){
+  const left=x-width*anchorX, right=left+width;
+  const bottom=yAboveGround-height*(1-anchorY), top=bottom+height;
+  return {left,right,bottom,top};
+}
+
+function getGlobalAsset(systemKey){
+  const cat=categoriesList.find(c=>c.system_key===systemKey);
+  if(!cat) return null;
+  const matches=assetsList.filter(a=>a.category_id===cat.id && !a.part_key);
+  if(!matches.length) return null;
+  const latest=matches.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0];
+  const img=new Image(); img.src=latest.url;
+  return { img, anchorX:latest.anchor_x??0.5, anchorY:latest.anchor_y??1.0 };
+}
+
+const PART_KEYS=['torso','head','arm_left','arm_right','leg_left','leg_right','weapon'];
+function getPartAsset(partKey){
+  const cat=categoriesList.find(c=>c.system_key==='character');
+  if(!cat) return null;
+  const matches=assetsList.filter(a=>a.category_id===cat.id && a.part_key===partKey);
+  if(!matches.length) return null;
+  const latest=matches.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0];
+  const img=new Image(); img.src=latest.url;
+  return { img, anchorX:latest.anchor_x??0.5, anchorY:latest.anchor_y??0.1 };
+}
+function hasRig(){ return PART_KEYS.some(k=>charParts[k]); }
+
+// ---- 캐릭터 동작 설정 ----
+const ANIM_PARTS_DEFAULT=['torso','head','arm_left','arm_right','leg_left','leg_right','weapon'];
+function defaultPartAnim(){ return {baseAngle:0,amplitude:0,speed:1}; }
+function defaultAnimConfig(){
+  const cfg={ weaponAttach:'arm_right', states:{} };
+  ['idle','walk','jump','hit'].forEach(s=>{
+    cfg.states[s]={};
+    ANIM_PARTS_DEFAULT.forEach(p=>{ cfg.states[s][p]=defaultPartAnim(); });
+  });
+  cfg.states.walk.arm_left={baseAngle:0,amplitude:30,speed:6};
+  cfg.states.walk.arm_right={baseAngle:0,amplitude:-30,speed:6};
+  cfg.states.walk.leg_left={baseAngle:0,amplitude:25,speed:6};
+  cfg.states.walk.leg_right={baseAngle:0,amplitude:-25,speed:6};
+  cfg.states.jump.arm_left={baseAngle:-40,amplitude:0,speed:1};
+  cfg.states.jump.arm_right={baseAngle:40,amplitude:0,speed:1};
+  cfg.states.jump.leg_left={baseAngle:20,amplitude:0,speed:1};
+  cfg.states.jump.leg_right={baseAngle:-15,amplitude:0,speed:1};
+  cfg.states.hit.torso={baseAngle:8,amplitude:0,speed:1};
+  return cfg;
+}
+let animConfig=defaultAnimConfig();
+async function loadAnimConfig(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/hunter_char_anim_config?id=eq.1&select=config`,{headers:H});
+    const data=await r.json();
+    if(data&&data[0]&&data[0].config){
+      const loaded=data[0].config;
+      const merged=defaultAnimConfig();
+      merged.weaponAttach=loaded.weaponAttach||merged.weaponAttach;
+      Object.keys(merged.states).forEach(s=>{
+        ANIM_PARTS_DEFAULT.forEach(p=>{
+          if(loaded.states&&loaded.states[s]&&loaded.states[s][p]) merged.states[s][p]=loaded.states[s][p];
+        });
+      });
+      animConfig=merged;
+    }
+  }catch(e){ console.error('동작 설정 로드 실패(기본값 사용):',e); }
+}
+
+async function loadStaticData(){
+  const [cr,ar,mr]=await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_categories?select=*`,{headers:H}),
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_assets?select=*`,{headers:H}),
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_maps?select=*&order=created_at.asc`,{headers:H})
+  ]);
+  categoriesList=await cr.json();
+  assetsList=await ar.json();
+  maps=await mr.json();
+  customAssets.character=getGlobalAsset('character');
+  customAssets.sky_background=getGlobalAsset('sky_background');
+  PART_KEYS.forEach(k=>{ charParts[k]=getPartAsset(k); });
+  await loadAnimConfig();
+}
+
+function pickRandomSpawnX(map){
+  if(map&&Array.isArray(map.spawn_points)&&map.spawn_points.length){
+    const sp=map.spawn_points[Math.floor(Math.random()*map.spawn_points.length)];
+    return sp.x;
+  }
+  return (map&&map.spawn_x)||DEFAULT_WORLD_W/2;
+}
+
+function pickInitialMap(){
+  const urlMapId=new URLSearchParams(location.search).get('map');
+  if(urlMapId){ const m=maps.find(mm=>String(mm.id)===urlMapId); if(m) return m; }
+  return maps[0]||null;
+}
+
+async function loadPlacementsForMap(mapId){
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/hunter_placements?map_id=eq.${mapId}&select=*,hunter_assets(*)`,{headers:H});
+  const raw=await r.json();
+  placements=raw.filter(p=>p.hunter_assets).map(p=>{
+    const asset=p.hunter_assets;
+    const img=new Image(); img.src=asset.url;
+    const anchorX=asset.anchor_x??0.5, anchorY=asset.anchor_y??1.0;
+    const bounds=computeBounds(p.x,p.y,p.width,p.height,anchorX,anchorY);
+    return {
+      img, width:p.width, height:p.height, layer:p.layer||'foreground',
+      collidable:!!asset.collidable, isPortal:!!asset.is_portal,
+      portalTargetMapId:p.portal_target_map_id, portalTargetX:p.portal_target_x,
+      ...bounds
+    };
+  });
+}
+function collidablePlacements(){ return placements.filter(p=>p.collidable); }
+function portalPlacements(){ return placements.filter(p=>p.isPortal); }
+
+// ---- 실시간 채널 (맵별로 새로 접속) ----
+let channel=null;
+let channelReady=false;
+let onlineCount=1;
+
+function safeSend(payload){
+  if(!channelReady||!channel) return;
+  try{
+    const res=channel.send(payload);
+    if(res&&typeof res.catch==='function'){ res.catch(e=>console.error('전송 실패(무시):',e)); }
+  }catch(e){ console.error('전송 에러(무시):',e); }
+}
+
+async function joinChannelForMap(mapId){
+  if(channel){
+    try{ await channel.unsubscribe(); }catch(e){}
+    channel=null; channelReady=false;
+  }
+  Object.keys(remotePlayers).forEach(k=>delete remotePlayers[k]);
+  chatLog=[];
+  renderChatLog();
+  channel=sb.channel('hunter-arena-map-'+mapId, { config:{ broadcast:{self:false}, presence:{key:myId} } });
+  channel.on('broadcast', {event:'move'}, ({payload})=>{
+    if(payload.id===myId) return;
+    const p=remotePlayers[payload.id]||{ renderX:payload.x, renderYOff:payload.yOff };
+    remotePlayers[payload.id]={
+      ...p, id:payload.id, name:payload.name, color:payload.color,
+      x:payload.x, yOff:payload.yOff, facing:payload.facing, moving:payload.moving, onGround:payload.onGround,
+      lastUpdate:Date.now()
+    };
+    namesByPlayer[payload.id]=payload.name;
+  });
+  channel.on('broadcast', {event:'chat'}, ({payload})=>{
+    addChatLine(payload.name,payload.message);
+    if(payload.id!==myId){
+      const p=remotePlayers[payload.id];
+      if(p) p.chatBubble={message:payload.message,until:Date.now()+5000};
+    }
+  });
+  channel.on('presence', {event:'sync'}, ()=>{
+    const state=channel.presenceState();
+    onlineCount=Object.keys(state).length;
+    document.getElementById('onlineCount').textContent='접속중 '+onlineCount+'명';
+  });
+  await new Promise(resolve=>{
+    channel.subscribe(async (status)=>{
+      if(status==='SUBSCRIBED'){
+        await channel.track({ id: myId, name: myName });
+        channelReady=true;
+        resolve();
+      }
+    });
+  });
+}
+
+// ---- 입력 ----
+const keys={};
+function isTypingInChat(){
+  const el=document.activeElement;
+  return el&&el.id==='chatInputBox';
+}
+window.addEventListener('keydown',e=>{
+  if(isTypingInChat()) return;
+  keys[e.key.toLowerCase()]=true;
+  if(e.key===' '||e.key==='ArrowUp'||e.key.toLowerCase()==='w') tryJump();
+  if(e.key.toLowerCase()==='f') tryUsePortal();
+});
+window.addEventListener('keyup',e=>{ if(isTypingInChat()) return; keys[e.key.toLowerCase()]=false; });
+
+let touchLeft=false, touchRight=false;
+function bindHold(id,onFn,offFn){
+  const el=document.getElementById(id);
+  el.addEventListener('pointerdown',e=>{ e.preventDefault(); onFn(); });
+  el.addEventListener('pointerup',()=>offFn());
+  el.addEventListener('pointerleave',()=>offFn());
+}
+bindHold('leftBtn',()=>touchLeft=true,()=>touchLeft=false);
+bindHold('rightBtn',()=>touchRight=true,()=>touchRight=false);
+document.getElementById('jumpBtn').addEventListener('pointerdown',e=>{ e.preventDefault(); tryJump(); });
+document.getElementById('portalBtn').addEventListener('pointerdown',e=>{ e.preventDefault(); tryUsePortal(); });
+
+function tryJump(){
+  if(me.onGround){ me.vy=JUMP_SPEED; me.onGround=false; }
+}
+
+// ---- 캔버스 ----
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+function resizeCanvas(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+window.addEventListener('resize',resizeCanvas);
+resizeCanvas();
+
+let lastFrame=performance.now();
+let lastBroadcast=0;
+let walkPhase=0;
+let nearPortal=null;
+let teleporting=false;
+
+function worldW(){ return (currentMap&&currentMap.world_width)||DEFAULT_WORLD_W; }
+
+function update(dt){
+  if(teleporting) return;
+  const prevX=me.x, prevYOff=me.yOff;
+  let dx=0;
+  if(keys['a']||keys['arrowleft']||touchLeft) dx-=1;
+  if(keys['d']||keys['arrowright']||touchRight) dx+=1;
+  me.moving = dx!==0;
+  if(dx!==0){
+    me.x=Math.max(30,Math.min(worldW()-30,me.x+dx*MOVE_SPEED*dt));
+    me.facing=dx>0?1:-1;
+    walkPhase+=dt*8;
+  }
+  me.vy-=GRAVITY*dt;
+  me.yOff+=me.vy*dt;
+  if(me.yOff<=0){ me.yOff=0; me.vy=0; me.onGround=true; }
+  else { me.onGround=false; }
+
+  resolveCollisions(prevX,prevYOff);
+  updatePortalProximity();
+
+  const now=Date.now();
+  if(now-lastBroadcast>70){
+    lastBroadcast=now;
+    safeSend({type:'broadcast',event:'move',payload:{id:myId,name:myName,color:myColor,x:me.x,yOff:me.yOff,facing:me.facing,moving:me.moving,onGround:me.onGround}});
+  }
+  Object.values(remotePlayers).forEach(p=>{
+    if(p.renderX===undefined){ p.renderX=p.x; p.renderYOff=p.yOff; }
+    p.renderX+=(p.x-p.renderX)*Math.min(1,dt*12);
+    p.renderYOff+=(p.yOff-p.renderYOff)*Math.min(1,dt*12);
+    if(now-p.lastUpdate>8000){ delete remotePlayers[p.id]; }
+  });
+}
+
+function resolveCollisions(prevX,prevYOff){
+  const solids=collidablePlacements();
+  if(!solids.length) return;
+  if(me.vy<=0){
+    for(const p of solids){
+      const overlapX = me.x+CHAR_HALF_W>p.left && me.x-CHAR_HALF_W<p.right;
+      if(!overlapX) continue;
+      if(prevYOff>=p.top-1 && me.yOff<=p.top){
+        me.yOff=p.top; me.vy=0; me.onGround=true;
+      }
+    }
+  }
+  for(const p of solids){
+    const footY=me.yOff, headY=me.yOff+FIGURE_HEIGHT;
+    if(Math.abs(footY-p.top)<1) continue;
+    const overlapY = headY>p.bottom && footY<p.top;
+    if(!overlapY) continue;
+    if(me.x+CHAR_HALF_W>p.left && prevX+CHAR_HALF_W<=p.left){ me.x=p.left-CHAR_HALF_W; }
+    else if(me.x-CHAR_HALF_W<p.right && prevX-CHAR_HALF_W>=p.right){ me.x=p.right+CHAR_HALF_W; }
+  }
+}
+
+function updatePortalProximity(){
+  const footY=me.yOff, headY=me.yOff+FIGURE_HEIGHT;
+  nearPortal=portalPlacements().find(p=>{
+    const overlapX = me.x+CHAR_HALF_W>p.left && me.x-CHAR_HALF_W<p.right;
+    const overlapY = headY>p.bottom && footY<p.top;
+    return overlapX&&overlapY;
+  })||null;
+  const btn=document.getElementById('portalBtn');
+  if(nearPortal&&nearPortal.portalTargetMapId){ btn.classList.add('show'); }
+  else { btn.classList.remove('show'); }
+}
+
+async function tryUsePortal(){
+  if(!nearPortal||!nearPortal.portalTargetMapId||teleporting) return;
+  const targetMap=maps.find(m=>m.id===nearPortal.portalTargetMapId);
+  if(!targetMap) return;
+  teleporting=true;
+  document.getElementById('portalBtn').classList.remove('show');
+  currentMap=targetMap;
+  me.x = (nearPortal.portalTargetX!=null) ? nearPortal.portalTargetX : pickRandomSpawnX(targetMap);
+  me.yOff=0; me.vy=0; me.onGround=true;
+  document.getElementById('topTitle').textContent='🚶 '+currentMap.name;
+  try{
+    await loadPlacementsForMap(currentMap.id);
+    await joinChannelForMap(currentMap.id);
+  }catch(e){ console.error('맵 이동 에러:',e); }
+  nearPortal=null;
+  teleporting=false;
+}
+
+function worldToScreenX(x){ return x-me.x+canvas.width/2; }
+function groundScreenY(){ return canvas.height*0.72; }
+
+const SKEL_HEAD_R=9, SKEL_BODY_LEN=18, SKEL_LEG_LEN=16, SKEL_ARM_LEN=13;
+const PART_TARGET_H={ torso:36, head:22, arm_left:26, arm_right:26, leg_left:32, leg_right:32, weapon:24 };
+
+function charState(onGround,moving){ return !onGround?'jump':(moving?'walk':'idle'); }
+function partAngleRad(partKey,state,phase){
+  const st=(animConfig.states&&animConfig.states[state])||{};
+  const cfg=st[partKey]||{baseAngle:0,amplitude:0,speed:1};
+  return (cfg.baseAngle + cfg.amplitude*Math.sin(phase*cfg.speed)) * Math.PI/180;
+}
+// 부위 이미지를 관절 위치(jointX,jointY)에 각도(angleRad)로 그리고, 이 부위의 "먼 쪽 끝" 좌표를 반환
+function drawLimb(partKey,jointX,jointY,angleRad,facing){
+  const part=charParts[partKey];
+  if(!part||!part.img.complete||!part.img.naturalWidth) return {endX:jointX,endY:jointY+ (PART_TARGET_H[partKey]||20)};
+  const img=part.img;
+  const h=PART_TARGET_H[partKey]||24;
+  const w=h*(img.naturalWidth/img.naturalHeight);
+  ctx.save();
+  ctx.translate(jointX,jointY);
+  ctx.scale(facing<0?-1:1,1);
+  ctx.rotate(angleRad);
+  ctx.drawImage(img,-w*part.anchorX,-h*part.anchorY,w,h);
+  ctx.restore();
+  const d=h*(1-part.anchorY);
+  return { endX: jointX-facing*d*Math.sin(angleRad), endY: jointY+d*Math.cos(angleRad) };
+}
+
+function drawRig(screenX,groundY,yOff,facing,name,state,phase){
+  const footY=groundY-yOff;
+  const hipY=footY-SKEL_LEG_LEN;
+  const shoulderY=hipY-SKEL_BODY_LEN;
+
+  drawLimb('leg_left',screenX,hipY,partAngleRad('leg_left',state,phase),facing);
+  drawLimb('leg_right',screenX,hipY,partAngleRad('leg_right',state,phase),facing);
+  drawLimb('torso',screenX,shoulderY,partAngleRad('torso',state,phase),facing);
+  drawLimb('head',screenX,shoulderY,partAngleRad('head',state,phase),facing);
+  const armLAngle=partAngleRad('arm_left',state,phase);
+  const armRAngle=partAngleRad('arm_right',state,phase);
+  const armLEnd=drawLimb('arm_left',screenX,shoulderY,armLAngle,facing);
+  const armREnd=drawLimb('arm_right',screenX,shoulderY,armRAngle,facing);
+
+  if(charParts.weapon){
+    const useLeft=animConfig.weaponAttach==='arm_left';
+    const end=useLeft?armLEnd:armREnd;
+    const armAngle=useLeft?armLAngle:armRAngle;
+    drawLimb('weapon',end.endX,end.endY,armAngle+partAngleRad('weapon',state,phase),facing);
+  }
+
+  ctx.fillStyle='#1a1a2e';
+  ctx.font='bold 11px -apple-system,sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText(name,screenX,shoulderY-SKEL_HEAD_R*2-10);
+}
+
+function drawStickFigure(screenX,groundY,yOff,facing,color,name,moving,onGround,phase){
+  const footY=groundY-yOff;
+
+  if(customAssets.character&&customAssets.character.img.complete&&customAssets.character.img.naturalWidth){
+    const {img,anchorX,anchorY}=customAssets.character;
+    const h=FIGURE_HEIGHT*1.6;
+    const w=h*(img.naturalWidth/img.naturalHeight);
+    const drawY=footY-h*anchorY;
+    ctx.save();
+    if(facing<0){ ctx.translate(screenX,0); ctx.scale(-1,1); ctx.translate(-screenX,0); }
+    ctx.drawImage(img,screenX-w*anchorX,drawY,w,h);
+    ctx.restore();
+    ctx.fillStyle='#1a1a2e';
+    ctx.font='bold 11px -apple-system,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText(name,screenX,drawY-8);
+    return;
+  }
+
+  if(hasRig()){
+    drawRig(screenX,groundY,yOff,facing,name,charState(onGround,moving),phase);
+    return;
+  }
+
+  const headR=SKEL_HEAD_R, bodyLen=SKEL_BODY_LEN, legLen=SKEL_LEG_LEN, armLen=SKEL_ARM_LEN;
+  const swing = moving ? Math.sin(phase)*0.6 : 0.15;
+  ctx.strokeStyle=color; ctx.lineWidth=3; ctx.lineCap='round';
+  const hipY=footY-legLen, shoulderY=hipY-bodyLen, headCY=shoulderY-headR-2;
+
+  ctx.beginPath();
+  ctx.moveTo(screenX,hipY);
+  ctx.lineTo(screenX+Math.sin(swing)*10*facing, footY);
+  ctx.moveTo(screenX,hipY);
+  ctx.lineTo(screenX-Math.sin(swing)*10*facing, footY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(screenX,hipY);
+  ctx.lineTo(screenX,shoulderY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(screenX,shoulderY+4);
+  ctx.lineTo(screenX+Math.cos(swing)*armLen*facing, shoulderY+4+Math.abs(Math.sin(swing))*10);
+  ctx.moveTo(screenX,shoulderY+4);
+  ctx.lineTo(screenX-Math.cos(swing)*armLen*facing, shoulderY+4+Math.abs(Math.sin(swing))*10);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(screenX,headCY,headR,0,Math.PI*2);
+  ctx.fillStyle='#fff'; ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle='#1a1a2e';
+  ctx.font='bold 11px -apple-system,sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText(name,screenX,headCY-headR-8);
+}
+
+function drawPlacement(p,gY){
+  if(!p.img.complete||!p.img.naturalWidth) return;
+  const sx=worldToScreenX(p.left);
+  if(sx+p.width<0||sx>canvas.width) return;
+  const topY=gY-p.top;
+  ctx.drawImage(p.img,sx,topY,p.width,p.height);
+  if(p.isPortal){
+    ctx.strokeStyle='rgba(138,79,255,0.7)'; ctx.lineWidth=2;
+    ctx.strokeRect(sx,topY,p.width,p.height);
+  }
+}
+
+function drawChatBubble(screenX,groundY,yOff,message){
+  const footY=groundY-yOff;
+  const bubbleBottomY=footY-FIGURE_HEIGHT-34;
+  ctx.font='bold 11px -apple-system,sans-serif';
+  const textW=ctx.measureText(message).width;
+  const padX=10, boxW=textW+padX*2, boxH=22;
+  const bx=screenX-boxW/2, by=bubbleBottomY-boxH;
+  ctx.fillStyle='rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  if(ctx.roundRect){ ctx.roundRect(bx,by,boxW,boxH,10); } else { ctx.rect(bx,by,boxW,boxH); }
+  ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#1a1a2e';
+  ctx.textAlign='center';
+  ctx.fillText(message,screenX,by+boxH/2+4);
+}
+
+function render(){
+  if(customAssets.sky_background&&customAssets.sky_background.img.complete){
+    ctx.drawImage(customAssets.sky_background.img,0,0,canvas.width,canvas.height);
+  } else {
+    const g=ctx.createLinearGradient(0,0,0,canvas.height);
+    g.addColorStop(0,'#87ceeb'); g.addColorStop(1,'#cdeeff');
+    ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    for(let i=0;i<8;i++){
+      const cx=((i*530 - me.x*0.3) % (canvas.width+300)+canvas.width+300)%(canvas.width+300)-150;
+      ctx.beginPath(); ctx.ellipse(cx,80+((i%3)*20),50,22,0,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  const gY=groundScreenY();
+  placements.filter(p=>p.layer==='background').forEach(p=>drawPlacement(p,gY));
+
+  ctx.fillStyle='#6bbf59';
+  ctx.fillRect(0,gY,canvas.width,canvas.height-gY);
+  ctx.fillStyle='#4f8f3e';
+  ctx.fillRect(0,gY,canvas.width,10);
+
+  placements.filter(p=>p.layer!=='background').forEach(p=>drawPlacement(p,gY));
+
+  const leftEdge=worldToScreenX(0);
+  const rightEdge=worldToScreenX(worldW());
+  ctx.fillStyle='rgba(120,80,40,0.9)';
+  ctx.fillRect(leftEdge-14,gY-40,14,40+(canvas.height-gY));
+  ctx.fillRect(rightEdge,gY-40,14,40+(canvas.height-gY));
+
+  Object.values(remotePlayers).forEach(p=>{
+    drawStickFigure(worldToScreenX(p.renderX),gY,p.renderYOff,p.facing,p.color,p.name,p.moving,(p.onGround!==false),walkPhase);
+    if(p.chatBubble&&Date.now()<p.chatBubble.until){
+      drawChatBubble(worldToScreenX(p.renderX),gY,p.renderYOff,p.chatBubble.message);
+    }
+  });
+  drawStickFigure(worldToScreenX(me.x),gY,me.yOff,me.facing,myColor,myName+' (나)',me.moving,me.onGround,walkPhase);
+  if(myChatBubble&&Date.now()<myChatBubble.until){
+    drawChatBubble(worldToScreenX(me.x),gY,me.yOff,myChatBubble.message);
+  }
+}
+
+function loop(now){
+  try{
+    const dt=Math.min(0.1,(now-lastFrame)/1000);
+    lastFrame=now;
+    update(dt);
+    render();
+  }catch(e){
+    console.error('게임 루프 에러(무시하고 계속 진행):',e);
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('leaveBtn').addEventListener('click',async()=>{
+  try{ if(channel) await channel.unsubscribe(); }catch(e){}
+  location.href='index.html';
+});
+
+async function initGame(){
+  try{
+    await loadStaticData();
+    if(!maps.length){
+      document.getElementById('loadingMsg').textContent='아직 만들어진 맵이 없어요. 관리자에게 문의해주세요.';
+      return;
+    }
+    currentMap=pickInitialMap();
+    me.x=pickRandomSpawnX(currentMap);
+    document.getElementById('topTitle').textContent='🚶 '+currentMap.name;
+    await loadPlacementsForMap(currentMap.id);
+    await joinChannelForMap(currentMap.id);
+    const lm=document.getElementById('loadingMsg');
+    if(lm) lm.remove();
+    requestAnimationFrame(loop);
+  }catch(e){
+    console.error('초기화 에러:',e);
+    document.getElementById('loadingMsg').textContent='접속에 실패했어요. 새로고침해주세요.';
+  }
+}
+
+if(!currentUser){
+  const lm=document.getElementById('loadingMsg');
+  if(lm) lm.textContent='로그인 후 이용해주세요. (손님으로도 접속은 되지만 로그인을 추천해요)';
+}
+initGame();
+</script>
+</body>
+</html>

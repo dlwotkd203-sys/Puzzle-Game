@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>필드헌터 - 에셋/맵 에디터</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:520px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:15px;font-weight:700;color:#111;flex:1;}
+.center-msg{text-align:center;padding:3rem 1.5rem;color:#8a8a9a;font-size:14px;line-height:1.8;}
+.tab-row{display:flex;border-bottom:1px solid #eee;}
+.tab{flex:1;text-align:center;padding:12px;font-weight:700;font-size:12px;color:#999;cursor:pointer;border-bottom:2px solid transparent;}
+.tab.active{color:#3d5afe;border-color:#3d5afe;}
+.wrap{padding:14px;}
+.field-label{font-weight:700;font-size:12px;color:#555;margin:10px 0 5px;}
+.field-input{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;}
+.field-select{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;background:#fff;}
+.check-row{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#555;}
+.opt-row{display:flex;gap:6px;flex-wrap:wrap;}
+.opt-row div{padding:7px 11px;border-radius:10px;background:#f0f0f0;font-weight:700;font-size:12px;cursor:pointer;color:#555;}
+.opt-row div.sel{background:#3d5afe;color:#fff;}
+.file-btn{margin-top:10px;text-align:center;font-weight:700;font-size:12px;padding:10px;border-radius:12px;background:#3d5afe;color:#fff;cursor:pointer;position:relative;overflow:hidden;}
+.file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.action-btn{text-align:center;font-weight:700;font-size:12px;padding:9px;border-radius:12px;background:#3d5afe;color:#fff;cursor:pointer;}
+.status-txt{font-size:11px;margin-top:6px;min-height:14px;}
+
+/* 트리 공통 */
+.tree-node{margin-bottom:2px;}
+.tree-row{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:8px;cursor:pointer;}
+.tree-row:hover{background:#f7f7f9;}
+.tree-row.sel{background:#eef0ff;}
+.tree-toggle{width:14px;color:#999;font-size:10px;flex-shrink:0;}
+.tree-name{font-size:12.5px;font-weight:600;color:#222;flex:1;}
+.tree-name.system{color:#c9861a;}
+.tree-badge{font-size:9px;color:#999;background:#f0f0f0;padding:2px 6px;border-radius:6px;}
+.tree-del{font-size:11px;color:#e63946;padding:2px 6px;cursor:pointer;}
+.tree-children{margin-left:16px;border-left:1px dashed #eee;padding-left:6px;}
+
+.cat-manage-row{display:flex;align-items:center;gap:6px;}
+.asset-thumb-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px 20px;}
+.asset-thumb{width:56px;text-align:center;position:relative;}
+.asset-thumb img{width:100%;height:44px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:repeating-conic-gradient(#f2f2f2 0% 25%,#fafafa 0% 50%) 50%/12px 12px;}
+.asset-thumb .atname{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.asset-thumb .atdel{position:absolute;top:-4px;right:-4px;background:rgba(230,57,70,0.9);color:#fff;border-radius:50%;width:15px;height:15px;font-size:9px;line-height:15px;cursor:pointer;}
+.asset-thumb.pickable{cursor:pointer;border:2px solid transparent;border-radius:8px;}
+.asset-thumb.pickable.sel img{outline:2px solid #3d5afe;}
+
+#editorCanvasWrap{position:relative;width:100%;height:260px;background:linear-gradient(#bfe4f5,#e8f7ff);border-radius:10px;overflow:hidden;margin-top:10px;touch-action:none;}
+#editorCanvas{position:absolute;left:0;top:0;width:100%;height:100%;}
+.pan-row{display:flex;gap:8px;margin-top:8px;align-items:center;}
+.pan-btn{padding:7px 14px;border-radius:10px;background:#f0f0f0;font-weight:700;font-size:12px;cursor:pointer;}
+.pan-pos{flex:1;text-align:center;font-size:11px;color:#888;}
+.edit-panel{margin-top:12px;border:1px solid #3d5afe;border-radius:12px;padding:12px;background:#f7f8ff;}
+.edit-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+.edit-row label{font-size:11px;color:#666;width:56px;flex-shrink:0;}
+.edit-row input{flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;}
+.small-btn{padding:8px 14px;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='hunter.html'">←</button>
+    <span class="top-title">🗺️ 필드헌터 에셋/맵 에디터</span>
+  </div>
+  <div id="content"><div class="center-msg">확인하는 중...</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const ADMIN_USERNAMES=['이재상'];
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+const WORLD_W=6000;
+let categories=[]; // {id,name,parent_id,collidable_default,layer_default,system_key}
+let assets=[];      // {id,name,category_id,url,collidable,anchor_x,anchor_y,is_portal,created_at}
+let maps=[];        // {id,name,world_width,spawn_x}
+let currentMapId=null;
+let placements=[];  // 현재 맵의 배치만
+let currentTab='cat';
+
+function childrenOf(parentId){ return categories.filter(c=>(c.parent_id||null)===(parentId||null)); }
+function categoryById(id){ return categories.find(c=>c.id===id); }
+function categoryPath(id){
+  const parts=[];
+  let cur=categoryById(id);
+  while(cur){ parts.unshift(cur.name); cur=cur.parent_id?categoryById(cur.parent_id):null; }
+  return parts.join(' > ');
+}
+function assetsInCategory(catId){ return assets.filter(a=>a.category_id===catId); }
+
+async function init(){
+  const content=document.getElementById('content');
+  if(!currentUser){ content.innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>'; return; }
+  if(!ADMIN_USERNAMES.includes(currentUser.username)){ content.innerHTML='<div class="center-msg">관리자만 접근할 수 있는 페이지예요.</div>'; return; }
+  content.innerHTML=`
+    <div class="tab-row">
+      <div class="tab" id="tab-cat">카테고리</div>
+      <div class="tab" id="tab-make">에셋 만들기</div>
+      <div class="tab" id="tab-place">배치하기</div>
+      <div class="tab" id="tab-anim">동작 설정</div>
+    </div>
+    <div class="wrap" id="tabBody"></div>
+  `;
+  document.getElementById('tab-cat').addEventListener('click',()=>{ currentTab='cat'; renderTabs(); });
+  document.getElementById('tab-make').addEventListener('click',()=>{ currentTab='make'; renderTabs(); });
+  document.getElementById('tab-place').addEventListener('click',()=>{ currentTab='place'; renderTabs(); });
+  document.getElementById('tab-anim').addEventListener('click',()=>{ currentTab='anim'; renderTabs(); });
+  await loadAll();
+  await ensureSystemCategories();
+  await ensureDefaultMap();
+  await loadAnimConfig();
+  renderTabs();
+}
+
+async function ensureSystemCategories(){
+  const need=[
+    {name:'캐릭터', system_key:'character', layer_default:'foreground'},
+    {name:'하늘/배경', system_key:'sky_background', layer_default:'background'}
+  ];
+  let missing=need.filter(n=>!categories.some(c=>c.system_key===n.system_key));
+  if(!missing.length) return;
+  await Promise.all(missing.map(m=>fetch(`${SUPABASE_URL}/rest/v1/hunter_categories`,{
+    method:'POST',headers:jheaders(),body:JSON.stringify(m)
+  })));
+  await loadAll();
+}
+
+async function ensureDefaultMap(){
+  if(!maps.length){
+    await fetch(`${SUPABASE_URL}/rest/v1/hunter_maps`,{method:'POST',headers:jheaders(),body:JSON.stringify({name:'기본 맵',world_width:WORLD_W,spawn_x:WORLD_W/2})});
+    await loadAll();
+  }
+  if(!currentMapId) currentMapId=maps[0].id;
+}
+
+async function loadAll(){
+  const [cr,ar,mr]=await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_categories?select=*&order=created_at.asc`,{headers:headers()}),
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_assets?select=*&order=created_at.asc`,{headers:headers()}),
+    fetch(`${SUPABASE_URL}/rest/v1/hunter_maps?select=*&order=created_at.asc`,{headers:headers()})
+  ]);
+  categories=await cr.json();
+  assets=await ar.json();
+  maps=await mr.json();
+  if(currentMapId){
+    const pr=await fetch(`${SUPABASE_URL}/rest/v1/hunter_placements?map_id=eq.${currentMapId}&select=*,hunter_assets(*)&order=created_at.asc`,{headers:headers()});
+    placements=await pr.json();
+  } else {
+    placements=[];
+  }
+}
+
+function renderTabs(){
+  document.getElementById('tab-cat').classList.toggle('active',currentTab==='cat');
+  document.getElementById('tab-make').classList.toggle('active',currentTab==='make');
+  document.getElementById('tab-place').classList.toggle('active',currentTab==='place');
+  document.getElementById('tab-anim').classList.toggle('active',currentTab==='anim');
+  if(currentTab==='cat') renderCatTab();
+  else if(currentTab==='make') renderMakeTab();
+  else if(currentTab==='place') renderPlaceTab();
+  else renderAnimTab();
+}
+
+
+
+// ---- 카테고리 탭 ----
+let newCatParentId=null;
+let newCatLayer='foreground';
+let newCatCollidable=false;
+
+function renderCatTree(parentId,depth){
+  const kids=childrenOf(parentId);
+  if(!kids.length) return '';
+  let html='<div class="tree-children">';
+  kids.forEach(c=>{
+    const isSystem=!!c.system_key;
+    html+=`<div class="tree-node">
+      <div class="tree-row">
+        <span class="tree-name ${isSystem?'system':''}">${esc(c.name)}</span>
+        <span class="tree-badge">${c.layer_default==='background'?'배경':'전경'}${c.collidable_default?' · 충돌기본':''}</span>
+        ${isSystem?'<span class="tree-badge">시스템</span>':`<span class="tree-del" data-delcat="${c.id}">삭제</span>`}
+      </div>
+      ${renderCatTree(c.id,depth+1)}
+    </div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
+function catOptionsHtml(excludeId){
+  // select용 들여쓰기 옵션 목록
+  let opts='<option value="">(최상위 카테고리)</option>';
+  function walk(parentId,prefix){
+    childrenOf(parentId).forEach(c=>{
+      if(c.id===excludeId) return;
+      opts+=`<option value="${c.id}">${prefix}${esc(c.name)}</option>`;
+      walk(c.id,prefix+'　- ');
+    });
+  }
+  walk(null,'');
+  return opts;
+}
+
+function renderCatTab(){
+  const body=document.getElementById('tabBody');
+  body.innerHTML=`
+    <div class="field-label">카테고리 트리</div>
+    <div id="catTree" style="border:1px solid #eee;border-radius:10px;padding:8px;">${renderCatTree(null,0)||'<div style="color:#bbb;font-size:12px;padding:6px;">아직 카테고리가 없어요</div>'}</div>
+
+    <div class="field-label" style="margin-top:20px;">새 카테고리 추가</div>
+    <input class="field-input" id="newCatName" placeholder="예: 지형, 무기, 캐릭터스킨...">
+    <div class="field-label">상위 카테고리</div>
+    <select class="field-select" id="newCatParent">${catOptionsHtml(null)}</select>
+    <div class="field-label">기본 레이어</div>
+    <div class="opt-row" id="newCatLayerRow">
+      <div class="layerOpt ${newCatLayer==='foreground'?'sel':''}" data-l="foreground">전경(앞)</div>
+      <div class="layerOpt ${newCatLayer==='background'?'sel':''}" data-l="background">배경(뒤)</div>
+    </div>
+    <div class="check-row"><input type="checkbox" id="newCatCollidable" ${newCatCollidable?'checked':''}> 이 카테고리로 만드는 에셋은 기본적으로 충돌체(발판/벽)로 사용</div>
+    <div class="action-btn" id="addCatBtn" style="margin-top:12px;">카테고리 추가</div>
+    <div class="status-txt" id="catStatus"></div>
+  `;
+  document.querySelectorAll('#catTree .tree-del').forEach(el=>{
+    el.addEventListener('click',()=>deleteCategory(parseInt(el.dataset.delcat)));
+  });
+  document.querySelectorAll('.layerOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ newCatLayer=el.dataset.l; renderCatTab(); });
+  });
+  document.getElementById('newCatCollidable').addEventListener('change',e=>{ newCatCollidable=e.target.checked; });
+  document.getElementById('addCatBtn').addEventListener('click',addCategory);
+}
+
+async function addCategory(){
+  const name=document.getElementById('newCatName').value.trim();
+  const parentVal=document.getElementById('newCatParent').value;
+  const status=document.getElementById('catStatus');
+  if(!name){ status.style.color='#e63946'; status.textContent='이름을 입력해주세요.'; return; }
+  status.style.color='#3d5afe'; status.textContent='추가 중...';
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_categories`,{
+      method:'POST', headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({ name, parent_id: parentVal?parseInt(parentVal):null, layer_default:newCatLayer, collidable_default:newCatCollidable })
+    });
+    if(!res.ok) throw new Error('저장 실패: '+res.status);
+    status.style.color='#0f9e75'; status.textContent='추가 완료!';
+    await loadAll();
+    renderCatTab();
+  }catch(e){
+    console.error(e);
+    status.style.color='#e63946'; status.textContent='실패: '+(e.message||e);
+  }
+}
+
+async function deleteCategory(id){
+  const cat=categoryById(id);
+  if(!cat) return;
+  if(!confirm(`"${cat.name}" 카테고리를 삭제할까요? 하위 카테고리와 여기 속한 에셋(맵에 배치된 것 포함)도 다 같이 사라져요.`)) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_categories?id=eq.${id}`,{method:'DELETE',headers:headers()});
+  await loadAll();
+  renderCatTab();
+}
+
+// ---- 에셋 만들기 탭 ----
+let pickedCategoryId=null;
+let newAssetCollidableOverride=null; // null이면 카테고리 기본값 사용
+let newAssetPartKey=''; // 캐릭터 부위 (전신이면 빈 문자열)
+const PARTS=[
+  {key:'torso',label:'몸통'},
+  {key:'head',label:'머리'},
+  {key:'arm_left',label:'팔(왼쪽)'},
+  {key:'arm_right',label:'팔(오른쪽)'},
+  {key:'leg_left',label:'다리(왼쪽)'},
+  {key:'leg_right',label:'다리(오른쪽)'},
+  {key:'weapon',label:'무기'}
+];
+
+function renderCategoryPicker(parentId,depth){
+  const kids=childrenOf(parentId);
+  if(!kids.length) return '';
+  let html='<div class="tree-children">';
+  kids.forEach(c=>{
+    html+=`<div class="tree-node">
+      <div class="tree-row pickCat ${pickedCategoryId===c.id?'sel':''}" data-catid="${c.id}">
+        <span class="tree-name ${c.system_key?'system':''}">${esc(c.name)}</span>
+        <span class="tree-badge">${c.layer_default==='background'?'배경':'전경'}</span>
+      </div>
+      ${renderCategoryPicker(c.id,depth+1)}
+    </div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
+function renderAssetLibraryTree(parentId){
+  const kids=childrenOf(parentId);
+  if(!kids.length) return '';
+  let html='<div class="tree-children">';
+  kids.forEach(c=>{
+    const list=assetsInCategory(c.id);
+    html+=`<div class="tree-node">
+      <div class="tree-row" style="cursor:default;">
+        <span class="tree-name ${c.system_key?'system':''}">${esc(c.name)}</span>
+        <span class="tree-badge">${list.length}개</span>
+      </div>
+      ${list.length?`<div class="asset-thumb-row">${list.map(a=>`
+        <div class="asset-thumb">
+          <div class="atdel" data-delasset="${a.id}">×</div>
+          <img src="${esc(a.url)}">
+          <div class="atname">${esc(a.name)}${a.part_key?' · '+esc((PARTS.find(p=>p.key===a.part_key)||{}).label||a.part_key):''}</div>
+        </div>`).join('')}</div>`:''}
+      ${renderAssetLibraryTree(c.id)}
+    </div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
+// ---- 에셋 만들기: 모드/도트 에디터 상태 ----
+let makeMode='image'; // 'image' | 'pixel'
+let pixelGridW=16, pixelGridH=16;
+let pixelData=null; // flat array, length gridW*gridH, each null 또는 '#rrggbb'
+let pixelColor='#1a1a1a';
+let pixelTool='draw'; // 'draw' | 'erase' | 'anchor'
+let pixelAnchor={x:8,y:15};
+const PIXEL_COLORS=['#1a1a1a','#ffffff','#e63946','#3d8bff','#2a9d34','#ffd166','#c084fc','#8a4fff','#ff9f4a','#4adfd0','#8a5a2b','#ff6fb5'];
+function resetPixelData(){
+  pixelData=new Array(pixelGridW*pixelGridH).fill(null);
+  pixelAnchor={x:Math.floor(pixelGridW/2),y:pixelGridH-1};
+}
+resetPixelData();
+let newAssetIsPortal=false;
+
+function renderMakeTab(){
+  const body=document.getElementById('tabBody');
+  const pickedCat=pickedCategoryId?categoryById(pickedCategoryId):null;
+  const effectiveCollidable = newAssetCollidableOverride!==null ? newAssetCollidableOverride : (pickedCat?pickedCat.collidable_default:false);
+  const isCharacterCat = !!(pickedCat&&pickedCat.system_key==='character');
+  body.innerHTML=`
+    <div class="field-label">이름</div>
+    <input class="field-input" id="assetName" placeholder="예: 벽돌벽, 뭉게구름, 나무집, 강철검">
+    <div class="field-label">카테고리 선택 ${pickedCat?('· 선택됨: '+esc(categoryPath(pickedCat.id))):'(아직 선택 안 됨)'}</div>
+    <div id="catPickerTree" style="border:1px solid #eee;border-radius:10px;padding:8px;max-height:220px;overflow-y:auto;">${renderCategoryPicker(null,0)||'<div style="color:#bbb;font-size:12px;padding:6px;">먼저 "카테고리" 탭에서 카테고리를 만들어주세요</div>'}</div>
+    ${isCharacterCat?`
+    <div class="field-label">이 이미지는 어느 부위인가요?</div>
+    <select class="field-select" id="partKeySelect">
+      <option value="" ${newAssetPartKey===''?'selected':''}>전신(부위 안 나눔, 기존 방식)</option>
+      ${PARTS.map(p=>`<option value="${p.key}" ${newAssetPartKey===p.key?'selected':''}>${esc(p.label)}</option>`).join('')}
+    </select>
+    <div style="font-size:11px;color:#999;margin-top:6px;">부위를 나누면 "동작 설정" 탭에서 팔/다리를 따로 움직이게 할 수 있어요. 도트로 그릴 때 기준점을 관절 위치(어깨/골반 등)에 찍어주세요.</div>
+    `:''}
+    <div class="check-row"><input type="checkbox" id="collidableChk" ${effectiveCollidable?'checked':''}> 캐릭터가 못 지나가는 충돌체(발판/벽)로 사용</div>
+    <div class="check-row"><input type="checkbox" id="portalChk" ${newAssetIsPortal?'checked':''}> 이 에셋은 포탈(다른 맵으로 이동)로 사용</div>
+    <div style="font-size:11px;color:#999;margin-top:6px;">※ "캐릭터"/"하늘·배경" 카테고리에 등록한 에셋은 맵에 배치 안 해도 자동으로 게임 전체에 적용돼요.</div>
+
+    <div class="field-label" style="margin-top:16px;">만드는 방식</div>
+    <div class="opt-row">
+      <div class="modeOpt ${makeMode==='image'?'sel':''}" data-m="image">이미지 업로드</div>
+      <div class="modeOpt ${makeMode==='pixel'?'sel':''}" data-m="pixel">도트로 그리기</div>
+    </div>
+    <div id="makeModeBody"></div>
+    <div class="status-txt" id="makeStatus"></div>
+    <div class="field-label" style="margin-top:20px;">등록된 에셋 (카테고리별)</div>
+    <div id="libTree" style="border:1px solid #eee;border-radius:10px;padding:8px;">${renderAssetLibraryTree(null)||'<div style="color:#bbb;font-size:12px;padding:6px;">아직 에셋이 없어요</div>'}</div>
+  `;
+  document.querySelectorAll('.pickCat').forEach(el=>{
+    el.addEventListener('click',()=>{
+      pickedCategoryId=parseInt(el.dataset.catid);
+      newAssetCollidableOverride=null;
+      newAssetPartKey='';
+      renderMakeTab();
+    });
+  });
+  if(isCharacterCat){
+    document.getElementById('partKeySelect').addEventListener('change',e=>{ newAssetPartKey=e.target.value; });
+  }
+  document.getElementById('collidableChk').addEventListener('change',e=>{ newAssetCollidableOverride=e.target.checked; });
+  document.getElementById('portalChk').addEventListener('change',e=>{ newAssetIsPortal=e.target.checked; });
+  document.querySelectorAll('.modeOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ makeMode=el.dataset.m; renderMakeTab(); });
+  });
+  document.querySelectorAll('#libTree .atdel').forEach(el=>{
+    el.addEventListener('click',()=>deleteAsset(parseInt(el.dataset.delasset)));
+  });
+  if(makeMode==='image') renderImageMode();
+  else renderPixelMode();
+}
+
+const PART_DEFAULT_ANCHOR={
+  torso:[0.5,0.05], head:[0.5,0.95],
+  arm_left:[0.5,0.08], arm_right:[0.5,0.08],
+  leg_left:[0.5,0.05], leg_right:[0.5,0.05],
+  weapon:[0.15,0.9]
+};
+function renderImageMode(){
+  const holder=document.getElementById('makeModeBody');
+  holder.innerHTML=`<div class="file-btn">이미지 선택해서 등록<input type="file" accept="image/*" id="assetFile"></div>`;
+  document.getElementById('assetFile').addEventListener('change',e=>{
+    if(e.target.files&&e.target.files[0]){
+      const def=PART_DEFAULT_ANCHOR[newAssetPartKey]||[0.5,1.0];
+      createAssetFromBlob(e.target.files[0],def[0],def[1]);
+    }
+  });
+}
+
+function renderPixelMode(){
+  const holder=document.getElementById('makeModeBody');
+  holder.innerHTML=`
+    <div class="edit-row" style="margin-top:8px;">
+      <label style="width:70px;">가로 칸수</label><input type="number" id="pxW" value="${pixelGridW}" min="4" max="64">
+      <label style="width:70px;">세로 칸수</label><input type="number" id="pxH" value="${pixelGridH}" min="4" max="64">
+    </div>
+    <div class="small-btn" id="applyGridBtn" style="background:#f0f0f0;color:#555;display:inline-block;">그리드 크기 적용 (그림 초기화됨)</div>
+    <div class="field-label">도구</div>
+    <div class="opt-row">
+      <div class="toolOpt ${pixelTool==='draw'?'sel':''}" data-t="draw">🖊 그리기</div>
+      <div class="toolOpt ${pixelTool==='erase'?'sel':''}" data-t="erase">🧹 지우기</div>
+      <div class="toolOpt ${pixelTool==='anchor'?'sel':''}" data-t="anchor">🎯 기준점 찍기</div>
+    </div>
+    <div class="field-label">색상</div>
+    <div class="opt-row" id="pxColorRow">
+      ${PIXEL_COLORS.map(c=>`<div class="pxColor ${pixelColor===c?'sel':''}" data-c="${c}" style="width:26px;height:26px;border-radius:6px;background:${c};padding:0;border:2px solid ${pixelColor===c?'#3d5afe':'#ddd'};"></div>`).join('')}
+      <input type="color" id="pxCustomColor" value="${pixelColor}" style="width:30px;height:30px;border:none;border-radius:6px;padding:0;">
+    </div>
+    <div style="font-size:11px;color:#999;margin-top:6px;">🎯 기준점은 이 그림을 배치하거나 캐릭터로 쓸 때 위치의 중심이 돼요. 기본은 하단 중앙이에요.</div>
+    <div id="pixelCanvasWrap" style="margin-top:10px;overflow:auto;max-width:100%;border:1px solid #eee;border-radius:10px;padding:8px;text-align:center;">
+      <canvas id="pixelCanvas"></canvas>
+    </div>
+    <div class="small-btn" id="clearPixelBtn" style="background:#f0f0f0;color:#e63946;display:inline-block;margin-top:8px;">전체 지우기</div>
+    <div class="action-btn" id="registerPixelBtn" style="margin-top:10px;">이 그림으로 에셋 등록</div>
+  `;
+  document.getElementById('applyGridBtn').addEventListener('click',()=>{
+    pixelGridW=Math.max(4,Math.min(64,parseInt(document.getElementById('pxW').value)||16));
+    pixelGridH=Math.max(4,Math.min(64,parseInt(document.getElementById('pxH').value)||16));
+    resetPixelData();
+    renderPixelMode();
+  });
+  document.querySelectorAll('.toolOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ pixelTool=el.dataset.t; renderPixelMode(); });
+  });
+  document.querySelectorAll('.pxColor').forEach(el=>{
+    el.addEventListener('click',()=>{ pixelColor=el.dataset.c; pixelTool='draw'; renderPixelMode(); });
+  });
+  document.getElementById('pxCustomColor').addEventListener('input',e=>{ pixelColor=e.target.value; pixelTool='draw'; });
+  document.getElementById('clearPixelBtn').addEventListener('click',()=>{
+    if(!confirm('그림을 전체 지울까요?')) return;
+    pixelData=new Array(pixelGridW*pixelGridH).fill(null);
+    drawPixelCanvas();
+  });
+  document.getElementById('registerPixelBtn').addEventListener('click',registerPixelAsset);
+  setupPixelCanvas();
+  drawPixelCanvas();
+}
+
+function pixelCellSize(){ return Math.max(6,Math.min(24,Math.floor(300/Math.max(pixelGridW,pixelGridH)))); }
+
+function setupPixelCanvas(){
+  const canvas=document.getElementById('pixelCanvas');
+  const cell=pixelCellSize();
+  canvas.width=pixelGridW*cell; canvas.height=pixelGridH*cell;
+  let painting=false;
+  function paintAt(e){
+    const r=canvas.getBoundingClientRect();
+    const cx=Math.floor((e.clientX-r.left)/cell), cy=Math.floor((e.clientY-r.top)/cell);
+    if(cx<0||cy<0||cx>=pixelGridW||cy>=pixelGridH) return;
+    if(pixelTool==='anchor'){ pixelAnchor={x:cx,y:cy}; drawPixelCanvas(); return; }
+    const idx=cy*pixelGridW+cx;
+    pixelData[idx]=pixelTool==='erase'?null:pixelColor;
+    drawPixelCanvas();
+  }
+  canvas.onpointerdown=e=>{ painting=true; paintAt(e); };
+  canvas.onpointermove=e=>{ if(painting&&pixelTool!=='anchor') paintAt(e); };
+  window.addEventListener('pointerup',()=>{ painting=false; });
+}
+
+function drawPixelCanvas(){
+  const canvas=document.getElementById('pixelCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const cell=pixelCellSize();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 체크무늬 배경(투명칸 표시)
+  for(let y=0;y<pixelGridH;y++){
+    for(let x=0;x<pixelGridW;x++){
+      ctx.fillStyle=((x+y)%2===0)?'#f2f2f2':'#fafafa';
+      ctx.fillRect(x*cell,y*cell,cell,cell);
+      const c=pixelData[y*pixelGridW+x];
+      if(c){ ctx.fillStyle=c; ctx.fillRect(x*cell,y*cell,cell,cell); }
+    }
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.08)';
+  for(let x=0;x<=pixelGridW;x++){ ctx.beginPath(); ctx.moveTo(x*cell,0); ctx.lineTo(x*cell,canvas.height); ctx.stroke(); }
+  for(let y=0;y<=pixelGridH;y++){ ctx.beginPath(); ctx.moveTo(0,y*cell); ctx.lineTo(canvas.width,y*cell); ctx.stroke(); }
+  // 기준점 표시
+  const ax=pixelAnchor.x*cell+cell/2, ay=pixelAnchor.y*cell+cell/2;
+  ctx.strokeStyle='#e63946'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(ax-cell/2,ay); ctx.lineTo(ax+cell/2,ay); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax,ay-cell/2); ctx.lineTo(ax,ay+cell/2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(ax,ay,3,0,Math.PI*2); ctx.fillStyle='#e63946'; ctx.fill();
+}
+
+function registerPixelAsset(){
+  const status=document.getElementById('makeStatus');
+  if(pixelData.every(c=>!c)){ status.style.color='#e63946'; status.textContent='그림을 먼저 그려주세요.'; return; }
+  const raster=document.createElement('canvas');
+  raster.width=pixelGridW; raster.height=pixelGridH;
+  const rctx=raster.getContext('2d');
+  for(let y=0;y<pixelGridH;y++){
+    for(let x=0;x<pixelGridW;x++){
+      const c=pixelData[y*pixelGridW+x];
+      if(c){ rctx.fillStyle=c; rctx.fillRect(x,y,1,1); }
+    }
+  }
+  const anchorXFrac=(pixelAnchor.x+0.5)/pixelGridW;
+  const anchorYFrac=(pixelAnchor.y+0.5)/pixelGridH;
+  raster.toBlob(blob=>{
+    if(!blob){ status.style.color='#e63946'; status.textContent='이미지 변환 실패'; return; }
+    createAssetFromBlob(blob,anchorXFrac,anchorYFrac);
+  },'image/png');
+}
+
+async function createAssetFromBlob(blobOrFile,anchorX,anchorY){
+  const nameInput=document.getElementById('assetName');
+  const name=nameInput.value.trim()||'이름없음';
+  const status=document.getElementById('makeStatus');
+  if(!pickedCategoryId){ status.style.color='#e63946'; status.textContent='카테고리를 먼저 선택해주세요.'; return; }
+  const collidable = document.getElementById('collidableChk').checked;
+  const isPortal = document.getElementById('portalChk').checked;
+  status.style.color='#3d5afe'; status.textContent='업로드 중...';
+  try{
+    const ext=(blobOrFile.name?blobOrFile.name.split('.').pop():'png')||'png';
+    const path='asset_'+Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext.toLowerCase();
+    const {error:upErr}=await sb.storage.from('hunter-assets').upload(path,blobOrFile,{upsert:true,contentType:blobOrFile.type||'image/png'});
+    if(upErr) throw upErr;
+    const {data:urlData}=sb.storage.from('hunter-assets').getPublicUrl(path);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_assets`,{
+      method:'POST', headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({name, category_id:pickedCategoryId, url:urlData.publicUrl, collidable, is_portal:isPortal, anchor_x:anchorX, anchor_y:anchorY, part_key:newAssetPartKey||null})
+    });
+    if(!res.ok){ const errBody=await res.text(); throw new Error('DB 저장 실패('+res.status+'): '+errBody); }
+    status.style.color='#0f9e75'; status.textContent='등록 완료!';
+    nameInput.value='';
+    await loadAll();
+    renderMakeTab();
+  }catch(e){
+    console.error(e);
+    status.style.color='#e63946'; status.textContent='실패: '+(e.message||e);
+  }
+}
+
+async function deleteAsset(id){
+  if(!confirm('이 에셋을 삭제할까요? 맵에 배치된 것도 같이 사라져요.')) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_assets?id=eq.${id}`,{method:'DELETE',headers:headers()});
+  await loadAll();
+  renderMakeTab();
+}
+
+// ---- 배치하기 탭 ----
+let armedAssetId=null;
+let selectedPlacementId=null;
+let editorPanX=0;
+const imgCache={};
+function getImg(url){
+  if(!imgCache[url]){ const img=new Image(); img.src=url; imgCache[url]=img; }
+  return imgCache[url];
+}
+
+function renderPalettePicker(parentId){
+  const kids=childrenOf(parentId).filter(c=>!c.system_key); // 캐릭터/하늘배경 계열은 배치 목록에서 제외
+  if(!kids.length) return '';
+  let html='<div class="tree-children">';
+  kids.forEach(c=>{
+    const list=assetsInCategory(c.id);
+    html+=`<div class="tree-node">
+      <div class="tree-row" style="cursor:default;">
+        <span class="tree-name">${esc(c.name)}</span>
+        <span class="tree-badge">${list.length}개</span>
+      </div>
+      ${list.length?`<div class="asset-thumb-row">${list.map(a=>`
+        <div class="asset-thumb pickable ${armedAssetId===a.id?'sel':''}" data-pickasset="${a.id}">
+          <img src="${esc(a.url)}">
+          <div class="atname">${esc(a.name)}</div>
+        </div>`).join('')}</div>`:''}
+      ${renderPalettePicker(c.id)}
+    </div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
+let showNewMapForm=false;
+let spawnAddMode=false;
+
+function currentMapObj(){ return maps.find(m=>m.id===currentMapId); }
+function currentSpawnPoints(){ const m=currentMapObj(); return (m&&Array.isArray(m.spawn_points))?m.spawn_points:[]; }
+
+function renderPlaceTab(){
+  const body=document.getElementById('tabBody');
+  const paletteHtml=renderPalettePicker(null);
+  const map=currentMapObj();
+  const spawns=currentSpawnPoints();
+  body.innerHTML=`
+    <div class="field-label">현재 편집중인 맵</div>
+    <div class="cat-manage-row">
+      <select class="field-select" id="mapSelect">${maps.map(m=>`<option value="${m.id}" ${m.id===currentMapId?'selected':''}>${esc(m.name)}</option>`).join('')}</select>
+      <div class="small-btn" id="newMapBtn" style="background:#3d5afe;color:#fff;flex-shrink:0;">＋ 새 맵</div>
+    </div>
+    <div id="newMapFormHolder"></div>
+
+    <div class="field-label" style="margin-top:14px;">맵 크기 (가로 / 세로)</div>
+    <div class="edit-row">
+      <input type="number" id="mapWidthInput" value="${map?map.world_width:WORLD_W}" placeholder="가로(px)">
+      <input type="number" id="mapHeightInput" value="${map?(map.world_height||2000):2000}" placeholder="세로(px)">
+      <div class="small-btn" id="applyMapSizeBtn" style="background:#3d5afe;color:#fff;flex-shrink:0;">적용</div>
+    </div>
+    <div style="font-size:11px;color:#999;margin:4px 0 0;">가로는 좌우로 걸을 수 있는 범위, 세로는 위로 쌓을 수 있는 최대 높이예요 (건물/구름 배치용).</div>
+
+    <div class="field-label" style="margin-top:14px;">스폰 위치 (여러 개 지정하면 랜덤으로 시작해요)</div>
+    <div id="spawnList" style="margin-bottom:6px;"></div>
+    <div class="small-btn" id="spawnAddBtn" style="background:${spawnAddMode?'#0f9e75':'#f0f0f0'};color:${spawnAddMode?'#fff':'#555'};display:inline-block;">${spawnAddMode?'📍 맵을 클릭해서 추가 (취소하려면 다시 클릭)':'+ 스폰 위치 추가'}</div>
+
+    <div class="field-label" style="margin-top:14px;">에셋 팔레트 (눌러서 선택 후 아래 맵을 클릭해서 배치)</div>
+    <div id="paletteTree" style="border:1px solid #eee;border-radius:10px;padding:8px;max-height:200px;overflow-y:auto;">${paletteHtml||'<div style="color:#bbb;font-size:12px;padding:6px;">먼저 "에셋 만들기" 탭에서 배치 가능한 에셋을 등록해주세요</div>'}</div>
+    <div id="editorCanvasWrap"><canvas id="editorCanvas"></canvas></div>
+    <div class="pan-row">
+      <div class="pan-btn" id="panLeft">◀ 이동</div>
+      <div class="pan-pos" id="panPos"></div>
+      <div class="pan-btn" id="panRight">이동 ▶</div>
+    </div>
+    <div id="editPanelHolder"></div>
+  `;
+  document.getElementById('mapSelect').addEventListener('change',async e=>{
+    currentMapId=parseInt(e.target.value);
+    selectedPlacementId=null; armedAssetId=null; spawnAddMode=false;
+    await loadAll();
+    renderPlaceTab();
+  });
+  document.getElementById('newMapBtn').addEventListener('click',()=>{ showNewMapForm=!showNewMapForm; renderPlaceTab(); });
+  renderNewMapForm();
+  document.getElementById('applyMapSizeBtn').addEventListener('click',applyMapSize);
+  document.getElementById('spawnAddBtn').addEventListener('click',()=>{ spawnAddMode=!spawnAddMode; armedAssetId=null; renderPlaceTab(); });
+  renderSpawnList();
+  document.querySelectorAll('.pickable').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const id=parseInt(el.dataset.pickasset);
+      armedAssetId=(armedAssetId===id?null:id); selectedPlacementId=null; spawnAddMode=false; renderPlaceTab();
+    });
+  });
+  document.getElementById('panLeft').addEventListener('click',()=>{ editorPanX=Math.max(0,editorPanX-400); drawEditor(); });
+  document.getElementById('panRight').addEventListener('click',()=>{ editorPanX=Math.min(WORLD_W-200,editorPanX+400); drawEditor(); });
+  setupEditorCanvas();
+  drawEditor();
+  renderEditPanel();
+}
+
+function renderNewMapForm(){
+  const holder=document.getElementById('newMapFormHolder');
+  if(!showNewMapForm){ holder.innerHTML=''; return; }
+  holder.innerHTML=`
+    <div class="edit-panel" style="margin-top:8px;">
+      <div class="field-label" style="margin-top:0;">새 맵 만들기</div>
+      <input class="field-input" id="newMapName" placeholder="맵 이름" style="margin-bottom:8px;">
+      <div class="edit-row">
+        <input type="number" id="newMapWidth" value="${WORLD_W}" placeholder="가로(px)">
+        <input type="number" id="newMapHeight" value="2000" placeholder="세로(px)">
+      </div>
+      <div class="small-btn" id="confirmNewMapBtn" style="background:#3d5afe;color:#fff;margin-top:8px;">만들기</div>
+    </div>
+  `;
+  document.getElementById('confirmNewMapBtn').addEventListener('click',createNewMap);
+}
+
+function renderSpawnList(){
+  const holder=document.getElementById('spawnList');
+  const spawns=currentSpawnPoints();
+  if(!spawns.length){
+    holder.innerHTML='<div style="font-size:12px;color:#bbb;padding:4px 0;">아직 스폰 위치가 없어요. 없으면 맵 가운데서 시작해요.</div>';
+    return;
+  }
+  holder.innerHTML=spawns.map((sp,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;">
+      <span style="flex:1;">📍 X: ${Math.round(sp.x)}</span>
+      <span class="tree-del" data-spawnidx="${i}">삭제</span>
+    </div>
+  `).join('');
+  holder.querySelectorAll('.tree-del').forEach(el=>{
+    el.addEventListener('click',()=>removeSpawnPoint(parseInt(el.dataset.spawnidx)));
+  });
+}
+
+async function applyMapSize(){
+  const w=parseFloat(document.getElementById('mapWidthInput').value)||WORLD_W;
+  const h=parseFloat(document.getElementById('mapHeightInput').value)||2000;
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_maps?id=eq.${currentMapId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({world_width:w,world_height:h})});
+  await loadAll();
+  renderPlaceTab();
+}
+
+async function addSpawnPoint(x){
+  const spawns=currentSpawnPoints().concat([{x:Math.round(x)}]);
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_maps?id=eq.${currentMapId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({spawn_points:spawns})});
+  await loadAll();
+  spawnAddMode=false;
+  renderPlaceTab();
+}
+
+async function removeSpawnPoint(idx){
+  const spawns=currentSpawnPoints().filter((_,i)=>i!==idx);
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_maps?id=eq.${currentMapId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({spawn_points:spawns})});
+  await loadAll();
+  renderPlaceTab();
+}
+
+async function createNewMap(){
+  const name=document.getElementById('newMapName').value.trim();
+  if(!name){ alert('맵 이름을 입력해주세요.'); return; }
+  const w=parseFloat(document.getElementById('newMapWidth').value)||WORLD_W;
+  const h=parseFloat(document.getElementById('newMapHeight').value)||2000;
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_maps`,{
+    method:'POST', headers:{...jheaders(),'Prefer':'return=representation'},
+    body:JSON.stringify({name, world_width:w, world_height:h, spawn_x:w/2, spawn_points:[]})
+  });
+  const data=await res.json();
+  await loadAll();
+  if(data&&data[0]) currentMapId=data[0].id;
+  showNewMapForm=false;
+  renderPlaceTab();
+}
+
+
+let dragState=null; // {placementId, startClientX, startClientY, startX, startY, moved}
+let editorPointerUpBound=false;
+
+function findPlacementAt(clickX,clickY,ch){
+  const gY=editorGroundY(ch);
+  for(let i=placements.length-1;i>=0;i--){
+    const p=placements[i];
+    const sx=p.x-editorPanX;
+    const topY=gY-p.y-p.height, botY=gY-p.y;
+    if(clickX>=sx&&clickX<=sx+p.width&&clickY>=topY&&clickY<=botY) return p;
+  }
+  return null;
+}
+
+function setupEditorCanvas(){
+  const wrap=document.getElementById('editorCanvasWrap');
+  const canvas=document.getElementById('editorCanvas');
+  const rect=wrap.getBoundingClientRect();
+  canvas.width=rect.width; canvas.height=rect.height;
+
+  canvas.onpointerdown=(e)=>{
+    const r=canvas.getBoundingClientRect();
+    const clickX=e.clientX-r.left, clickY=e.clientY-r.top;
+    if(spawnAddMode){
+      const worldX=editorPanX+clickX;
+      addSpawnPoint(worldX);
+      return;
+    }
+    const hit=findPlacementAt(clickX,clickY,canvas.height);
+    if(hit){
+      dragState={placementId:hit.id, startClientX:e.clientX, startClientY:e.clientY, startX:hit.x, startY:hit.y, moved:false};
+      if(selectedPlacementId!==hit.id){ selectedPlacementId=hit.id; armedAssetId=null; renderEditPanel(); }
+      drawEditor();
+      return;
+    }
+    if(armedAssetId){
+      const worldX=editorPanX+clickX;
+      const gY=editorGroundY(canvas.height);
+      placeNewAsset(armedAssetId, worldX, Math.max(0, gY-clickY));
+    }
+  };
+  canvas.onpointermove=(e)=>{
+    if(!dragState) return;
+    const p=placements.find(pp=>pp.id===dragState.placementId);
+    if(!p) return;
+    const dxScreen=e.clientX-dragState.startClientX;
+    const dyScreen=e.clientY-dragState.startClientY;
+    if(Math.abs(dxScreen)>2||Math.abs(dyScreen)>2) dragState.moved=true;
+    p.x=Math.round(dragState.startX+dxScreen);
+    p.y=Math.round(dragState.startY-dyScreen);
+    drawEditor();
+  };
+  if(!editorPointerUpBound){
+    window.addEventListener('pointerup',onEditorPointerUp);
+    editorPointerUpBound=true;
+  }
+}
+
+async function onEditorPointerUp(){
+  if(!dragState) return;
+  const {placementId,moved}=dragState;
+  dragState=null;
+  if(!moved) return;
+  const p=placements.find(pp=>pp.id===placementId);
+  if(!p) return;
+  await updatePlacement(placementId,{x:p.x,y:p.y});
+}
+
+function editorGroundY(canvasH){ return canvasH*0.85; }
+
+async function placeNewAsset(assetId, worldX, yAboveGround){
+  const asset=assets.find(a=>a.id===assetId);
+  if(!asset) return;
+  const cat=categoryById(asset.category_id);
+  const img=getImg(asset.url);
+  const finalize=async()=>{
+    const w=120;
+    const h=Math.round(120*((img.naturalHeight||120)/(img.naturalWidth||120)));
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_placements`,{
+      method:'POST', headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({asset_id:assetId, map_id:currentMapId, x:Math.round(worldX), y:Math.round(yAboveGround), width:w, height:h, layer:(cat?cat.layer_default:'foreground')})
+    });
+    const data=await res.json();
+    await loadAll();
+    if(data&&data[0]) selectedPlacementId=data[0].id;
+    renderPlaceTab();
+  };
+  if(img.complete) finalize(); else img.onload=finalize;
+}
+
+function drawEditor(){
+  const canvas=document.getElementById('editorCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const cw=canvas.width, ch=canvas.height;
+  ctx.clearRect(0,0,cw,ch);
+  const gY=editorGroundY(ch);
+  ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,gY); ctx.lineTo(cw,gY); ctx.stroke();
+  ctx.fillStyle='#888'; ctx.font='10px sans-serif';
+  ctx.fillText('땅 기준선',6,gY-4);
+
+  placements.forEach(p=>{
+    const sx=p.x-editorPanX;
+    if(sx+p.width<0||sx>cw) return;
+    const topY=gY-p.y-p.height;
+    const asset=p.hunter_assets;
+    if(asset){
+      const img=getImg(asset.url);
+      if(img.complete&&img.naturalWidth) ctx.drawImage(img,sx,topY,p.width,p.height);
+      else { ctx.fillStyle='rgba(150,150,150,0.4)'; ctx.fillRect(sx,topY,p.width,p.height); }
+    }
+    if(p.id===selectedPlacementId){
+      ctx.strokeStyle='#3d5afe'; ctx.lineWidth=2;
+      ctx.strokeRect(sx,topY,p.width,p.height);
+    }
+  });
+
+  currentSpawnPoints().forEach(sp=>{
+    const sx=sp.x-editorPanX;
+    if(sx<-20||sx>cw+20) return;
+    ctx.font='20px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('📍',sx,gY-2);
+  });
+
+  document.getElementById('panPos').textContent=Math.round(editorPanX)+' ~ '+Math.round(editorPanX+cw)+' / '+WORLD_W;
+}
+
+function renderEditPanel(){
+  const holder=document.getElementById('editPanelHolder');
+  const p=placements.find(pp=>pp.id===selectedPlacementId);
+  if(!p){ holder.innerHTML=''; return; }
+  const isPortal=!!(p.hunter_assets&&p.hunter_assets.is_portal);
+  let portalHtml='';
+  if(isPortal){
+    const otherMaps=maps.filter(m=>m.id!==currentMapId);
+    portalHtml=`
+      <div class="field-label">🌀 포탈 도착지</div>
+      <div class="edit-row"><label>도착 맵</label>
+        <select class="field-select" id="editPortalMap">
+          <option value="">(설정 안 됨)</option>
+          ${otherMaps.map(m=>`<option value="${m.id}" ${p.portal_target_map_id===m.id?'selected':''}>${esc(m.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="edit-row"><label>도착 X</label><input type="number" id="editPortalX" value="${p.portal_target_x??''}" placeholder="비우면 기본 스폰"></div>
+    `;
+  }
+  holder.innerHTML=`
+    <div class="edit-panel">
+      <div class="field-label" style="margin-top:0;">선택된 오브젝트: ${esc(p.hunter_assets?p.hunter_assets.name:'')}${isPortal?' 🌀':''}</div>
+      <div class="edit-row"><label>X 위치</label><input type="number" id="editX" value="${p.x}"></div>
+      <div class="edit-row"><label>Y(높이)</label><input type="number" id="editY" value="${p.y}"></div>
+      <div class="edit-row"><label>너비</label><input type="number" id="editW" value="${p.width}"></div>
+      <div class="edit-row"><label>높이</label><input type="number" id="editH" value="${p.height}"></div>
+      <div class="edit-row"><label>레이어</label>
+        <div class="opt-row" style="flex:1;">
+          <div class="layerOpt2 ${p.layer==='background'?'sel':''}" data-l="background">배경(뒤)</div>
+          <div class="layerOpt2 ${p.layer!=='background'?'sel':''}" data-l="foreground">전경(앞)</div>
+        </div>
+      </div>
+      ${portalHtml}
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <div class="small-btn" id="applyEditBtn" style="flex:1;background:#3d5afe;color:#fff;">적용</div>
+        <div class="small-btn" id="deletePlacementBtn" style="background:#f0f0f0;color:#e63946;">삭제</div>
+        <div class="small-btn" id="closeEditBtn" style="background:#f0f0f0;color:#888;">닫기</div>
+      </div>
+    </div>
+  `;
+  holder.querySelectorAll('.layerOpt2').forEach(el=>{
+    el.addEventListener('click',()=>{ updatePlacement(p.id,{layer:el.dataset.l}); });
+  });
+  document.getElementById('applyEditBtn').addEventListener('click',()=>{
+    const patch={
+      x:parseFloat(document.getElementById('editX').value)||0,
+      y:parseFloat(document.getElementById('editY').value)||0,
+      width:parseFloat(document.getElementById('editW').value)||10,
+      height:parseFloat(document.getElementById('editH').value)||10
+    };
+    if(isPortal){
+      const mapVal=document.getElementById('editPortalMap').value;
+      const xVal=document.getElementById('editPortalX').value;
+      patch.portal_target_map_id=mapVal?parseInt(mapVal):null;
+      patch.portal_target_x=xVal!==''?parseFloat(xVal):null;
+    }
+    updatePlacement(p.id,patch);
+  });
+  document.getElementById('deletePlacementBtn').addEventListener('click',async()=>{
+    if(!confirm('이 오브젝트를 맵에서 삭제할까요?')) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/hunter_placements?id=eq.${p.id}`,{method:'DELETE',headers:headers()});
+    selectedPlacementId=null;
+    await loadAll();
+    renderPlaceTab();
+  });
+  document.getElementById('closeEditBtn').addEventListener('click',()=>{ selectedPlacementId=null; renderPlaceTab(); });
+}
+
+async function updatePlacement(id,patch){
+  await fetch(`${SUPABASE_URL}/rest/v1/hunter_placements?id=eq.${id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+  await loadAll();
+  renderPlaceTab();
+}
+
+// ---- 동작 설정 탭 ----
+const ANIM_STATES=[
+  {key:'idle',label:'기본자세(가만히)'},
+  {key:'walk',label:'걷기'},
+  {key:'jump',label:'점프'},
+  {key:'hit',label:'맞았을 때'}
+];
+const ANIM_PARTS=[
+  {key:'torso',label:'몸통'},
+  {key:'head',label:'머리'},
+  {key:'arm_left',label:'팔(왼쪽)'},
+  {key:'arm_right',label:'팔(오른쪽)'},
+  {key:'leg_left',label:'다리(왼쪽)'},
+  {key:'leg_right',label:'다리(오른쪽)'},
+  {key:'weapon',label:'무기'}
+];
+function defaultPartAnim(){ return { baseAngle:0, amplitude:0, speed:1 }; }
+function defaultAnimConfig(){
+  const cfg={ weaponAttach:'arm_right', states:{} };
+  ANIM_STATES.forEach(s=>{
+    cfg.states[s.key]={};
+    ANIM_PARTS.forEach(p=>{ cfg.states[s.key][p.key]=defaultPartAnim(); });
+  });
+  // 기본값 몇 개는 그럴듯하게
+  cfg.states.walk.arm_left={baseAngle:0,amplitude:30,speed:6};
+  cfg.states.walk.arm_right={baseAngle:0,amplitude:-30,speed:6};
+  cfg.states.walk.leg_left={baseAngle:0,amplitude:25,speed:6};
+  cfg.states.walk.leg_right={baseAngle:0,amplitude:-25,speed:6};
+  cfg.states.jump.arm_left={baseAngle:-40,amplitude:0,speed:1};
+  cfg.states.jump.arm_right={baseAngle:40,amplitude:0,speed:1};
+  cfg.states.jump.leg_left={baseAngle:20,amplitude:0,speed:1};
+  cfg.states.jump.leg_right={baseAngle:-15,amplitude:0,speed:1};
+  cfg.states.hit.torso={baseAngle:8,amplitude:0,speed:1};
+  return cfg;
+}
+let animConfig=defaultAnimConfig();
+let animEditState='walk';
+
+async function loadAnimConfig(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/hunter_char_anim_config?id=eq.1&select=config`,{headers:headers()});
+    const data=await r.json();
+    if(data&&data[0]&&data[0].config){
+      const loaded=data[0].config;
+      const merged=defaultAnimConfig();
+      merged.weaponAttach=loaded.weaponAttach||merged.weaponAttach;
+      ANIM_STATES.forEach(s=>{
+        ANIM_PARTS.forEach(p=>{
+          if(loaded.states&&loaded.states[s.key]&&loaded.states[s.key][p.key]){
+            merged.states[s.key][p.key]=loaded.states[s.key][p.key];
+          }
+        });
+      });
+      animConfig=merged;
+    }
+  }catch(e){ console.error('동작 설정 로드 실패(기본값 사용):',e); }
+}
+
+async function saveAnimConfig(){
+  const status=document.getElementById('animStatus');
+  status.style.color='#3d5afe'; status.textContent='저장 중...';
+  try{
+    const check=await fetch(`${SUPABASE_URL}/rest/v1/hunter_char_anim_config?id=eq.1&select=id`,{headers:headers()});
+    if(!check.ok){ const errBody=await check.text(); throw new Error('조회 실패('+check.status+'): '+errBody); }
+    const existing=await check.json();
+    let res;
+    if(existing&&existing.length){
+      res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_char_anim_config?id=eq.1`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({config:animConfig})});
+    } else {
+      res=await fetch(`${SUPABASE_URL}/rest/v1/hunter_char_anim_config`,{method:'POST',headers:jheaders(),body:JSON.stringify({id:1,config:animConfig})});
+    }
+    if(!res.ok){ const errBody=await res.text(); throw new Error('저장 실패('+res.status+'): '+errBody); }
+    status.style.color='#0f9e75'; status.textContent='저장 완료! 게임에 바로 반영돼요.';
+  }catch(e){
+    console.error(e);
+    status.style.color='#e63946'; status.textContent='실패: '+(e.message||e);
+  }
+}
+
+function renderAnimTab(){
+  const body=document.getElementById('tabBody');
+  body.innerHTML=`
+    <div class="field-label">미리보기</div>
+    <div style="border:1px solid #eee;border-radius:12px;overflow:hidden;display:flex;justify-content:center;background:#eef2ff;">
+      <canvas id="previewCanvas" width="220" height="260"></canvas>
+    </div>
+    <div class="field-label">무기를 어느 손에 들까요?</div>
+    <div class="opt-row">
+      <div class="weaponAttachOpt ${animConfig.weaponAttach==='arm_left'?'sel':''}" data-a="arm_left">왼팔</div>
+      <div class="weaponAttachOpt ${animConfig.weaponAttach==='arm_right'?'sel':''}" data-a="arm_right">오른팔</div>
+    </div>
+    <div class="field-label" style="margin-top:16px;">동작 선택</div>
+    <div class="opt-row">
+      ${ANIM_STATES.map(s=>`<div class="animStateOpt ${animEditState===s.key?'sel':''}" data-s="${s.key}">${esc(s.label)}</div>`).join('')}
+    </div>
+    <div style="font-size:11px;color:#999;margin-top:8px;line-height:1.6;">
+      기본각도: 가만히 있을 때 기울기(도) · 흔들림폭: 좌우로 흔들리는 정도(도) · 속도: 흔들리는 빠르기 (걷기 상태에서만 실제로 흔들려요. 점프/맞았을 때는 보통 흔들림폭 0으로 두고 기본각도로 자세만 잡아요)
+    </div>
+    <div id="animPartsBody" style="margin-top:10px;"></div>
+    <div class="action-btn" id="saveAnimBtn" style="margin-top:14px;">동작 설정 저장</div>
+    <div class="status-txt" id="animStatus"></div>
+  `;
+  document.querySelectorAll('.weaponAttachOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ animConfig.weaponAttach=el.dataset.a; renderAnimTab(); });
+  });
+  document.querySelectorAll('.animStateOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ animEditState=el.dataset.s; renderAnimTab(); });
+  });
+  const partsBody=document.getElementById('animPartsBody');
+  partsBody.innerHTML=ANIM_PARTS.map(p=>{
+    const v=animConfig.states[animEditState][p.key];
+    return `
+      <div style="border:1px solid #eee;border-radius:10px;padding:8px 10px;margin-bottom:8px;">
+        <div style="font-weight:700;font-size:12px;margin-bottom:6px;">${esc(p.label)}</div>
+        <div class="edit-row"><label>기본각도</label><input type="number" class="animInput" data-part="${p.key}" data-field="baseAngle" value="${v.baseAngle}"></div>
+        <div class="edit-row"><label>흔들림폭</label><input type="number" class="animInput" data-part="${p.key}" data-field="amplitude" value="${v.amplitude}"></div>
+        <div class="edit-row"><label>속도</label><input type="number" class="animInput" data-part="${p.key}" data-field="speed" value="${v.speed}" step="0.5"></div>
+      </div>
+    `;
+  }).join('');
+  partsBody.querySelectorAll('.animInput').forEach(el=>{
+    el.addEventListener('change',()=>{
+      const part=el.dataset.part, field=el.dataset.field;
+      animConfig.states[animEditState][part][field]=parseFloat(el.value)||0;
+    });
+  });
+  document.getElementById('saveAnimBtn').addEventListener('click',saveAnimConfig);
+  startPreviewLoop();
+}
+
+// ---- 동작 미리보기 ----
+const PREVIEW_SKEL={legLen:16,bodyLen:18};
+const PREVIEW_PART_H={torso:36,head:22,arm_left:26,arm_right:26,leg_left:32,leg_right:32,weapon:24};
+function getCharPartImg(partKey){
+  const cat=categories.find(c=>c.system_key==='character');
+  if(!cat) return null;
+  const matches=assets.filter(a=>a.category_id===cat.id&&a.part_key===partKey);
+  if(!matches.length) return null;
+  const latest=matches.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0];
+  return {url:latest.url,anchorX:latest.anchor_x??0.5,anchorY:latest.anchor_y??0.1};
+}
+function previewPartAngle(partKey,phase){
+  const cfg=(animConfig.states[animEditState]||{})[partKey]||{baseAngle:0,amplitude:0,speed:1};
+  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
+}
+function drawPreviewLimb(ctx,partKey,jointX,jointY,angleRad,facing){
+  const info=getCharPartImg(partKey);
+  const fallbackH=PREVIEW_PART_H[partKey]||20;
+  if(!info) return {endX:jointX,endY:jointY+fallbackH};
+  const img=getImg(info.url);
+  if(!img.complete||!img.naturalWidth) return {endX:jointX,endY:jointY+fallbackH};
+  const h=PREVIEW_PART_H[partKey]||24;
+  const w=h*(img.naturalWidth/img.naturalHeight);
+  ctx.save();
+  ctx.translate(jointX,jointY);
+  ctx.scale(facing<0?-1:1,1);
+  ctx.rotate(angleRad);
+  ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
+  ctx.restore();
+  const d=h*(1-info.anchorY);
+  return {endX:jointX-facing*d*Math.sin(angleRad),endY:jointY+d*Math.cos(angleRad)};
+}
+function drawPreviewRig(ctx,cw,ch,phase){
+  ctx.clearRect(0,0,cw,ch);
+  ctx.fillStyle='#eef2ff'; ctx.fillRect(0,0,cw,ch);
+  const groundY=ch-30;
+  ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(cw,groundY); ctx.stroke();
+  const x=cw/2, facing=1;
+  const hipY=groundY-PREVIEW_SKEL.legLen, shoulderY=hipY-PREVIEW_SKEL.bodyLen;
+  drawPreviewLimb(ctx,'leg_left',x,hipY,previewPartAngle('leg_left',phase),facing);
+  drawPreviewLimb(ctx,'leg_right',x,hipY,previewPartAngle('leg_right',phase),facing);
+  drawPreviewLimb(ctx,'torso',x,shoulderY,previewPartAngle('torso',phase),facing);
+  drawPreviewLimb(ctx,'head',x,shoulderY,previewPartAngle('head',phase),facing);
+  const armLAngle=previewPartAngle('arm_left',phase), armRAngle=previewPartAngle('arm_right',phase);
+  const armLEnd=drawPreviewLimb(ctx,'arm_left',x,shoulderY,armLAngle,facing);
+  const armREnd=drawPreviewLimb(ctx,'arm_right',x,shoulderY,armRAngle,facing);
+  const useLeft=animConfig.weaponAttach==='arm_left';
+  const end=useLeft?armLEnd:armREnd;
+  const armAngle=useLeft?armLAngle:armRAngle;
+  drawPreviewLimb(ctx,'weapon',end.endX,end.endY,armAngle+previewPartAngle('weapon',phase),facing);
+  if(!getCharPartImg('torso')&&!getCharPartImg('arm_left')&&!getCharPartImg('leg_left')){
+    ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('캐릭터 부위 에셋을 등록하면',cw/2,ch/2-8);
+    ctx.fillText('여기서 미리 움직임을 볼 수 있어요',cw/2,ch/2+8);
+  }
+}
+let previewPhase=0, previewRafId=null;
+function startPreviewLoop(){
+  const canvas=document.getElementById('previewCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  if(previewRafId){ cancelAnimationFrame(previewRafId); previewRafId=null; }
+  function loop(){
+    if(currentTab!=='anim') return;
+    previewPhase+=0.06;
+    drawPreviewRig(ctx,canvas.width,canvas.height,previewPhase);
+    previewRafId=requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+init();
+</script>
+</body>
+</html>
+
+
