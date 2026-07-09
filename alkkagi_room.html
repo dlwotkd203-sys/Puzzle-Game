@@ -13,6 +13,7 @@ html,body{width:100%;height:100%;background:#2b3a2f;font-family:-apple-system,Bl
 .top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
 .turn-badge{color:#fff;font-size:11px;font-weight:700;background:rgba(255,255,255,0.15);padding:5px 11px;border-radius:10px;}
 .center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
+#mainArea{flex:1;display:flex;flex-direction:column;min-height:0;}
 #boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;min-height:0;}
 #boardCanvas{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,0.4);touch-action:none;max-width:100%;max-height:100%;}
 #bottomBar{flex-shrink:0;padding:14px 16px 20px;text-align:center;}
@@ -27,6 +28,17 @@ html,body{width:100%;height:100%;background:#2b3a2f;font-family:-apple-system,Bl
 .mode-opt-row{display:flex;gap:8px;justify-content:center;margin:10px 0;}
 .mode-opt-row div{padding:8px 16px;border-radius:12px;background:rgba(255,255,255,0.1);color:#fff;font-weight:700;font-size:12px;cursor:pointer;}
 .mode-opt-row div.sel{background:#2e8b57;}
+#playerInfoBar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;flex-shrink:0;gap:8px;}
+.pi-side{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+.pi-side.right{flex-direction:row-reverse;text-align:right;}
+.pi-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.pi-text{min-width:0;}
+.pi-name{color:#fff;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pi-record{color:#a8c4b2;font-size:10px;}
+.pi-timer{flex-shrink:0;font-weight:900;font-size:16px;color:#fff;background:rgba(255,255,255,0.12);border-radius:10px;padding:4px 10px;min-width:34px;text-align:center;}
+.pi-timer.active{background:#2e8b57;}
+.pi-timer.low{background:#c0392b;}
+.surrender-btn{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#e08080;background:rgba(224,128,128,0.12);padding:6px 14px;border-radius:10px;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -34,8 +46,8 @@ html,body{width:100%;height:100%;background:#2b3a2f;font-family:-apple-system,Bl
   <div class="top-bar">
     <button class="back-btn" id="leaveBtn">←</button>
     <span class="top-title" id="roomTitle">⚪ 알까기</span>
-    <span class="turn-badge" id="turnBadge" style="display:none;"></span>
   </div>
+  <div id="playerInfoBar" style="display:none;"></div>
   <div id="mainArea"><div class="center-msg">불러오는 중...</div></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -56,7 +68,10 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 
 // ---- 물리 상수 ----
 const BOARD_W=320, BOARD_H=480;
-const HINGE={x:BOARD_W/2,y:BOARD_H/2,r:26};
+const HINGES=[
+  {x:26,y:BOARD_H/2,r:16},
+  {x:BOARD_W-26,y:BOARD_H/2,r:16}
+];
 const MAX_PULL=85;
 const SPEED_SCALE=7.2;
 const FRICTION=0.982;
@@ -93,7 +108,7 @@ function buildPieces(mode,omokCount){
       const row=Math.floor(i/perRow), col=i%perRow;
       const x=perRow>1?marginX+col*spacingX:BOARD_W/2;
       const y=seat===0?(34+row*40):(BOARD_H-34-row*40);
-      pieces.push({id:id++, seat, type:p.type, r:p.r, mass:p.mass, x, y, vx:0, vy:0, alive:true});
+      pieces.push({id:id++, seat, type:p.type, r:p.r, mass:p.mass, x, y, vx:0, vy:0, alive:true, trail:[]});
     });
   }
   layoutSeat(0); layoutSeat(1);
@@ -104,6 +119,14 @@ function buildPieces(mode,omokCount){
 function stepPhysics(pieces){
   pieces.forEach(p=>{
     if(!p.alive) return;
+    const speed=Math.hypot(p.vx,p.vy);
+    if(speed>1.5){
+      if(!p.trail) p.trail=[];
+      p.trail.push({x:p.x,y:p.y});
+      if(p.trail.length>6) p.trail.shift();
+    } else if(p.trail&&p.trail.length){
+      p.trail.shift();
+    }
     p.x+=p.vx; p.y+=p.vy;
     p.vx*=FRICTION; p.vy*=FRICTION;
     if(Math.hypot(p.vx,p.vy)<STOP_THRESHOLD*0.02){ p.vx=0; p.vy=0; }
@@ -134,18 +157,20 @@ function stepPhysics(pieces){
   }
   pieces.forEach(p=>{
     if(!p.alive) return;
-    const dx=p.x-HINGE.x, dy=p.y-HINGE.y;
-    const dist=Math.hypot(dx,dy);
-    const minDist=p.r+HINGE.r;
-    if(dist<minDist&&dist>0.0001){
-      const nx=dx/dist, ny=dy/dist;
-      p.x=HINGE.x+nx*minDist; p.y=HINGE.y+ny*minDist;
-      const velAlongNormal=p.vx*nx+p.vy*ny;
-      if(velAlongNormal<0){
-        p.vx-=(1+RESTITUTION)*velAlongNormal*nx;
-        p.vy-=(1+RESTITUTION)*velAlongNormal*ny;
+    HINGES.forEach(H=>{
+      const dx=p.x-H.x, dy=p.y-H.y;
+      const dist=Math.hypot(dx,dy);
+      const minDist=p.r+H.r;
+      if(dist<minDist&&dist>0.0001){
+        const nx=dx/dist, ny=dy/dist;
+        p.x=H.x+nx*minDist; p.y=H.y+ny*minDist;
+        const velAlongNormal=p.vx*nx+p.vy*ny;
+        if(velAlongNormal<0){
+          p.vx-=(1+RESTITUTION)*velAlongNormal*nx;
+          p.vy-=(1+RESTITUTION)*velAlongNormal*ny;
+        }
       }
-    }
+    });
   });
   pieces.forEach(p=>{
     if(!p.alive) return;
@@ -199,18 +224,18 @@ async function fetchRoom(){
 
 function render(){
   const area=document.getElementById('mainArea');
-  const turnBadge=document.getElementById('turnBadge');
+  const infoBar=document.getElementById('playerInfoBar');
   document.getElementById('roomTitle').textContent='⚪ '+esc(room.host_username)+'님의 방';
   if(room.status==='waiting'){
-    turnBadge.style.display='none';
+    infoBar.style.display='none';
     renderLobby(area);
   } else if(room.status==='playing'){
     const st=room.state;
     if(st.stage==='result'){
-      turnBadge.style.display='none';
+      infoBar.style.display='none';
       renderResult(area,st);
     } else {
-      turnBadge.style.display='inline-block';
+      infoBar.style.display='flex';
       renderGame(area,st);
     }
   }
@@ -300,7 +325,7 @@ async function maybeStartGame(){
   const initPieces=buildPieces(room.mode,room.omok_count);
   await patchRoom({
     status:'playing',
-    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null }
+    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null, turnStartedAt:Date.now() }
   });
 }
 
@@ -322,18 +347,78 @@ async function joinChannel(){
 
 // ---- 게임 화면(캔버스 보드) ----
 let boardCanvasSetup=false;
+let playerRecords={}; // user_id -> {wins,losses}
+let recordsLoadedFor=null;
+async function loadPlayerRecords(){
+  const players=room.players||[];
+  const key=players.map(p=>p.user_id).join(',');
+  if(recordsLoadedFor===key) return;
+  recordsLoadedFor=key;
+  try{
+    const results=await Promise.all(players.map(p=>
+      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${p.user_id}&select=wins,losses`,{headers:headers()}).then(r=>r.json())
+    ));
+    players.forEach((p,i)=>{ playerRecords[p.user_id]=(results[i]&&results[i][0])||{wins:0,losses:0}; });
+    renderPlayerInfoBar(room.state);
+  }catch(e){}
+}
+
+function renderPlayerInfoBar(st){
+  const players=room.players||[];
+  const p0=players[0], p1=players[1];
+  const rec=p=>{ const r=p&&playerRecords[p.user_id]; return r?(r.wins||0)+'승 '+(r.losses||0)+'패':'전적 없음'; };
+  const bar=document.getElementById('playerInfoBar');
+  bar.innerHTML=`
+    <div class="pi-side">
+      <span class="pi-dot" style="background:#d64545;"></span>
+      <span class="pi-text"><div class="pi-name">${p0?esc(p0.username):'—'}${p0&&currentUser&&String(p0.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record">${rec(p0)}</div></span>
+    </div>
+    <span class="pi-timer" id="timerP0">--</span>
+    <span style="color:#8fa899;font-size:11px;">VS</span>
+    <span class="pi-timer" id="timerP1">--</span>
+    <div class="pi-side right">
+      <span class="pi-dot" style="background:#2f4fa8;"></span>
+      <span class="pi-text"><div class="pi-name">${p1?esc(p1.username):'—'}${p1&&currentUser&&String(p1.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record">${rec(p1)}</div></span>
+    </div>
+  `;
+  updateTimerDisplay();
+}
+
+function updateTimerDisplay(){
+  if(!room||!room.state) return;
+  const st=room.state;
+  const t0=document.getElementById('timerP0'), t1=document.getElementById('timerP1');
+  if(!t0||!t1) return;
+  const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+  const remain=Math.max(0,Math.ceil(20-elapsed));
+  [ [0,t0], [1,t1] ].forEach(([seat,el])=>{
+    if(st.turn===seat&&!simulating){
+      el.textContent=remain;
+      el.className='pi-timer active'+(remain<=5?' low':'');
+    } else {
+      el.textContent=seat===st.turn?'⏸':'-';
+      el.className='pi-timer';
+    }
+  });
+}
+
 function renderGame(area,st){
   if(!document.getElementById('boardCanvas')){
     area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas></div><div id="bottomBar"></div>`;
     boardCanvasSetup=false;
   }
-  document.getElementById('turnBadge').textContent = st.turn===mySeat ? '내 차례예요' : ((room.players[st.turn]||{}).username?esc(room.players[st.turn].username)+'님 차례':'상대 차례');
-  document.getElementById('bottomBar').innerHTML = st.turn===mySeat && !simulating
+  loadPlayerRecords();
+  renderPlayerInfoBar(st);
+  document.getElementById('bottomBar').innerHTML = (st.turn===mySeat && !simulating
     ? '<div style="color:#cfe9d8;font-size:12px;">내 알을 뒤로 당겼다 놓으면 발사돼요</div>'
-    : '<div style="color:#8fa899;font-size:12px;">'+(simulating?'굴러가는 중...':'상대가 준비하고 있어요')+'</div>';
+    : '<div style="color:#8fa899;font-size:12px;">'+(simulating?'굴러가는 중...':'상대가 준비하고 있어요')+'</div>')
+    + '<div class="surrender-btn" id="surrenderBtn">🏳️ 항복하기</div>';
+  const sb=document.getElementById('surrenderBtn');
+  if(sb) sb.addEventListener('click',surrender);
+  startTurnTicker();
 
   if(!simulating){
-    pieces=st.pieces.map(p=>({...p}));
+    pieces=st.pieces.map(p=>({...p, trail:[]}));
   }
   if(!boardCanvasSetup){
     setupBoardCanvas();
@@ -342,18 +427,54 @@ function renderGame(area,st){
   drawBoard();
 }
 
+let turnTickTimer=null, timeoutTriggeredKey=null;
+function startTurnTicker(){
+  if(turnTickTimer) return;
+  turnTickTimer=setInterval(()=>{
+    if(!room||room.status!=='playing'||!room.state||room.state.stage!=='playing') return;
+    updateTimerDisplay();
+    const st=room.state;
+    const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+    if(elapsed>=20){
+      const key=room.id+':'+room.move_count+':timeout';
+      if(timeoutTriggeredKey!==key&&st.turn===mySeat&&!simulating){
+        timeoutTriggeredKey=key;
+        autoPassTurn();
+      }
+    }
+  },250);
+}
+async function autoPassTurn(){
+  const st=room.state;
+  await patchRoom({state:{...st, turn:st.turn===0?1:0, turnStartedAt:Date.now()}});
+}
+async function surrender(){
+  if(!confirm('정말 항복하시겠어요?')) return;
+  const loserSeat=mySeat, winnerSeat=mySeat===0?1:0;
+  await patchRoom({state:{...room.state, stage:'result', winner:winnerSeat, postHandAt:Date.now()}});
+  await settleMatch(winnerSeat);
+}
+
+function resizeCanvas(){
+  const canvas=document.getElementById('boardCanvas');
+  if(!canvas) return;
+  const topBarH=(document.querySelector('.top-bar')||{offsetHeight:0}).offsetHeight;
+  const infoBarH=(document.getElementById('playerInfoBar')||{offsetHeight:0}).offsetHeight;
+  const bottomBarH=(document.getElementById('bottomBar')||{offsetHeight:0}).offsetHeight;
+  const appW=Math.min(document.getElementById('app').clientWidth,430);
+  const availW=appW-16;
+  const availH=window.innerHeight-topBarH-infoBarH-bottomBarH-16;
+  const scale=Math.max(0.1,Math.min(availW/BOARD_W,availH/BOARD_H));
+  canvas.style.width=Math.floor(BOARD_W*scale)+'px';
+  canvas.style.height=Math.floor(BOARD_H*scale)+'px';
+  canvas.width=BOARD_W; canvas.height=BOARD_H;
+  drawBoard();
+}
+
 function setupBoardCanvas(){
   const canvas=document.getElementById('boardCanvas');
-  function resize(){
-    const wrap=document.getElementById('boardWrap');
-    const scale=Math.min((wrap.clientWidth-4)/BOARD_W,(wrap.clientHeight-4)/BOARD_H);
-    canvas.style.width=(BOARD_W*scale)+'px';
-    canvas.style.height=(BOARD_H*scale)+'px';
-    canvas.width=BOARD_W; canvas.height=BOARD_H;
-    drawBoard();
-  }
-  window.addEventListener('resize',resize);
-  resize();
+  window.addEventListener('resize',resizeCanvas);
+  requestAnimationFrame(resizeCanvas);
 
   canvas.addEventListener('pointerdown',e=>{
     if(!room||!room.state||room.state.turn!==mySeat||simulating) return;
@@ -362,19 +483,20 @@ function setupBoardCanvas(){
     const bx=(e.clientX-rect.left)*scaleX, by=(e.clientY-rect.top)*scaleY;
     const hit=pieces.find(p=>p.alive&&p.seat===mySeat&&Math.hypot(p.x-bx,p.y-by)<=p.r+6);
     if(!hit) return;
-    dragState={pieceId:hit.id, curBX:bx, curBY:by};
+    canvas.setPointerCapture(e.pointerId); // 화면 밖으로 나가도 드래그가 계속되게
+    dragState={pieceId:hit.id, curBX:bx, curBY:by, pointerId:e.pointerId};
     drawBoard();
   });
   canvas.addEventListener('pointermove',e=>{
-    if(!dragState) return;
+    if(!dragState||e.pointerId!==dragState.pointerId) return;
     const rect=canvas.getBoundingClientRect();
     const scaleX=BOARD_W/rect.width, scaleY=BOARD_H/rect.height;
     dragState.curBX=(e.clientX-rect.left)*scaleX;
     dragState.curBY=(e.clientY-rect.top)*scaleY;
     drawBoard();
   });
-  window.addEventListener('pointerup',()=>{
-    if(!dragState) return;
+  function onRelease(e){
+    if(!dragState||(e.pointerId!==undefined&&e.pointerId!==dragState.pointerId)) return;
     const piece=pieces.find(p=>p.id===dragState.pieceId);
     if(piece){
       let dx=dragState.curBX-piece.x, dy=dragState.curBY-piece.y;
@@ -387,7 +509,20 @@ function setupBoardCanvas(){
       }
     }
     dragState=null;
-  });
+    drawBoard();
+  }
+  canvas.addEventListener('pointerup',onRelease);
+  canvas.addEventListener('pointercancel',onRelease);
+}
+
+function drawOctagonPath(ctx,cx,cy,r){
+  ctx.beginPath();
+  for(let i=0;i<8;i++){
+    const angle=Math.PI/8+i*Math.PI/4;
+    const x=cx+r*Math.cos(angle), y=cy+r*Math.sin(angle);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
 }
 
 function drawBoard(){
@@ -401,14 +536,16 @@ function drawBoard(){
   ctx.fillStyle=g; ctx.fillRect(0,0,BOARD_W,BOARD_H);
   ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=6;
   ctx.strokeRect(3,3,BOARD_W-6,BOARD_H-6);
-  // 경첩 접히는 선(중앙 가로줄) + 튀어나온 경첩 돌기
+  // 경첩 접히는 선(중앙 가로줄) + 양옆 튀어나온 경첩 돌기
   ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(0,BOARD_H/2); ctx.lineTo(BOARD_W,BOARD_H/2); ctx.stroke();
-  const hg=ctx.createRadialGradient(HINGE.x-6,HINGE.y-6,2,HINGE.x,HINGE.y,HINGE.r);
-  hg.addColorStop(0,'#e8c98a'); hg.addColorStop(1,'#a9803f');
-  ctx.beginPath(); ctx.arc(HINGE.x,HINGE.y,HINGE.r,0,Math.PI*2);
-  ctx.fillStyle=hg; ctx.fill();
-  ctx.strokeStyle='rgba(0,0,0,0.3)'; ctx.lineWidth=2; ctx.stroke();
+  HINGES.forEach(H=>{
+    const hg=ctx.createRadialGradient(H.x-4,H.y-4,1,H.x,H.y,H.r);
+    hg.addColorStop(0,'#e8c98a'); hg.addColorStop(1,'#8f6a30');
+    ctx.beginPath(); ctx.arc(H.x,H.y,H.r,0,Math.PI*2);
+    ctx.fillStyle=hg; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=2; ctx.stroke();
+  });
 
   // 조준선
   if(dragState){
@@ -428,11 +565,23 @@ function drawBoard(){
     }
   }
 
-  // 알들
+  // 움직이는 알의 잔상(꼬리) 효과 - 빨리 지나갈 때 잘 보이도록
+  pieces.forEach(p=>{
+    if(!p.alive||!p.trail||!p.trail.length) return;
+    p.trail.forEach((t,i)=>{
+      const alpha=(i+1)/(p.trail.length+1)*0.35;
+      ctx.beginPath(); ctx.arc(t.x,t.y,p.r*0.85,0,Math.PI*2);
+      ctx.fillStyle = (p.seat===0?'rgba(214,69,69,':'rgba(47,79,168,')+alpha+')';
+      ctx.fill();
+    });
+  });
+
+  // 알들 (8각형 - 실제 장기알 모양)
   pieces.forEach(p=>{
     if(!p.alive) return;
     const isJanggi=p.type!=='●';
-    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    if(isJanggi) drawOctagonPath(ctx,p.x,p.y,p.r);
+    else { ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); }
     ctx.fillStyle = p.seat===0 ? '#d64545' : '#2f4fa8';
     ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=2; ctx.stroke();
@@ -476,13 +625,14 @@ async function finishTurnAfterShot(){
   const st=room.state;
   const aliveP0=pieces.filter(p=>p.seat===0&&p.alive).length;
   const aliveP1=pieces.filter(p=>p.seat===1&&p.alive).length;
+  const cleanPieces=pieces.map(({trail,...rest})=>rest);
   let newState;
   if(aliveP0===0||aliveP1===0){
     const winner=aliveP0===0?1:0;
-    newState={...st,pieces,stage:'result',winner,postHandAt:Date.now()};
+    newState={...st,pieces:cleanPieces,stage:'result',winner,postHandAt:Date.now()};
     await settleMatch(winner);
   } else {
-    newState={...st,pieces,turn:st.turn===0?1:0};
+    newState={...st,pieces:cleanPieces,turn:st.turn===0?1:0,turnStartedAt:Date.now()};
   }
   await patchRoom({state:newState});
 }
@@ -522,6 +672,9 @@ async function returnToLobby(){
   const players=(room.players||[]).map(p=>({...p,ready:false}));
   startTriggeredKey=null;
   boardCanvasSetup=false;
+  recordsLoadedFor=null;
+  timeoutTriggeredKey=null;
+  if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
   await patchRoom({status:'waiting',players});
 }
 
