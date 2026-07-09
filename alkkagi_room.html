@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>알까기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;background:#2b3a2f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;background:#2b3a2f;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;flex-shrink:0;}
+.back-btn{background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:18px;padding:5px 11px;border-radius:10px;cursor:pointer;}
+.top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
+.turn-badge{color:#fff;font-size:11px;font-weight:700;background:rgba(255,255,255,0.15);padding:5px 11px;border-radius:10px;}
+.center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
+#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;min-height:0;}
+#boardCanvas{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,0.4);touch-action:none;max-width:100%;max-height:100%;}
+#bottomBar{flex-shrink:0;padding:14px 16px 20px;text-align:center;}
+.lobby-wrap{padding:20px;color:#fff;}
+.player-row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+.player-name{font-weight:700;font-size:14px;}
+.ready-chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;background:rgba(255,255,255,0.15);}
+.ready-chip.on{background:#2e8b57;}
+.mode-summary{font-size:12px;color:#cfe9d8;text-align:center;margin:6px 0 18px;}
+.big-btn{width:100%;text-align:center;font-weight:800;font-size:15px;padding:14px;border-radius:16px;cursor:pointer;margin-top:10px;}
+.result-wrap{padding:30px 20px;text-align:center;color:#fff;}
+.mode-opt-row{display:flex;gap:8px;justify-content:center;margin:10px 0;}
+.mode-opt-row div{padding:8px 16px;border-radius:12px;background:rgba(255,255,255,0.1);color:#fff;font-weight:700;font-size:12px;cursor:pointer;}
+.mode-opt-row div.sel{background:#2e8b57;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">⚪ 알까기</span>
+    <span class="turn-badge" id="turnBadge" style="display:none;"></span>
+  </div>
+  <div id="mainArea"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const STARTING_POINTS=10000;
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const params=new URLSearchParams(location.search);
+const roomId=params.get('id');
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+// ---- 물리 상수 ----
+const BOARD_W=320, BOARD_H=480;
+const HINGE={x:BOARD_W/2,y:BOARD_H/2,r:26};
+const MAX_PULL=85;
+const SPEED_SCALE=7.2;
+const FRICTION=0.982;
+const RESTITUTION=0.78;
+const STOP_THRESHOLD=3;
+const SIM_MAX_STEPS=600;
+
+const JANGGI_SET=[
+  {type:'궁',count:1,r:18,mass:2.3,color:'#8a1a1a'},
+  {type:'차',count:2,r:16,mass:1.9,color:'#1a3a8a'},
+  {type:'포',count:2,r:16,mass:1.8,color:'#1a3a8a'},
+  {type:'마',count:2,r:15,mass:1.5,color:'#1a3a8a'},
+  {type:'상',count:2,r:15,mass:1.6,color:'#1a3a8a'},
+  {type:'사',count:2,r:14,mass:1.3,color:'#1a3a8a'},
+  {type:'졸',count:5,r:13,mass:1.0,color:'#1a3a8a'}
+];
+
+function buildPieces(mode,omokCount){
+  const pieces=[];
+  let id=0;
+  function layoutSeat(seat){
+    const list=[];
+    if(mode==='janggi'){
+      JANGGI_SET.forEach(spec=>{ for(let i=0;i<spec.count;i++) list.push({type:spec.type,r:spec.r,mass:spec.mass}); });
+    } else {
+      const n=omokCount||6;
+      for(let i=0;i<n;i++) list.push({type:'●',r:14,mass:1.0});
+    }
+    const perRow=Math.min(8,list.length);
+    const rows=Math.ceil(list.length/perRow);
+    const marginX=30;
+    const spacingX=perRow>1?(BOARD_W-marginX*2)/(perRow-1):0;
+    list.forEach((p,i)=>{
+      const row=Math.floor(i/perRow), col=i%perRow;
+      const x=perRow>1?marginX+col*spacingX:BOARD_W/2;
+      const y=seat===0?(34+row*40):(BOARD_H-34-row*40);
+      pieces.push({id:id++, seat, type:p.type, r:p.r, mass:p.mass, x, y, vx:0, vy:0, alive:true});
+    });
+  }
+  layoutSeat(0); layoutSeat(1);
+  return pieces;
+}
+
+// ---- 결정론적 물리 스텝 (양쪽 클라이언트가 똑같이 계산) ----
+function stepPhysics(pieces){
+  pieces.forEach(p=>{
+    if(!p.alive) return;
+    p.x+=p.vx; p.y+=p.vy;
+    p.vx*=FRICTION; p.vy*=FRICTION;
+    if(Math.hypot(p.vx,p.vy)<STOP_THRESHOLD*0.02){ p.vx=0; p.vy=0; }
+  });
+  for(let i=0;i<pieces.length;i++){
+    for(let j=i+1;j<pieces.length;j++){
+      const a=pieces[i], b=pieces[j];
+      if(!a.alive||!b.alive) continue;
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const dist=Math.hypot(dx,dy);
+      const minDist=a.r+b.r;
+      if(dist<minDist&&dist>0.0001){
+        const overlap=minDist-dist;
+        const nx=dx/dist, ny=dy/dist;
+        const totalMass=a.mass+b.mass;
+        a.x-=nx*overlap*(b.mass/totalMass); a.y-=ny*overlap*(b.mass/totalMass);
+        b.x+=nx*overlap*(a.mass/totalMass); b.y+=ny*overlap*(a.mass/totalMass);
+        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+        const velAlongNormal=rvx*nx+rvy*ny;
+        if(velAlongNormal<0){
+          const jImp=-(1+RESTITUTION)*velAlongNormal/(1/a.mass+1/b.mass);
+          const ix=jImp*nx, iy=jImp*ny;
+          a.vx-=ix/a.mass; a.vy-=iy/a.mass;
+          b.vx+=ix/b.mass; b.vy+=iy/b.mass;
+        }
+      }
+    }
+  }
+  pieces.forEach(p=>{
+    if(!p.alive) return;
+    const dx=p.x-HINGE.x, dy=p.y-HINGE.y;
+    const dist=Math.hypot(dx,dy);
+    const minDist=p.r+HINGE.r;
+    if(dist<minDist&&dist>0.0001){
+      const nx=dx/dist, ny=dy/dist;
+      p.x=HINGE.x+nx*minDist; p.y=HINGE.y+ny*minDist;
+      const velAlongNormal=p.vx*nx+p.vy*ny;
+      if(velAlongNormal<0){
+        p.vx-=(1+RESTITUTION)*velAlongNormal*nx;
+        p.vy-=(1+RESTITUTION)*velAlongNormal*ny;
+      }
+    }
+  });
+  pieces.forEach(p=>{
+    if(!p.alive) return;
+    if(p.x<-p.r||p.x>BOARD_W+p.r||p.y<-p.r||p.y>BOARD_H+p.r) p.alive=false;
+  });
+}
+function allSettled(pieces){
+  return pieces.every(p=>!p.alive||(Math.abs(p.vx)<0.001&&Math.abs(p.vy)<0.001));
+}
+
+// ---- 방/유저 상태 ----
+let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0;
+let pieces=[]; // 로컬 렌더/시뮬레이션용 (room.state.pieces에서 동기화)
+let simulating=false;
+let dragState=null; // {pieceId, startClientX, startClientY}
+let channel=null, channelReady=false;
+
+function safeSend(payload){
+  if(!channelReady||!channel) return;
+  try{ const res=channel.send(payload); if(res&&res.catch) res.catch(()=>{}); }catch(e){}
+}
+
+async function ensurePoints(){
+  if(!currentUser) return null;
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${currentUser.id}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(!data.length){
+    const created={user_id:currentUser.id,username:currentUser.username,points:STARTING_POINTS};
+    await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points`,{method:'POST',headers:jheaders(),body:JSON.stringify(created)});
+    return created;
+  }
+  return data[0];
+}
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('mainArea').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    if(!simulating) render();
+    const now=Date.now();
+    if(mySeat>=0&&now-lastHeartbeatAt>20000){
+      lastHeartbeatAt=now;
+      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
+  }catch(e){}
+}
+
+function render(){
+  const area=document.getElementById('mainArea');
+  const turnBadge=document.getElementById('turnBadge');
+  document.getElementById('roomTitle').textContent='⚪ '+esc(room.host_username)+'님의 방';
+  if(room.status==='waiting'){
+    turnBadge.style.display='none';
+    renderLobby(area);
+  } else if(room.status==='playing'){
+    const st=room.state;
+    if(st.stage==='result'){
+      turnBadge.style.display='none';
+      renderResult(area,st);
+    } else {
+      turnBadge.style.display='inline-block';
+      renderGame(area,st);
+    }
+  }
+}
+
+// ---- 로비(대기실) ----
+function renderLobby(area){
+  const players=room.players||[];
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const isIn=mySeat>=0;
+  const myReady=isIn&&players[mySeat].ready;
+  let html='<div class="lobby-wrap">';
+  html+='<div style="text-align:center;font-size:40px;margin-bottom:6px;">⚪⚫</div>';
+  html+='<div class="mode-summary">'+(room.mode==='omok'?('오목알 '+(room.omok_count||6)+'개'):'장기알 16개')+' · 1:1 대전</div>';
+  if(isHost){
+    html+='<div style="text-align:center;">';
+    html+='<div class="mode-opt-row">';
+    html+=`<div class="hostModeOpt ${room.mode==='janggi'?'sel':''}" data-m="janggi">장기알</div>`;
+    html+=`<div class="hostModeOpt ${room.mode==='omok'?'sel':''}" data-m="omok">오목알</div>`;
+    html+='</div>';
+    if(room.mode==='omok'){
+      html+='<div class="mode-opt-row">';
+      [4,6,8,10,12].forEach(c=>{ html+=`<div class="hostCountOpt ${room.omok_count===c?'sel':''}" data-c="${c}">${c}알</div>`; });
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+  html+='<div style="margin-top:14px;">';
+  players.forEach((p,i)=>{
+    html+=`<div class="player-row"><span class="player-name">${i===0?'🔴':'🔵'} ${esc(p.username)}${currentUser&&String(p.user_id)===String(currentUser.id)?' (나)':''}</span><span class="ready-chip ${p.ready?'on':''}">${p.ready?'준비완료':'대기중'}</span></div>`;
+  });
+  for(let i=players.length;i<2;i++){
+    html+='<div class="player-row" style="opacity:0.4;"><span class="player-name">— 빈 자리 —</span></div>';
+  }
+  html+='</div>';
+  if(isIn){
+    html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#555':'#2e8b57'};color:#fff;">${myReady?'준비 취소':'준비완료'}</div>`;
+  }
+  html+='</div>';
+  area.innerHTML=html;
+
+  if(isHost){
+    area.querySelectorAll('.hostModeOpt').forEach(el=>{
+      el.addEventListener('click',async()=>{
+        await patchRoom({mode:el.dataset.m});
+      });
+    });
+    area.querySelectorAll('.hostCountOpt').forEach(el=>{
+      el.addEventListener('click',async()=>{
+        await patchRoom({omok_count:parseInt(el.dataset.c)});
+      });
+    });
+  }
+  if(isIn){
+    document.getElementById('readyBtn').addEventListener('click',async()=>{
+      const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+      await patchRoom({players:np});
+      maybeStartGame();
+    });
+  }
+}
+
+async function patchRoom(patch){
+  let attempts=0;
+  while(attempts<6){
+    attempts++;
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({...patch,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; return true; }
+    await fetchRoom();
+  }
+  return false;
+}
+
+let startTriggeredKey=null;
+async function maybeStartGame(){
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const players=room.players||[];
+  if(players.length<2||!players.every(p=>p.ready)) return;
+  const key=room.id+':'+room.move_count;
+  if(startTriggeredKey===key) return;
+  startTriggeredKey=key;
+  const initPieces=buildPieces(room.mode,room.omok_count);
+  await patchRoom({
+    status:'playing',
+    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null }
+  });
+}
+
+// ---- 실시간 채널 (쏘는 순간의 힘만 주고받고, 이후 물리는 양쪽이 각자 똑같이 계산) ----
+async function joinChannel(){
+  channel=sb.channel('alkkagi-room-'+roomId, { config:{ broadcast:{ self:false } } });
+  channel.on('broadcast', {event:'shot'}, ({payload})=>{
+    if(simulating) return; // 이미 시뮬레이션 중이면 무시(내가 쏜 경우 등)
+    if(payload.seat===mySeat) return; // 내가 쏜건 이미 로컬에서 처리중
+    const piece=pieces.find(p=>p.id===payload.pieceId);
+    if(!piece) return;
+    piece.vx=payload.vx; piece.vy=payload.vy;
+    runSimulation(()=>{ /* 관전자는 저장 안 함, 다음 poll이 정답으로 맞춰줌 */ });
+  });
+  await new Promise(resolve=>{
+    channel.subscribe(status=>{ if(status==='SUBSCRIBED'){ channelReady=true; resolve(); } });
+  });
+}
+
+// ---- 게임 화면(캔버스 보드) ----
+let boardCanvasSetup=false;
+function renderGame(area,st){
+  if(!document.getElementById('boardCanvas')){
+    area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas></div><div id="bottomBar"></div>`;
+    boardCanvasSetup=false;
+  }
+  document.getElementById('turnBadge').textContent = st.turn===mySeat ? '내 차례예요' : ((room.players[st.turn]||{}).username?esc(room.players[st.turn].username)+'님 차례':'상대 차례');
+  document.getElementById('bottomBar').innerHTML = st.turn===mySeat && !simulating
+    ? '<div style="color:#cfe9d8;font-size:12px;">내 알을 뒤로 당겼다 놓으면 발사돼요</div>'
+    : '<div style="color:#8fa899;font-size:12px;">'+(simulating?'굴러가는 중...':'상대가 준비하고 있어요')+'</div>';
+
+  if(!simulating){
+    pieces=st.pieces.map(p=>({...p}));
+  }
+  if(!boardCanvasSetup){
+    setupBoardCanvas();
+    boardCanvasSetup=true;
+  }
+  drawBoard();
+}
+
+function setupBoardCanvas(){
+  const canvas=document.getElementById('boardCanvas');
+  function resize(){
+    const wrap=document.getElementById('boardWrap');
+    const scale=Math.min((wrap.clientWidth-4)/BOARD_W,(wrap.clientHeight-4)/BOARD_H);
+    canvas.style.width=(BOARD_W*scale)+'px';
+    canvas.style.height=(BOARD_H*scale)+'px';
+    canvas.width=BOARD_W; canvas.height=BOARD_H;
+    drawBoard();
+  }
+  window.addEventListener('resize',resize);
+  resize();
+
+  canvas.addEventListener('pointerdown',e=>{
+    if(!room||!room.state||room.state.turn!==mySeat||simulating) return;
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=BOARD_W/rect.width, scaleY=BOARD_H/rect.height;
+    const bx=(e.clientX-rect.left)*scaleX, by=(e.clientY-rect.top)*scaleY;
+    const hit=pieces.find(p=>p.alive&&p.seat===mySeat&&Math.hypot(p.x-bx,p.y-by)<=p.r+6);
+    if(!hit) return;
+    dragState={pieceId:hit.id, curBX:bx, curBY:by};
+    drawBoard();
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!dragState) return;
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=BOARD_W/rect.width, scaleY=BOARD_H/rect.height;
+    dragState.curBX=(e.clientX-rect.left)*scaleX;
+    dragState.curBY=(e.clientY-rect.top)*scaleY;
+    drawBoard();
+  });
+  window.addEventListener('pointerup',()=>{
+    if(!dragState) return;
+    const piece=pieces.find(p=>p.id===dragState.pieceId);
+    if(piece){
+      let dx=dragState.curBX-piece.x, dy=dragState.curBY-piece.y;
+      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
+      if(dist>6){
+        const angle=Math.atan2(dy,dx);
+        const power=(dist/MAX_PULL)*SPEED_SCALE/piece.mass;
+        const vx=-Math.cos(angle)*power*10, vy=-Math.sin(angle)*power*10;
+        fireShot(piece.id,vx,vy);
+      }
+    }
+    dragState=null;
+  });
+}
+
+function drawBoard(){
+  const canvas=document.getElementById('boardCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,BOARD_W,BOARD_H);
+  // 보드 배경
+  const g=ctx.createLinearGradient(0,0,0,BOARD_H);
+  g.addColorStop(0,'#d9b06a'); g.addColorStop(1,'#c89a54');
+  ctx.fillStyle=g; ctx.fillRect(0,0,BOARD_W,BOARD_H);
+  ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=6;
+  ctx.strokeRect(3,3,BOARD_W-6,BOARD_H-6);
+  // 경첩 접히는 선(중앙 가로줄) + 튀어나온 경첩 돌기
+  ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,BOARD_H/2); ctx.lineTo(BOARD_W,BOARD_H/2); ctx.stroke();
+  const hg=ctx.createRadialGradient(HINGE.x-6,HINGE.y-6,2,HINGE.x,HINGE.y,HINGE.r);
+  hg.addColorStop(0,'#e8c98a'); hg.addColorStop(1,'#a9803f');
+  ctx.beginPath(); ctx.arc(HINGE.x,HINGE.y,HINGE.r,0,Math.PI*2);
+  ctx.fillStyle=hg; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.3)'; ctx.lineWidth=2; ctx.stroke();
+
+  // 조준선
+  if(dragState){
+    const piece=pieces.find(p=>p.id===dragState.pieceId);
+    if(piece){
+      let dx=dragState.curBX-piece.x, dy=dragState.curBY-piece.y;
+      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
+      const angle=Math.atan2(dy,dx);
+      const pullX=piece.x+Math.cos(angle)*dist, pullY=piece.y+Math.sin(angle)*dist;
+      ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=3; ctx.setLineDash([6,5]);
+      ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(pullX,pullY); ctx.stroke();
+      ctx.setLineDash([]);
+      // 발사 방향(반대쪽) 미리보기
+      const aimX=piece.x-Math.cos(angle)*dist*1.4, aimY=piece.y-Math.sin(angle)*dist*1.4;
+      ctx.strokeStyle='rgba(255,80,80,0.6)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(aimX,aimY); ctx.stroke();
+    }
+  }
+
+  // 알들
+  pieces.forEach(p=>{
+    if(!p.alive) return;
+    const isJanggi=p.type!=='●';
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle = p.seat===0 ? '#d64545' : '#2f4fa8';
+    ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=2; ctx.stroke();
+    if(isJanggi){
+      ctx.fillStyle='#fff'; ctx.font='bold '+(p.r*0.9)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(p.type,p.x,p.y+1);
+    }
+    if(mySeat===p.seat&&room&&room.state&&room.state.turn===mySeat&&!simulating){
+      ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r+3,0,Math.PI*2); ctx.stroke();
+    }
+  });
+}
+
+function fireShot(pieceId,vx,vy){
+  const piece=pieces.find(p=>p.id===pieceId);
+  if(!piece) return;
+  piece.vx=vx; piece.vy=vy;
+  safeSend({type:'broadcast',event:'shot',payload:{pieceId,vx,vy,seat:mySeat}});
+  runSimulation(()=>{ finishTurnAfterShot(); });
+}
+
+function runSimulation(onDone){
+  simulating=true;
+  let steps=0;
+  function frame(){
+    stepPhysics(pieces);
+    steps++;
+    drawBoard();
+    if(allSettled(pieces)||steps>=SIM_MAX_STEPS){
+      simulating=false;
+      onDone();
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+async function finishTurnAfterShot(){
+  const st=room.state;
+  const aliveP0=pieces.filter(p=>p.seat===0&&p.alive).length;
+  const aliveP1=pieces.filter(p=>p.seat===1&&p.alive).length;
+  let newState;
+  if(aliveP0===0||aliveP1===0){
+    const winner=aliveP0===0?1:0;
+    newState={...st,pieces,stage:'result',winner,postHandAt:Date.now()};
+    await settleMatch(winner);
+  } else {
+    newState={...st,pieces,turn:st.turn===0?1:0};
+  }
+  await patchRoom({state:newState});
+}
+
+async function settleMatch(winnerSeat){
+  const players=room.players||[];
+  const winP=players[winnerSeat], loseP=players[winnerSeat===0?1:0];
+  if(!winP||!loseP) return;
+  try{
+    const [wr,lr]=await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}&select=*`,{headers:headers()}),
+      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}&select=*`,{headers:headers()})
+    ]);
+    const wd=(await wr.json())[0], ld=(await lr.json())[0];
+    if(wd){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:(wd.points||0)+300,wins:(wd.wins||0)+1})}); }
+    if(ld){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:Math.max(0,(ld.points||0)-100),losses:(ld.losses||0)+1})}); }
+  }catch(e){ console.error('점수 반영 실패:',e); }
+}
+
+// ---- 결과 화면 ----
+function renderResult(area,st){
+  const players=room.players||[];
+  const iWon=st.winner===mySeat;
+  const winP=players[st.winner];
+  area.innerHTML=`
+    <div class="result-wrap">
+      <div style="font-size:44px;margin-bottom:10px;">${iWon?'🏆':'💧'}</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:6px;">${winP?esc(winP.username):''}님 승리!</div>
+      <div style="font-size:13px;color:#cfe9d8;margin-bottom:20px;">${iWon?'상대 알을 다 떨어뜨렸어요':'내 알이 다 떨어졌어요'}</div>
+      <div class="big-btn" id="backToLobbyBtn" style="background:#2e8b57;color:#fff;">방으로 돌아가기</div>
+    </div>
+  `;
+  document.getElementById('backToLobbyBtn').addEventListener('click',returnToLobby);
+}
+
+async function returnToLobby(){
+  const players=(room.players||[]).map(p=>({...p,ready:false}));
+  startTriggeredKey=null;
+  boardCanvasSetup=false;
+  await patchRoom({status:'waiting',players});
+}
+
+// ---- 나가기 ----
+async function leaveRoom(){
+  try{
+    if(mySeat>=0&&room){
+      const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+      if(np.length===0){
+        await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+      } else {
+        const patch={players:np};
+        if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+        if(room.status==='playing'){ patch.status='finished'; }
+        await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+      }
+    }
+  }catch(e){}
+  location.href='alkkagi_rooms.html';
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+window.addEventListener('pagehide',()=>{
+  try{
+    if(mySeat<0||!room) return;
+    const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+    const patch={players:np};
+    if(String(room.host_user_id)===String(currentUser.id)&&np.length){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+    fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch),keepalive:true});
+  }catch(e){}
+});
+
+// ---- 초기화 ----
+async function init(){
+  if(!roomId){ document.getElementById('mainArea').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>'; return; }
+  if(currentUser) await ensurePoints();
+  await fetchRoom();
+  await joinChannel();
+  pollTimer=setInterval(fetchRoom,1000);
+}
+init();
+</script>
+</body>
+</html>

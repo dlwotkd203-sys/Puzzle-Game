@@ -42,6 +42,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="tab" onclick="setTab('sutda')" id="tab-sutda">섯다</div>
     <div class="tab" onclick="setTab('onecard')" id="tab-onecard">원카드</div>
     <div class="tab" onclick="setTab('catchmind')" id="tab-catchmind">마인드캐치</div>
+    <div class="tab" onclick="setTab('alkkagi')" id="tab-alkkagi">알까기</div>
     <div class="tab" onclick="setTab('shikaku')" id="tab-shikaku">시카쿠</div>
     <div class="tab" onclick="setTab('sudoku')" id="tab-sudoku">스도쿠</div>
     <div class="tab" onclick="setTab('nonogram')" id="tab-nonogram">노노그램</div>
@@ -71,7 +72,7 @@ const TITLES={
   shikaku:'천하분할(天下分割)', sudoku:'천수(天數)의 현자', nonogram:'픽셀장인', '2048':'16384',
   dodge:'공이 나를 피한다', memory:'타짜', sorter:'왼쪽 오른쪽', minesweeper:'지뢰탐지견',
   breakout:'파괴본능', flow:'흐름의 절대자', rps:'갓핸드', reaction:'빠른 시냅스',
-  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림', onecard:'카드의 제왕', sutda:'고니', catchmind:'달리 반 피카소'
+  olla:'어디까지 올라가', snake:'뱀~신', colormatch:'매직아이', omok:'흑돌의 지배자', numrush:'가우스의 재림', onecard:'카드의 제왕', sutda:'고니', catchmind:'달리 반 피카소', alkkagi:'일타이피'
 };
 const HEADERS={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
 const SCORE_GAMES=['2048','dodge','memory','sorter','minesweeper','breakout','rps','reaction','olla','snake','colormatch','numrush'];
@@ -156,6 +157,13 @@ async function computeTotalRanking(){
     data.forEach((row,idx)=>award(row.username,'catchmind',idx));
   }catch(e){}
 
+  // 알까기 (누적 포인트 높은 순)
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?select=username,points&order=points.desc&limit=3`,{headers:HEADERS});
+    const data=await res.json();
+    data.forEach((row,idx)=>award(row.username,'alkkagi',idx));
+  }catch(e){}
+
   const sorted=Object.entries(points).sort((a,b)=>b[1]-a[1]||gameCount[b[0]]-gameCount[a[0]]);
   return sorted.map(([username,pts])=>({username,points:pts,gameCount:gameCount[username],bestCount:(bestGames[username]||[]).length}));
 }
@@ -224,6 +232,28 @@ async function loadRanking(){
             <div class="rank-sub">${row.matches||0}경기 참여</div>
           </div>
           <div class="rank-score">${row.points.toLocaleString()}<small>pt</small></div>
+        `;
+        body.appendChild(div);
+      });
+    } else if(currentTab==='alkkagi'){
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?select=username,points,wins,losses&order=points.desc&limit=50`,{
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}
+      });
+      const data=await res.json();
+      if(!data.length){body.innerHTML='<div class="empty">아직 기록이 없어요!</div>';return;}
+      body.innerHTML='';
+      data.forEach((row,idx)=>{
+        const isMe=currentUser&&currentUser.username===row.username;
+        const div=document.createElement('div');div.className='rank-item';
+        const medal=idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':idx+1;
+        const numClass=idx===0?'gold':idx===1?'silver':idx===2?'bronze':'';
+        div.innerHTML=`
+          <div class="rank-num ${numClass}">${medal}</div>
+          <div class="rank-info">
+            <div class="rank-name">${esc(row.username)}${isMe?'<span class="me-badge">나</span>':''}${idx===0&&TITLES.alkkagi?'<span class="title-badge">🏅'+TITLES.alkkagi+'</span>':''}</div>
+            <div class="rank-sub">${row.wins||0}승 ${row.losses||0}패</div>
+          </div>
+          <div class="rank-score">${row.points.toLocaleString()}<small>P</small></div>
         `;
         body.appendChild(div);
       });
