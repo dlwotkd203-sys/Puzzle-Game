@@ -68,51 +68,90 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 
 // ---- 물리 상수 ----
 const BOARD_W=320, BOARD_H=480;
+// 일자로 얇게 들어간 경첩(양옆) - 선분 형태로 충돌 처리
 const HINGES=[
-  {x:26,y:BOARD_H/2,r:16},
-  {x:BOARD_W-26,y:BOARD_H/2,r:16}
+  {x:22, y1:BOARD_H/2-30, y2:BOARD_H/2+30, half:4},
+  {x:BOARD_W-22, y1:BOARD_H/2-30, y2:BOARD_H/2+30, half:4}
 ];
+function closestPointOnSegment(px,py,x,y1,y2){
+  const cy=Math.max(y1,Math.min(y2,py));
+  return {x, y:cy};
+}
 const MAX_PULL=85;
-const SPEED_SCALE=7.2;
+const BASE_LAUNCH_SPEED=8.5; // 최대로 당겼을 때, 파워배율 1.0인 말(궁) 기준 속도
 const FRICTION=0.982;
 const RESTITUTION=0.78;
 const STOP_THRESHOLD=3;
 const SIM_MAX_STEPS=600;
 
 const JANGGI_SET=[
-  {type:'궁',count:1,r:18,mass:2.3,color:'#8a1a1a'},
-  {type:'차',count:2,r:16,mass:1.9,color:'#1a3a8a'},
-  {type:'포',count:2,r:16,mass:1.8,color:'#1a3a8a'},
-  {type:'마',count:2,r:15,mass:1.5,color:'#1a3a8a'},
-  {type:'상',count:2,r:15,mass:1.6,color:'#1a3a8a'},
-  {type:'사',count:2,r:14,mass:1.3,color:'#1a3a8a'},
-  {type:'졸',count:5,r:13,mass:1.0,color:'#1a3a8a'}
+  {type:'궁',r:18,mass:2.3,power:1.0},
+  {type:'차',r:16,mass:1.9,power:0.85},
+  {type:'포',r:16,mass:1.8,power:0.8},
+  {type:'상',r:15,mass:1.6,power:0.7},
+  {type:'마',r:15,mass:1.5,power:0.65},
+  {type:'사',r:14,mass:1.3,power:0.5},
+  {type:'졸',r:13,mass:1.0,power:0.3}
 ];
+function hanjaFor(type,seat){
+  // seat 0 = 초(楚)군, seat 1 = 한(漢)군 - 실제 장기처럼 궁/병졸 한자가 서로 달라요
+  if(type==='궁') return seat===0?'楚':'漢';
+  if(type==='졸') return seat===0?'卒':'兵';
+  if(type==='포') return seat===0?'包':'砲';
+  const map={'차':'車','상':'象','마':'馬','사':'士'};
+  return map[type]||type;
+}
 
 function buildPieces(mode,omokCount){
   const pieces=[];
   let id=0;
-  function layoutSeat(seat){
-    const list=[];
-    if(mode==='janggi'){
-      JANGGI_SET.forEach(spec=>{ for(let i=0;i<spec.count;i++) list.push({type:spec.type,r:spec.r,mass:spec.mass}); });
-    } else {
-      const n=omokCount||6;
-      for(let i=0;i<n;i++) list.push({type:'●',r:14,mass:1.0});
-    }
-    const perRow=Math.min(8,list.length);
-    const rows=Math.ceil(list.length/perRow);
-    const marginX=30;
-    const spacingX=perRow>1?(BOARD_W-marginX*2)/(perRow-1):0;
-    list.forEach((p,i)=>{
-      const row=Math.floor(i/perRow), col=i%perRow;
-      const x=perRow>1?marginX+col*spacingX:BOARD_W/2;
-      const y=seat===0?(34+row*40):(BOARD_H-34-row*40);
-      pieces.push({id:id++, seat, type:p.type, r:p.r, mass:p.mass, x, y, vx:0, vy:0, alive:true, trail:[]});
+  if(mode==='janggi'){
+    [0,1].forEach(seat=>layoutJanggiSeat(pieces,seat,()=>id++));
+  } else {
+    [0,1].forEach(seat=>layoutOmokSeat(pieces,seat,omokCount,()=>id++));
+  }
+  return pieces;
+}
+
+function layoutJanggiSeat(pieces,seat,nextId){
+  const marginX=20;
+  const colGap=(BOARD_W-marginX*2)/8;
+  const cols=[]; for(let i=0;i<9;i++) cols.push(marginX+colGap*i);
+  const rowGap=34;
+  const backY = seat===0 ? 28 : BOARD_H-28;
+  const dir = seat===0 ? 1 : -1; // 뒤에서 중앙 쪽으로 갈수록 y가 어느 방향으로 가는지
+  const rowY = r => backY + dir*rowGap*r;
+
+  const specOf=t=>JANGGI_SET.find(s=>s.type===t);
+  function place(type,colIdx,row){
+    const spec=specOf(type);
+    pieces.push({
+      id:nextId(), seat, type, hanja:hanjaFor(type,seat), r:spec.r, mass:spec.mass, power:spec.power,
+      x:cols[colIdx], y:rowY(row), vx:0, vy:0, alive:true, trail:[]
     });
   }
-  layoutSeat(0); layoutSeat(1);
-  return pieces;
+  // 뒷줄(0열): 차 마 상 사 [궁은 중앙] 사 상 마 차
+  const backRow=['차','마','상','사',null,'사','상','마','차'];
+  backRow.forEach((t,i)=>{ if(t) place(t,i,0); });
+  place('궁',4,0.6); // 궁은 뒷줄과 포줄 사이(궁성 안쪽)
+  // 포줄(1.6열): 2번째, 8번째 칸
+  place('포',1,1.6);
+  place('포',7,1.6);
+  // 졸줄(2.6열): 1,3,5,7,9번째 칸(0-index 0,2,4,6,8)
+  [0,2,4,6,8].forEach(c=>place('졸',c,2.6));
+}
+
+function layoutOmokSeat(pieces,seat,omokCount,nextId){
+  const n=omokCount||6;
+  const perRow=Math.min(8,n);
+  const marginX=30;
+  const spacingX=perRow>1?(BOARD_W-marginX*2)/(perRow-1):0;
+  for(let i=0;i<n;i++){
+    const row=Math.floor(i/perRow), col=i%perRow;
+    const x=perRow>1?marginX+col*spacingX:BOARD_W/2;
+    const y=seat===0?(34+row*40):(BOARD_H-34-row*40);
+    pieces.push({id:nextId(), seat, type:'●', hanja:null, r:14, mass:1.0, power:0.7, x, y, vx:0, vy:0, alive:true, trail:[]});
+  }
 }
 
 // ---- 결정론적 물리 스텝 (양쪽 클라이언트가 똑같이 계산) ----
@@ -158,12 +197,13 @@ function stepPhysics(pieces){
   pieces.forEach(p=>{
     if(!p.alive) return;
     HINGES.forEach(H=>{
-      const dx=p.x-H.x, dy=p.y-H.y;
+      const cp=closestPointOnSegment(p.x,p.y,H.x,H.y1,H.y2);
+      const dx=p.x-cp.x, dy=p.y-cp.y;
       const dist=Math.hypot(dx,dy);
-      const minDist=p.r+H.r;
+      const minDist=p.r+H.half;
       if(dist<minDist&&dist>0.0001){
         const nx=dx/dist, ny=dy/dist;
-        p.x=H.x+nx*minDist; p.y=H.y+ny*minDist;
+        p.x=cp.x+nx*minDist; p.y=cp.y+ny*minDist;
         const velAlongNormal=p.vx*nx+p.vy*ny;
         if(velAlongNormal<0){
           p.vx-=(1+RESTITUTION)*velAlongNormal*nx;
@@ -503,8 +543,8 @@ function setupBoardCanvas(){
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
       if(dist>6){
         const angle=Math.atan2(dy,dx);
-        const power=(dist/MAX_PULL)*SPEED_SCALE/piece.mass;
-        const vx=-Math.cos(angle)*power*10, vy=-Math.sin(angle)*power*10;
+        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED*(piece.power||0.7);
+        const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
         fireShot(piece.id,vx,vy);
       }
     }
@@ -540,28 +580,64 @@ function drawBoard(){
   ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(0,BOARD_H/2); ctx.lineTo(BOARD_W,BOARD_H/2); ctx.stroke();
   HINGES.forEach(H=>{
-    const hg=ctx.createRadialGradient(H.x-4,H.y-4,1,H.x,H.y,H.r);
-    hg.addColorStop(0,'#e8c98a'); hg.addColorStop(1,'#8f6a30');
-    ctx.beginPath(); ctx.arc(H.x,H.y,H.r,0,Math.PI*2);
-    ctx.fillStyle=hg; ctx.fill();
-    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#8f6a30';
+    ctx.fillRect(H.x-H.half,H.y1,H.half*2,H.y2-H.y1);
+    ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=1.5;
+    ctx.strokeRect(H.x-H.half,H.y1,H.half*2,H.y2-H.y1);
+    ctx.fillStyle='rgba(255,255,255,0.25)';
+    ctx.fillRect(H.x-H.half+1,H.y1+2,1.5,H.y2-H.y1-4);
   });
 
-  // 조준선
+  // 조준선 + 각도/파워 게이지
   if(dragState){
     const piece=pieces.find(p=>p.id===dragState.pieceId);
     if(piece){
       let dx=dragState.curBX-piece.x, dy=dragState.curBY-piece.y;
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
+      const pct=dist/MAX_PULL;
       const angle=Math.atan2(dy,dx);
       const pullX=piece.x+Math.cos(angle)*dist, pullY=piece.y+Math.sin(angle)*dist;
+      const shootAngle=angle+Math.PI;
+
+      // 당기는 선
       ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=3; ctx.setLineDash([6,5]);
       ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(pullX,pullY); ctx.stroke();
       ctx.setLineDash([]);
-      // 발사 방향(반대쪽) 미리보기
-      const aimX=piece.x-Math.cos(angle)*dist*1.4, aimY=piece.y-Math.sin(angle)*dist*1.4;
-      ctx.strokeStyle='rgba(255,80,80,0.6)'; ctx.lineWidth=2;
+
+      // 발사 방향 안내선 (파워에 비례해서 길어짐, 화살촉 표시)
+      const powerColor = pct<0.5 ? 'rgba(120,220,120,0.85)' : pct<0.8 ? 'rgba(255,210,80,0.9)' : 'rgba(255,80,80,0.95)';
+      const aimLen=dist*2.2;
+      const aimX=piece.x+Math.cos(shootAngle)*aimLen, aimY=piece.y+Math.sin(shootAngle)*aimLen;
+      ctx.strokeStyle=powerColor; ctx.lineWidth=3;
       ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(aimX,aimY); ctx.stroke();
+      // 화살촉
+      const ah=8;
+      ctx.beginPath();
+      ctx.moveTo(aimX,aimY);
+      ctx.lineTo(aimX-ah*Math.cos(shootAngle-0.4),aimY-ah*Math.sin(shootAngle-0.4));
+      ctx.lineTo(aimX-ah*Math.cos(shootAngle+0.4),aimY-ah*Math.sin(shootAngle+0.4));
+      ctx.closePath();
+      ctx.fillStyle=powerColor; ctx.fill();
+
+      // 파워 게이지 바 (화면 상단 중앙)
+      const gaugeW=140, gaugeH=14, gaugeX=BOARD_W/2-gaugeW/2, gaugeY=14;
+      ctx.fillStyle='rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,gaugeW,gaugeH,7):ctx.rect(gaugeX,gaugeY,gaugeW,gaugeH); ctx.fill();
+      ctx.fillStyle=powerColor;
+      const fillW=Math.max(gaugeH,gaugeW*pct);
+      ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,fillW,gaugeH,7):ctx.rect(gaugeX,gaugeY,fillW,gaugeH); ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,gaugeW,gaugeH,7):ctx.rect(gaugeX,gaugeY,gaugeW,gaugeH); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('파워 '+Math.round(pct*100)+'%',gaugeX+gaugeW/2,gaugeY+gaugeH/2+1);
+
+      // 각도 표시(발사 방향 기준, 도 단위)
+      let deg=Math.round((shootAngle*180/Math.PI));
+      deg=((deg%360)+360)%360;
+      ctx.fillStyle='#fff'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+      ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=3;
+      ctx.fillText(deg+'°',piece.x,piece.y-piece.r-14);
+      ctx.shadowBlur=0;
     }
   }
 
@@ -587,7 +663,7 @@ function drawBoard(){
     ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=2; ctx.stroke();
     if(isJanggi){
       ctx.fillStyle='#fff'; ctx.font='bold '+(p.r*0.9)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(p.type,p.x,p.y+1);
+      ctx.fillText(p.hanja||p.type,p.x,p.y+1);
     }
     if(mySeat===p.seat&&room&&room.state&&room.state.turn===mySeat&&!simulating){
       ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=2;
