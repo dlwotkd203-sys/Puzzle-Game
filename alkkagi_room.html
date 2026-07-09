@@ -82,7 +82,7 @@ const MAX_PULL=85;
 // 부딪혔을 때 운동량(질량×속도)은 확실히 더 커서 상대를 세게 밀어내요. 가벼운 말은 빠르게 나가는 대신 부딪힐 때 힘이 약해요.
 const BASE_LAUNCH_SPEED=24;
 const FRICTION=0.95;
-const RESTITUTION=0.62; // 너무 통통 튀지 않도록 반발을 줄임
+const RESTITUTION=0.5; // 충돌시 전달되는 힘을 더 줄여서, 가볍고 빠른 말이 한 방에 멀리 날려버리는 느낌을 완화
 const STOP_THRESHOLD=3;
 const SIM_MAX_STEPS=600;
 
@@ -599,7 +599,9 @@ function setupBoardCanvas(){
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
       if(dist>6){
         const angle=Math.atan2(dy,dx);
-        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/Math.sqrt(piece.mass);
+        // 쫄은 물리공식(√질량)만으로는 아직도 너무 세다는 피드백이 있어서, 밸런스용 추가 감쇠를 한 번 더 줘요
+        const TYPE_POWER_ADJ={'졸':0.55,'사':0.85};
+        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/Math.sqrt(piece.mass)*(TYPE_POWER_ADJ[piece.type]||1);
         const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
         fireShot(piece.id,vx,vy);
       }
