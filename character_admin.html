@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>대표 캐릭터 - 아이템 관리자</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:480px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:700;color:#111;flex:1;}
+.center-msg{text-align:center;padding:3rem 1.5rem;color:#8a8a9a;font-size:14px;line-height:1.8;}
+.wrap{padding:16px;}
+.field-label{font-weight:700;font-size:12px;color:#555;margin:10px 0 5px;}
+.field-input{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;}
+.field-select{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;background:#fff;}
+.opt-row{display:flex;gap:6px;flex-wrap:wrap;}
+.opt-row div{padding:7px 11px;border-radius:10px;background:#f0f0f0;font-weight:700;font-size:12px;cursor:pointer;color:#555;}
+.opt-row div.sel{background:#9c4dff;color:#fff;}
+.file-btn{margin-top:10px;text-align:center;font-weight:700;font-size:12px;padding:10px;border-radius:12px;background:#9c4dff;color:#fff;cursor:pointer;position:relative;overflow:hidden;}
+.file-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.action-btn{text-align:center;font-weight:700;font-size:12px;padding:9px;border-radius:12px;background:#9c4dff;color:#fff;cursor:pointer;}
+.status-txt{font-size:11px;margin-top:6px;min-height:14px;}
+.asset-thumb-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px;}
+.asset-thumb{width:56px;text-align:center;position:relative;}
+.asset-thumb img{width:100%;height:44px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:repeating-conic-gradient(#f2f2f2 0% 25%,#fafafa 0% 50%) 50%/12px 12px;}
+.asset-thumb .atname{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.asset-thumb .atdel{position:absolute;top:-4px;right:-4px;background:rgba(230,57,70,0.9);color:#fff;border-radius:50%;width:15px;height:15px;font-size:9px;line-height:15px;cursor:pointer;}
+.part-group-title{font-weight:800;font-size:13px;margin-top:16px;color:#1a1a2e;}
+.edit-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+.edit-row label{font-size:11px;color:#666;width:70px;flex-shrink:0;}
+.edit-row input{flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;}
+.small-btn{padding:8px 14px;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;text-align:center;display:inline-block;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">🧑‍🎨 대표 캐릭터 아이템 관리자</span>
+  </div>
+  <div id="content"><div class="center-msg">확인하는 중...</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const ADMIN_USERNAMES=['이재상'];
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+const PARTS=[
+  {key:'head',label:'머리'},
+  {key:'neck',label:'목'},
+  {key:'torso',label:'몸통'},
+  {key:'upper_arm_left',label:'위팔(왼쪽)'},
+  {key:'lower_arm_left',label:'아래팔(왼쪽)'},
+  {key:'upper_arm_right',label:'위팔(오른쪽)'},
+  {key:'lower_arm_right',label:'아래팔(오른쪽)'},
+  {key:'upper_leg_left',label:'허벅지(왼쪽)'},
+  {key:'lower_leg_left',label:'종아리(왼쪽)'},
+  {key:'upper_leg_right',label:'허벅지(오른쪽)'},
+  {key:'lower_leg_right',label:'종아리(오른쪽)'},
+  {key:'weapon',label:'무기/소품'}
+];
+const PART_DEFAULT_ANCHOR={
+  head:[0.5,0.95], neck:[0.5,0.1], torso:[0.5,0.05],
+  upper_arm_left:[0.5,0.05], lower_arm_left:[0.5,0.05],
+  upper_arm_right:[0.5,0.05], lower_arm_right:[0.5,0.05],
+  upper_leg_left:[0.5,0.05], lower_leg_left:[0.5,0.05],
+  upper_leg_right:[0.5,0.05], lower_leg_right:[0.5,0.05],
+  weapon:[0.15,0.9]
+};
+
+let items=[];
+let pickedPart='head';
+let makeMode='image';
+
+async function init(){
+  const content=document.getElementById('content');
+  if(!currentUser){ content.innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>'; return; }
+  if(!ADMIN_USERNAMES.includes(currentUser.username)){ content.innerHTML='<div class="center-msg">관리자만 접근할 수 있는 페이지예요.</div>'; return; }
+  content.innerHTML='<div class="wrap" id="wrap"></div>';
+  await loadItems();
+  render();
+}
+
+async function loadItems(){
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*&order=created_at.asc`,{headers:headers()});
+  items=await r.json();
+}
+
+function itemsForPart(partKey){ return items.filter(i=>i.part_key===partKey); }
+
+function render(){
+  const wrap=document.getElementById('wrap');
+  wrap.innerHTML=`
+    <div class="field-label">부위 선택</div>
+    <div id="partPicker" style="border:1px solid #eee;border-radius:10px;padding:8px;max-height:180px;overflow-y:auto;">
+      ${PARTS.map(p=>`<div class="opt-row" style="margin-bottom:4px;"><div class="partOpt ${pickedPart===p.key?'sel':''}" data-p="${p.key}" style="flex:1;text-align:center;">${esc(p.label)} (${itemsForPart(p.key).length})</div></div>`).join('')}
+    </div>
+
+    <div class="field-label">이름</div>
+    <input class="field-input" id="itemName" placeholder="예: 갈색 단발머리, 하늘색 후드티">
+
+    <div class="field-label" style="margin-top:16px;">만드는 방식</div>
+    <div class="opt-row">
+      <div class="modeOpt ${makeMode==='image'?'sel':''}" data-m="image">이미지 업로드</div>
+      <div class="modeOpt ${makeMode==='pixel'?'sel':''}" data-m="pixel">도트로 그리기</div>
+    </div>
+    <div id="makeModeBody"></div>
+    <div class="status-txt" id="makeStatus"></div>
+
+    <div class="part-group-title">등록된 아이템 - ${esc((PARTS.find(p=>p.key===pickedPart)||{}).label||'')}</div>
+    <div class="asset-thumb-row" id="libRow"></div>
+  `;
+  document.querySelectorAll('.partOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ pickedPart=el.dataset.p; render(); });
+  });
+  document.querySelectorAll('.modeOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ makeMode=el.dataset.m; render(); });
+  });
+  const libRow=document.getElementById('libRow');
+  const list=itemsForPart(pickedPart);
+  if(!list.length){ libRow.innerHTML='<div style="color:#bbb;font-size:12px;">아직 없어요</div>'; }
+  list.forEach(it=>{
+    const div=document.createElement('div');
+    div.className='asset-thumb';
+    div.innerHTML=`<div class="atdel" data-del="${it.id}">×</div><img src="${esc(it.url)}"><div class="atname">${esc(it.name)}</div>`;
+    libRow.appendChild(div);
+  });
+  libRow.querySelectorAll('.atdel').forEach(el=>{
+    el.addEventListener('click',()=>deleteItem(parseInt(el.dataset.del)));
+  });
+  if(makeMode==='image') renderImageMode(); else renderPixelMode();
+}
+
+function renderImageMode(){
+  const holder=document.getElementById('makeModeBody');
+  holder.innerHTML='<div class="file-btn">이미지 선택해서 등록<input type="file" accept="image/*" id="itemFile"></div>';
+  document.getElementById('itemFile').addEventListener('change',e=>{
+    if(e.target.files&&e.target.files[0]){
+      const def=PART_DEFAULT_ANCHOR[pickedPart]||[0.5,0.5];
+      createItemFromBlob(e.target.files[0],def[0],def[1]);
+    }
+  });
+}
+
+async function createItemFromBlob(blobOrFile,anchorX,anchorY){
+  const nameInput=document.getElementById('itemName');
+  const name=nameInput.value.trim()||'이름없음';
+  const status=document.getElementById('makeStatus');
+  status.style.color='#9c4dff'; status.textContent='업로드 중...';
+  try{
+    const ext=(blobOrFile.name?blobOrFile.name.split('.').pop():'png')||'png';
+    const path='char_'+Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext.toLowerCase();
+    const {error:upErr}=await sb.storage.from('hunter-assets').upload(path,blobOrFile,{upsert:true,contentType:blobOrFile.type||'image/png'});
+    if(upErr) throw upErr;
+    const {data:urlData}=sb.storage.from('hunter-assets').getPublicUrl(path);
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/character_items`,{
+      method:'POST', headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({name, part_key:pickedPart, url:urlData.publicUrl, anchor_x:anchorX, anchor_y:anchorY})
+    });
+    if(!res.ok){ const errBody=await res.text(); throw new Error('DB 저장 실패('+res.status+'): '+errBody); }
+    status.style.color='#0f9e75'; status.textContent='등록 완료!';
+    nameInput.value='';
+    await loadItems();
+    render();
+  }catch(e){
+    console.error(e);
+    status.style.color='#e63946'; status.textContent='실패: '+(e.message||e);
+  }
+}
+
+async function deleteItem(id){
+  if(!confirm('이 아이템을 삭제할까요?')) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/character_items?id=eq.${id}`,{method:'DELETE',headers:headers()});
+  await loadItems();
+  render();
+}
+
+// ---- 도트(픽셀아트) 모드 ----
+const PIXEL_COLORS=['#1a1a1a','#ffffff','#e63946','#3d8bff','#2a9d34','#ffd166','#c084fc','#8a4fff','#ff9f4a','#4adfd0','#8a5a2b','#ff6fb5'];
+let pixelGridW=16, pixelGridH=16;
+let pixelData=null;
+let pixelColor='#1a1a1a';
+let pixelTool='draw';
+let pixelAnchor={x:8,y:15};
+function resetPixelData(){
+  pixelData=new Array(pixelGridW*pixelGridH).fill(null);
+  const def=PART_DEFAULT_ANCHOR[pickedPart]||[0.5,0.5];
+  pixelAnchor={x:Math.round(def[0]*(pixelGridW-1)),y:Math.round(def[1]*(pixelGridH-1))};
+}
+resetPixelData();
+
+function renderPixelMode(){
+  const holder=document.getElementById('makeModeBody');
+  holder.innerHTML=`
+    <div class="edit-row" style="margin-top:8px;">
+      <label style="width:70px;">가로 칸수</label><input type="number" id="pxW" value="${pixelGridW}" min="4" max="64">
+      <label style="width:70px;">세로 칸수</label><input type="number" id="pxH" value="${pixelGridH}" min="4" max="64">
+    </div>
+    <div class="small-btn" id="applyGridBtn" style="background:#f0f0f0;color:#555;">그리드 크기 적용 (그림 초기화됨)</div>
+    <div class="field-label">도구</div>
+    <div class="opt-row">
+      <div class="toolOpt ${pixelTool==='draw'?'sel':''}" data-t="draw">🖊 그리기</div>
+      <div class="toolOpt ${pixelTool==='erase'?'sel':''}" data-t="erase">🧹 지우기</div>
+      <div class="toolOpt ${pixelTool==='anchor'?'sel':''}" data-t="anchor">🎯 기준점 찍기</div>
+    </div>
+    <div class="field-label">색상</div>
+    <div class="opt-row" id="pxColorRow">
+      ${PIXEL_COLORS.map(c=>`<div class="pxColor ${pixelColor===c?'sel':''}" data-c="${c}" style="width:26px;height:26px;border-radius:6px;background:${c};padding:0;border:2px solid ${pixelColor===c?'#9c4dff':'#ddd'};"></div>`).join('')}
+      <input type="color" id="pxCustomColor" value="${pixelColor}" style="width:30px;height:30px;border:none;border-radius:6px;padding:0;">
+    </div>
+    <div style="font-size:11px;color:#999;margin-top:6px;">🎯 기준점은 이 부위가 몸에 붙는 관절 위치예요 (예: 위팔은 어깨, 머리는 목 닿는 부분).</div>
+    <div id="pixelCanvasWrap" style="margin-top:10px;overflow:auto;max-width:100%;border:1px solid #eee;border-radius:10px;padding:8px;text-align:center;">
+      <canvas id="pixelCanvas"></canvas>
+    </div>
+    <div class="small-btn" id="clearPixelBtn" style="background:#f0f0f0;color:#e63946;margin-top:8px;">전체 지우기</div>
+    <div class="action-btn" id="registerPixelBtn" style="margin-top:10px;">이 그림으로 아이템 등록</div>
+  `;
+  document.getElementById('applyGridBtn').addEventListener('click',()=>{
+    pixelGridW=Math.max(4,Math.min(64,parseInt(document.getElementById('pxW').value)||16));
+    pixelGridH=Math.max(4,Math.min(64,parseInt(document.getElementById('pxH').value)||16));
+    resetPixelData();
+    renderPixelMode();
+  });
+  document.querySelectorAll('.toolOpt').forEach(el=>{
+    el.addEventListener('click',()=>{ pixelTool=el.dataset.t; renderPixelMode(); });
+  });
+  document.querySelectorAll('.pxColor').forEach(el=>{
+    el.addEventListener('click',()=>{ pixelColor=el.dataset.c; pixelTool='draw'; renderPixelMode(); });
+  });
+  document.getElementById('pxCustomColor').addEventListener('input',e=>{ pixelColor=e.target.value; pixelTool='draw'; });
+  document.getElementById('clearPixelBtn').addEventListener('click',()=>{
+    if(!confirm('그림을 전체 지울까요?')) return;
+    pixelData=new Array(pixelGridW*pixelGridH).fill(null);
+    drawPixelCanvas();
+  });
+  document.getElementById('registerPixelBtn').addEventListener('click',registerPixelItem);
+  setupPixelCanvas();
+  drawPixelCanvas();
+}
+
+function pixelCellSize(){ return Math.max(6,Math.min(24,Math.floor(300/Math.max(pixelGridW,pixelGridH)))); }
+
+function setupPixelCanvas(){
+  const canvas=document.getElementById('pixelCanvas');
+  const cell=pixelCellSize();
+  canvas.width=pixelGridW*cell; canvas.height=pixelGridH*cell;
+  let painting=false;
+  function paintAt(e){
+    const r=canvas.getBoundingClientRect();
+    const cx=Math.floor((e.clientX-r.left)/cell), cy=Math.floor((e.clientY-r.top)/cell);
+    if(cx<0||cy<0||cx>=pixelGridW||cy>=pixelGridH) return;
+    if(pixelTool==='anchor'){ pixelAnchor={x:cx,y:cy}; drawPixelCanvas(); return; }
+    const idx=cy*pixelGridW+cx;
+    pixelData[idx]=pixelTool==='erase'?null:pixelColor;
+    drawPixelCanvas();
+  }
+  canvas.onpointerdown=e=>{ painting=true; paintAt(e); };
+  canvas.onpointermove=e=>{ if(painting&&pixelTool!=='anchor') paintAt(e); };
+  window.addEventListener('pointerup',()=>{ painting=false; });
+}
+
+function drawPixelCanvas(){
+  const canvas=document.getElementById('pixelCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const cell=pixelCellSize();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(let y=0;y<pixelGridH;y++){
+    for(let x=0;x<pixelGridW;x++){
+      ctx.fillStyle=((x+y)%2===0)?'#f2f2f2':'#fafafa';
+      ctx.fillRect(x*cell,y*cell,cell,cell);
+      const c=pixelData[y*pixelGridW+x];
+      if(c){ ctx.fillStyle=c; ctx.fillRect(x*cell,y*cell,cell,cell); }
+    }
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.08)';
+  for(let x=0;x<=pixelGridW;x++){ ctx.beginPath(); ctx.moveTo(x*cell,0); ctx.lineTo(x*cell,canvas.height); ctx.stroke(); }
+  for(let y=0;y<=pixelGridH;y++){ ctx.beginPath(); ctx.moveTo(0,y*cell); ctx.lineTo(canvas.width,y*cell); ctx.stroke(); }
+  const ax=pixelAnchor.x*cell+cell/2, ay=pixelAnchor.y*cell+cell/2;
+  ctx.strokeStyle='#e63946'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(ax-cell/2,ay); ctx.lineTo(ax+cell/2,ay); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax,ay-cell/2); ctx.lineTo(ax,ay+cell/2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(ax,ay,3,0,Math.PI*2); ctx.fillStyle='#e63946'; ctx.fill();
+}
+
+function registerPixelItem(){
+  const status=document.getElementById('makeStatus');
+  if(pixelData.every(c=>!c)){ status.style.color='#e63946'; status.textContent='그림을 먼저 그려주세요.'; return; }
+  const raster=document.createElement('canvas');
+  raster.width=pixelGridW; raster.height=pixelGridH;
+  const rctx=raster.getContext('2d');
+  for(let y=0;y<pixelGridH;y++){
+    for(let x=0;x<pixelGridW;x++){
+      const c=pixelData[y*pixelGridW+x];
+      if(c){ rctx.fillStyle=c; rctx.fillRect(x,y,1,1); }
+    }
+  }
+  const anchorXFrac=(pixelAnchor.x+0.5)/pixelGridW;
+  const anchorYFrac=(pixelAnchor.y+0.5)/pixelGridH;
+  raster.toBlob(blob=>{
+    if(!blob){ status.style.color='#e63946'; status.textContent='이미지 변환 실패'; return; }
+    createItemFromBlob(blob,anchorXFrac,anchorYFrac);
+  },'image/png');
+}
+
+init();
+</script>
+</body>
+</html>

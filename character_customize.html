@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>내 캐릭터 꾸미기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;}
+#app{max-width:430px;margin:0 auto;background:#fff;min-height:100vh;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:1rem 1rem 0.75rem;border-bottom:1px solid #eee;}
+.back-btn{background:none;border:none;cursor:pointer;color:#888;font-size:20px;padding:2px 8px;border-radius:8px;}
+.top-title{font-size:16px;font-weight:700;color:#111;flex:1;}
+.center-msg{text-align:center;padding:3rem 1.5rem;color:#8a8a9a;font-size:14px;line-height:1.8;}
+#previewWrap{background:linear-gradient(#dceeff,#f3f9ff);display:flex;align-items:center;justify-content:center;padding:16px;}
+#previewCanvas{border-radius:12px;}
+.part-tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 14px;border-bottom:1px solid #f0f0f0;}
+.part-tab{flex-shrink:0;padding:8px 12px;border-radius:12px;background:#f0f0f0;font-weight:700;font-size:12px;color:#555;cursor:pointer;}
+.part-tab.sel{background:#9c4dff;color:#fff;}
+.item-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px;}
+.item-card{border:2px solid #eee;border-radius:12px;padding:8px;text-align:center;cursor:pointer;background:repeating-conic-gradient(#fafafa 0% 25%, #fff 0% 50%) 50%/16px 16px;}
+.item-card.sel{border-color:#9c4dff;box-shadow:0 0 0 2px rgba(156,77,255,0.25);}
+.item-card img{width:100%;height:52px;object-fit:contain;}
+.item-card .iname{font-size:10px;color:#555;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.item-card.empty-slot{display:flex;align-items:center;justify-content:center;height:78px;color:#999;font-size:20px;background:#f7f7f7;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" onclick="location.href='index.html'">←</button>
+    <span class="top-title">🧑 내 캐릭터 꾸미기</span>
+    <span id="adminLink" style="display:none;background:#f0f0f0;color:#555;font-size:11px;font-weight:700;padding:5px 10px;border-radius:10px;cursor:pointer;">🎨 아이템관리</span>
+  </div>
+  <div id="content"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+const PARTS=[
+  {key:'head',label:'머리'},
+  {key:'neck',label:'목'},
+  {key:'torso',label:'몸통'},
+  {key:'upper_arm_left',label:'위팔(왼)'},
+  {key:'lower_arm_left',label:'아래팔(왼)'},
+  {key:'upper_arm_right',label:'위팔(오)'},
+  {key:'lower_arm_right',label:'아래팔(오)'},
+  {key:'upper_leg_left',label:'허벅지(왼)'},
+  {key:'lower_leg_left',label:'종아리(왼)'},
+  {key:'upper_leg_right',label:'허벅지(오)'},
+  {key:'lower_leg_right',label:'종아리(오)'},
+  {key:'weapon',label:'무기/소품'}
+];
+const SKELETON={
+  head:22, neck:6, torso:20,
+  upper_arm_left:15, lower_arm_left:14, upper_arm_right:15, lower_arm_right:14,
+  upper_leg_left:19, lower_leg_left:18, upper_leg_right:19, lower_leg_right:18,
+  weapon:22
+};
+const PART_DIR={ neck:-1, head:-1 };
+
+let items=[];
+let equipped={};
+const imgCache={};
+function getImg(url){
+  if(!imgCache[url]){ const img=new Image(); img.src=url; imgCache[url]=img; }
+  return imgCache[url];
+}
+function itemById(id){ return items.find(i=>i.id===id); }
+function itemsForPart(partKey){ return items.filter(i=>i.part_key===partKey); }
+
+async function init(){
+  const content=document.getElementById('content');
+  if(!currentUser){ content.innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>'; return; }
+  if(['이재상'].includes(currentUser.username)){
+    const link=document.getElementById('adminLink');
+    link.style.display='inline-block';
+    link.addEventListener('click',()=>location.href='character_admin.html');
+  }
+  content.innerHTML=`
+    <div id="previewWrap"><canvas id="previewCanvas" width="220" height="260"></canvas></div>
+    <div class="part-tabs" id="partTabs"></div>
+    <div class="item-grid" id="itemGrid"></div>
+  `;
+  await loadAll();
+  currentPart='head';
+  renderTabs();
+  renderGrid();
+  startPreviewLoop();
+}
+
+async function loadAll(){
+  const [ir,ur]=await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*&order=created_at.asc`,{headers:headers()}),
+    fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}&select=*`,{headers:headers()})
+  ]);
+  items=await ir.json();
+  const ud=await ur.json();
+  if(ud&&ud[0]&&ud[0].equipped){ equipped=ud[0].equipped; }
+  else { equipped={}; }
+}
+
+let currentPart='head';
+function renderTabs(){
+  const tabsEl=document.getElementById('partTabs');
+  tabsEl.innerHTML=PARTS.map(p=>`<div class="part-tab ${currentPart===p.key?'sel':''}" data-p="${p.key}">${esc(p.label)}${equipped[p.key]?' ✓':''}</div>`).join('');
+  tabsEl.querySelectorAll('.part-tab').forEach(el=>{
+    el.addEventListener('click',()=>{ currentPart=el.dataset.p; renderTabs(); renderGrid(); });
+  });
+}
+
+function renderGrid(){
+  const grid=document.getElementById('itemGrid');
+  const list=itemsForPart(currentPart);
+  let html=`<div class="item-card empty-slot ${!equipped[currentPart]?'sel':''}" data-empty="1">🚫<br>없음</div>`;
+  list.forEach(it=>{
+    html+=`<div class="item-card ${equipped[currentPart]===it.id?'sel':''}" data-id="${it.id}"><img src="${esc(it.url)}"><div class="iname">${esc(it.name)}</div></div>`;
+  });
+  grid.innerHTML=html;
+  if(!list.length){
+    grid.innerHTML+='<div style="grid-column:1/-1;color:#bbb;font-size:12px;text-align:center;padding:10px;">아직 이 부위 아이템이 없어요</div>';
+  }
+  grid.querySelectorAll('.item-card').forEach(el=>{
+    el.addEventListener('click',()=>{
+      if(el.dataset.empty){ equipItem(currentPart,null); }
+      else { equipItem(currentPart,parseInt(el.dataset.id)); }
+    });
+  });
+}
+
+async function equipItem(partKey,itemId){
+  equipped={...equipped, [partKey]: itemId};
+  if(itemId===null) delete equipped[partKey];
+  renderTabs();
+  renderGrid();
+  try{
+    const check=await fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}&select=user_id`,{headers:headers()});
+    const exists=(await check.json()).length>0;
+    if(exists){
+      await fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({equipped,username:currentUser.username,updated_at:new Date().toISOString()})});
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/user_characters`,{method:'POST',headers:jheaders(),body:JSON.stringify({user_id:currentUser.id,username:currentUser.username,equipped})});
+    }
+  }catch(e){ console.error('저장 실패:',e); }
+}
+
+// ---- 미리보기 (정지 자세, 나중에 게임에 넣을 때 이 로직을 그대로 재사용해요) ----
+function getEquippedImg(partKey){
+  const id=equipped[partKey];
+  if(!id) return null;
+  const it=itemById(id);
+  if(!it) return null;
+  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.1};
+}
+function drawPreviewLimb(ctx,partKey,jointX,jointY,angleRad,facing){
+  const dir=PART_DIR[partKey]||1;
+  const info=getEquippedImg(partKey);
+  const h=SKELETON[partKey]||20;
+  if(!info) return {endX:jointX,endY:jointY+dir*h};
+  const img=getImg(info.url);
+  if(!img.complete||!img.naturalWidth) return {endX:jointX,endY:jointY+dir*h};
+  const w=h*(img.naturalWidth/img.naturalHeight);
+  ctx.save();
+  ctx.translate(jointX,jointY);
+  ctx.scale(facing<0?-1:1,1);
+  ctx.rotate(angleRad);
+  ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
+  ctx.restore();
+  const d=dir>0?h*(1-info.anchorY):h*info.anchorY;
+  return {endX:jointX-facing*d*Math.sin(angleRad),endY:jointY+d*Math.cos(angleRad)};
+}
+function drawPreviewRig(ctx,cw,ch,phase){
+  ctx.clearRect(0,0,cw,ch);
+  const groundY=ch-30;
+  ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(cw-20,groundY); ctx.stroke();
+
+  const x=cw/2, facing=1;
+  const idleSway=Math.sin(phase)*0.04; // 살짝 숨쉬는 듯한 흔들림
+  const hipY=groundY-SKELETON.upper_leg_left-SKELETON.lower_leg_left;
+  const shoulderY=hipY-SKELETON.torso;
+
+  drawPreviewLimb(ctx,'upper_leg_left',x-4,hipY,0.05,facing);
+  drawPreviewLimb(ctx,'upper_leg_right',x+4,hipY,-0.05,facing);
+  const kneeL={endX:x-4,endY:hipY+SKELETON.upper_leg_left};
+  const kneeR={endX:x+4,endY:hipY+SKELETON.upper_leg_right};
+  drawPreviewLimb(ctx,'lower_leg_left',kneeL.endX,kneeL.endY,0.05,facing);
+  drawPreviewLimb(ctx,'lower_leg_right',kneeR.endX,kneeR.endY,-0.05,facing);
+
+  drawPreviewLimb(ctx,'torso',x,shoulderY,idleSway*0.3,facing);
+  const neckTop=drawPreviewLimb(ctx,'neck',x,shoulderY,idleSway*0.3,facing);
+  drawPreviewLimb(ctx,'head',neckTop.endX,neckTop.endY,idleSway*0.3,facing);
+
+  const armLAngle=0.12+idleSway, armRAngle=-0.12-idleSway;
+  const elbowL=drawPreviewLimb(ctx,'upper_arm_left',x,shoulderY,armLAngle,facing);
+  const elbowR=drawPreviewLimb(ctx,'upper_arm_right',x,shoulderY,armRAngle,facing);
+  const handL=drawPreviewLimb(ctx,'lower_arm_left',elbowL.endX,elbowL.endY,armLAngle*0.6,facing);
+  const handR=drawPreviewLimb(ctx,'lower_arm_right',elbowR.endX,elbowR.endY,armRAngle*0.6,facing);
+  drawPreviewLimb(ctx,'weapon',handR.endX,handR.endY,armRAngle*0.6,facing);
+
+  if(!getEquippedImg('torso')&&!getEquippedImg('head')){
+    ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('아래에서 부위를 골라',cw/2,ch/2-8);
+    ctx.fillText('캐릭터를 꾸며보세요',cw/2,ch/2+8);
+  }
+}
+let previewPhase=0, previewRafId=null;
+function startPreviewLoop(){
+  const canvas=document.getElementById('previewCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  function loop(){
+    previewPhase+=0.03;
+    drawPreviewRig(ctx,canvas.width,canvas.height,previewPhase);
+    previewRafId=requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+init();
+</script>
+</body>
+</html>

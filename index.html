@@ -118,6 +118,14 @@ button.gbtn.primary:active{background:#185FA5;}
 <div id="app">
 <div id="home" class="screen active">
 <div class="notice-banner" id="notice-banner"><div class="notice-track" id="notice-track"></div></div>
+<div id="myCharWidget" style="display:none;align-items:center;gap:12px;background:linear-gradient(135deg,#eef2ff,#f7f0ff);border-radius:14px;padding:10px 14px;margin-bottom:10px;">
+  <canvas id="myCharCanvas" width="60" height="72" style="flex-shrink:0;"></canvas>
+  <div style="flex:1;">
+    <div style="font-weight:800;font-size:13px;color:#1a1a2e;">내 캐릭터</div>
+    <div style="font-size:11px;color:#888;">부위별로 꾸며서 나만의 캐릭터를 만들어보세요</div>
+  </div>
+  <button onclick="location.href='character_customize.html'" style="font-size:12px;font-weight:700;padding:8px 12px;border-radius:10px;border:none;background:#9c4dff;color:#fff;cursor:pointer;flex-shrink:0;">꾸미기</button>
+</div>
 <div class="home-title">미니게임</div>
 <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:0.5rem;">
   <button onclick="location.href='ranking.html'" style="font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer;font-weight:600;">🏆 랭킹</button>
@@ -393,6 +401,7 @@ function renderHome(){
 const u=JSON.parse(localStorage.getItem('puzzle_user')||'null');
 const lb=document.getElementById('login-btn');
 if(lb) lb.textContent=u?'👤 '+u.username:'로그인';
+if(u){ document.getElementById('myCharWidget').style.display='flex'; loadMyCharacterPreview(u); }
   const g=document.getElementById('game-grid');g.innerHTML='';
   GAMES.forEach(game=>{
     const isMaintenance=game.available&&gameEnabledMap[game.id]===false;
@@ -418,6 +427,81 @@ if(game.available&&!isMaintenance){
   });
 }
 function goHome(){renderHome();showScreen('home');}
+
+// ---- 내 캐릭터 미니 미리보기 ----
+const CHAR_SKELETON={ head:9, neck:3, torso:9, upper_arm_left:7, lower_arm_left:6, upper_arm_right:7, lower_arm_right:6, upper_leg_left:9, lower_leg_left:8, upper_leg_right:9, lower_leg_right:8, weapon:9 };
+const CHAR_PART_DIR={ neck:-1, head:-1 };
+const charImgCache={};
+function charGetImg(url){ if(!charImgCache[url]){ const img=new Image(); img.src=url; charImgCache[url]=img; } return charImgCache[url]; }
+let myEquipped={}, myCharItems=[];
+async function loadMyCharacterPreview(u){
+  try{
+    const h={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
+    const [ir,ur]=await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*`,{headers:h}),
+      fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${u.id}&select=*`,{headers:h})
+    ]);
+    myCharItems=await ir.json();
+    const ud=await ur.json();
+    myEquipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
+  }catch(e){ myEquipped={}; myCharItems=[]; }
+  startMyCharLoop();
+}
+function charEquippedImg(partKey){
+  const id=myEquipped[partKey];
+  if(!id) return null;
+  const it=myCharItems.find(i=>i.id===id);
+  if(!it) return null;
+  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.1};
+}
+function drawMiniLimb(ctx,partKey,jointX,jointY,angleRad,facing){
+  const dir=CHAR_PART_DIR[partKey]||1;
+  const info=charEquippedImg(partKey);
+  const hgt=CHAR_SKELETON[partKey]||9;
+  if(!info) return {endX:jointX,endY:jointY+dir*hgt};
+  const img=charGetImg(info.url);
+  if(!img.complete||!img.naturalWidth) return {endX:jointX,endY:jointY+dir*hgt};
+  const w=hgt*(img.naturalWidth/img.naturalHeight);
+  ctx.save();
+  ctx.translate(jointX,jointY);
+  ctx.scale(facing<0?-1:1,1);
+  ctx.rotate(angleRad);
+  ctx.drawImage(img,-w*info.anchorX,-hgt*info.anchorY,w,hgt);
+  ctx.restore();
+  const d=dir>0?hgt*(1-info.anchorY):hgt*info.anchorY;
+  return {endX:jointX-facing*d*Math.sin(angleRad),endY:jointY+d*Math.cos(angleRad)};
+}
+let myCharPhase=0, myCharRaf=null;
+function startMyCharLoop(){
+  const canvas=document.getElementById('myCharCanvas');
+  if(!canvas) return;
+  if(myCharRaf) cancelAnimationFrame(myCharRaf);
+  const ctx=canvas.getContext('2d');
+  function loop(){
+    if(!document.getElementById('myCharCanvas')){ myCharRaf=null; return; }
+    myCharPhase+=0.03;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const x=canvas.width/2, groundY=canvas.height-6, facing=1;
+    const sway=Math.sin(myCharPhase)*0.04;
+    const hipY=groundY-CHAR_SKELETON.upper_leg_left-CHAR_SKELETON.lower_leg_left;
+    const shoulderY=hipY-CHAR_SKELETON.torso;
+    drawMiniLimb(ctx,'upper_leg_left',x-2,hipY,0.05,facing);
+    drawMiniLimb(ctx,'upper_leg_right',x+2,hipY,-0.05,facing);
+    drawMiniLimb(ctx,'lower_leg_left',x-2,hipY+CHAR_SKELETON.upper_leg_left,0.05,facing);
+    drawMiniLimb(ctx,'lower_leg_right',x+2,hipY+CHAR_SKELETON.upper_leg_right,-0.05,facing);
+    drawMiniLimb(ctx,'torso',x,shoulderY,sway*0.3,facing);
+    const neckTop=drawMiniLimb(ctx,'neck',x,shoulderY,sway*0.3,facing);
+    drawMiniLimb(ctx,'head',neckTop.endX,neckTop.endY,sway*0.3,facing);
+    const armLAngle=0.12+sway, armRAngle=-0.12-sway;
+    const elbowL=drawMiniLimb(ctx,'upper_arm_left',x,shoulderY,armLAngle,facing);
+    const elbowR=drawMiniLimb(ctx,'upper_arm_right',x,shoulderY,armRAngle,facing);
+    const handR=drawMiniLimb(ctx,'lower_arm_right',elbowR.endX,elbowR.endY,armRAngle*0.6,facing);
+    drawMiniLimb(ctx,'lower_arm_left',elbowL.endX,elbowL.endY,armLAngle*0.6,facing);
+    drawMiniLimb(ctx,'weapon',handR.endX,handR.endY,armRAngle*0.6,facing);
+    myCharRaf=requestAnimationFrame(loop);
+  }
+  loop();
+}
 function openGame(game){
   if(game.id==='sutda'){ location.href='sutda_rooms.html'; return; }
   if(game.id==='onecard'){ location.href='onecard_rooms.html'; return; }
