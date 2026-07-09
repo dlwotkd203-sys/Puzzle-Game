@@ -78,8 +78,8 @@ function closestPointOnSegment(px,py,y,x1,x2){
   return {x:cx, y};
 }
 const MAX_PULL=85;
-// 임펄스(F)/질량(m) 물리공식: v = (당긴 비율) × 기준속도 ÷ 질량. 무거운 말일수록 내가 쏠 때는 덜 나가지만,
-// 부딪혔을 때 운동량(질량×속도)이 커서 상대를 세게 밀어내요. 실제 알까기/당구와 비슷한 느낌이에요.
+// 임펄스(F)/√질량 물리공식: v = (당긴 비율) × 기준속도 ÷ √질량. 무거운 말일수록 내가 쏠 때 조금 덜 나가지만,
+// 부딪혔을 때 운동량(질량×속도)은 확실히 더 커서 상대를 세게 밀어내요. 가벼운 말은 빠르게 나가는 대신 부딪힐 때 힘이 약해요.
 const BASE_LAUNCH_SPEED=24;
 const FRICTION=0.95;
 const RESTITUTION=0.62; // 너무 통통 튀지 않도록 반발을 줄임
@@ -544,6 +544,8 @@ function isFlipped(){ return mySeat===0; } // 1번 자리는 원본 그대로가
 function toLogical(bx,by){
   return isFlipped() ? {x:BOARD_W-bx, y:BOARD_H-by} : {x:bx, y:by};
 }
+const VIEW_MARGIN=34; // 보드 밖으로 살짝 걸친 알도 잘리지 않고 보이도록 여유 공간
+const TOTAL_W=BOARD_W+VIEW_MARGIN*2, TOTAL_H=BOARD_H+VIEW_MARGIN*2;
 
 function resizeCanvas(){
   const canvas=document.getElementById('boardCanvas');
@@ -554,13 +556,13 @@ function resizeCanvas(){
   const appW=Math.min(document.getElementById('app').clientWidth,430);
   const availW=appW-16;
   const availH=window.innerHeight-topBarH-infoBarH-bottomBarH-16;
-  const scale=Math.max(0.1,Math.min(availW/BOARD_W,availH/BOARD_H));
+  const scale=Math.max(0.1,Math.min(availW/TOTAL_W,availH/TOTAL_H));
   const dpr=window.devicePixelRatio||1;
   renderScale=scale*dpr;
-  canvas.style.width=Math.floor(BOARD_W*scale)+'px';
-  canvas.style.height=Math.floor(BOARD_H*scale)+'px';
-  canvas.width=Math.round(BOARD_W*renderScale);
-  canvas.height=Math.round(BOARD_H*renderScale);
+  canvas.style.width=Math.floor(TOTAL_W*scale)+'px';
+  canvas.style.height=Math.floor(TOTAL_H*scale)+'px';
+  canvas.width=Math.round(TOTAL_W*renderScale);
+  canvas.height=Math.round(TOTAL_H*renderScale);
   drawBoard();
 }
 
@@ -572,8 +574,8 @@ function setupBoardCanvas(){
   canvas.addEventListener('pointerdown',e=>{
     if(!room||!room.state||room.state.turn!==mySeat||simulating) return;
     const rect=canvas.getBoundingClientRect();
-    const scaleX=BOARD_W/rect.width, scaleY=BOARD_H/rect.height;
-    const raw=toLogical((e.clientX-rect.left)*scaleX,(e.clientY-rect.top)*scaleY);
+    const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
+    const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
     const hit=pieces.find(p=>p.alive&&p.seat===mySeat&&Math.hypot(p.x-raw.x,p.y-raw.y)<=p.r+6);
     if(!hit) return;
     canvas.setPointerCapture(e.pointerId); // 화면 밖으로 나가도 드래그가 계속되게
@@ -583,8 +585,8 @@ function setupBoardCanvas(){
   canvas.addEventListener('pointermove',e=>{
     if(!dragState||e.pointerId!==dragState.pointerId) return;
     const rect=canvas.getBoundingClientRect();
-    const scaleX=BOARD_W/rect.width, scaleY=BOARD_H/rect.height;
-    const raw=toLogical((e.clientX-rect.left)*scaleX,(e.clientY-rect.top)*scaleY);
+    const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
+    const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
     dragState.curBX=raw.x;
     dragState.curBY=raw.y;
     drawBoard();
@@ -597,7 +599,7 @@ function setupBoardCanvas(){
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
       if(dist>6){
         const angle=Math.atan2(dy,dx);
-        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/piece.mass;
+        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/Math.sqrt(piece.mass);
         const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
         fireShot(piece.id,vx,vy);
       }
@@ -648,6 +650,10 @@ function drawBoard(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.save();
   ctx.scale(renderScale,renderScale);
+  // 여백(보드 밖으로 살짝 걸친 알도 안 잘리게) 배경
+  ctx.fillStyle='#1f2e22';
+  ctx.fillRect(0,0,TOTAL_W,TOTAL_H);
+  ctx.translate(VIEW_MARGIN,VIEW_MARGIN);
   const flipped=isFlipped();
   if(flipped){ ctx.translate(BOARD_W,BOARD_H); ctx.rotate(Math.PI); }
 
@@ -690,7 +696,7 @@ function drawBoard(){
       ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(pullX,pullY); ctx.stroke();
       ctx.setLineDash([]);
 
-      const aimLen=dist*2.2;
+      const aimLen=dist*1.1;
       const aimX=piece.x+Math.cos(shootAngle)*aimLen, aimY=piece.y+Math.sin(shootAngle)*aimLen;
       ctx.strokeStyle=powerColor; ctx.lineWidth=3;
       ctx.beginPath(); ctx.moveTo(piece.x,piece.y); ctx.lineTo(aimX,aimY); ctx.stroke();
@@ -749,6 +755,7 @@ function drawBoard(){
   if(aimInfo){
     ctx.save();
     ctx.scale(renderScale,renderScale);
+    ctx.translate(VIEW_MARGIN,VIEW_MARGIN);
     const gaugeW=160, gaugeH=16, gaugeX=BOARD_W/2-gaugeW/2, gaugeY=BOARD_H-30;
     ctx.fillStyle='rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,gaugeW,gaugeH,8):ctx.rect(gaugeX,gaugeY,gaugeW,gaugeH); ctx.fill();
