@@ -68,30 +68,34 @@ function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','
 
 // ---- 물리 상수 ----
 const BOARD_W=320, BOARD_H=480;
-// 가로로 누운 경첩(중앙 접히는 선의 좌/우 구간) - 선분 형태로 충돌 처리
+// 가로로 누운 경첩(중앙 접히는 선의 좌/우 구간, 기존 대비 폭 50% 축소) - 선분 형태로 충돌 처리
 const HINGES=[
-  {y:BOARD_H/2, x1:BOARD_W*0.14, x2:BOARD_W*0.38, half:4},
-  {y:BOARD_H/2, x1:BOARD_W*0.62, x2:BOARD_W*0.86, half:4}
+  {y:BOARD_H/2, x1:BOARD_W*0.20, x2:BOARD_W*0.32, half:4},
+  {y:BOARD_H/2, x1:BOARD_W*0.68, x2:BOARD_W*0.80, half:4}
 ];
 function closestPointOnSegment(px,py,y,x1,x2){
   const cx=Math.max(x1,Math.min(x2,px));
   return {x:cx, y};
 }
 const MAX_PULL=85;
-const BASE_LAUNCH_SPEED=11; // 최대로 당겼을 때, 파워배율 1.0인 말(궁) 기준 속도 (기존 대비 +30%)
+// 임펄스(F)/질량(m) 물리공식: v = (당긴 비율) × 기준속도 ÷ 질량. 무거운 말일수록 내가 쏠 때는 덜 나가지만,
+// 부딪혔을 때 운동량(질량×속도)이 커서 상대를 세게 밀어내요. 실제 알까기/당구와 비슷한 느낌이에요.
+const BASE_LAUNCH_SPEED=24;
 const FRICTION=0.95;
-const RESTITUTION=0.78;
+const RESTITUTION=0.62; // 너무 통통 튀지 않도록 반발을 줄임
 const STOP_THRESHOLD=3;
 const SIM_MAX_STEPS=600;
 
+// 질량은 반지름의 제곱(원판 면적)에 비례 - 실제 크기가 클수록 무거움. 졸(반지름13) 기준 1.0
+function massForRadius(r){ return (r*r)/(13*13); }
 const JANGGI_SET=[
-  {type:'궁',r:18,mass:2.3,power:1.0},
-  {type:'차',r:16,mass:1.9,power:0.85},
-  {type:'포',r:16,mass:1.8,power:0.8},
-  {type:'상',r:15,mass:1.6,power:0.7},
-  {type:'마',r:15,mass:1.5,power:0.65},
-  {type:'사',r:14,mass:1.3,power:0.5},
-  {type:'졸',r:13,mass:1.0,power:0.3}
+  {type:'궁',r:18},
+  {type:'차',r:16},
+  {type:'포',r:16},
+  {type:'상',r:15},
+  {type:'마',r:15},
+  {type:'사',r:14},
+  {type:'졸',r:13}
 ];
 function hanjaFor(type,seat){
   // seat 0 = 초(楚)군, seat 1 = 한(漢)군 - 실제 장기처럼 궁/병졸 한자가 서로 달라요
@@ -126,7 +130,7 @@ function layoutJanggiSeat(pieces,seat,nextId){
   function place(type,colIdx,row){
     const spec=specOf(type);
     pieces.push({
-      id:nextId(), seat, type, hanja:hanjaFor(type,seat), r:spec.r, mass:spec.mass, power:spec.power,
+      id:nextId(), seat, type, hanja:hanjaFor(type,seat), r:spec.r, mass:massForRadius(spec.r),
       x:cols[colIdx], y:rowY(row), vx:0, vy:0, alive:true, trail:[]
     });
   }
@@ -150,7 +154,7 @@ function layoutOmokSeat(pieces,seat,omokCount,nextId){
     const row=Math.floor(i/perRow), col=i%perRow;
     const x=perRow>1?marginX+col*spacingX:BOARD_W/2;
     const y=seat===0?(34+row*40):(BOARD_H-34-row*40);
-    pieces.push({id:nextId(), seat, type:'●', hanja:null, r:14, mass:1.0, power:0.7, x, y, vx:0, vy:0, alive:true, trail:[]});
+    pieces.push({id:nextId(), seat, type:'●', hanja:null, r:14, mass:massForRadius(14), x, y, vx:0, vy:0, alive:true, trail:[]});
   }
 }
 
@@ -222,7 +226,7 @@ function allSettled(pieces){
 }
 
 // ---- 방/유저 상태 ----
-let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0;
+let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0, lastPresenceAt=0;
 let pieces=[]; // 로컬 렌더/시뮬레이션용 (room.state.pieces에서 동기화)
 let simulating=false;
 let dragState=null; // {pieceId, startClientX, startClientY}
@@ -258,6 +262,11 @@ async function fetchRoom(){
     if(mySeat>=0&&now-lastHeartbeatAt>20000){
       lastHeartbeatAt=now;
       fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
+    if(mySeat>=0&&now-lastPresenceAt>5000){
+      lastPresenceAt=now;
+      const np=players.map((p,i)=>i===mySeat?{...p,lastSeenAt:now}:p);
+      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})}).catch(()=>{});
     }
   }catch(e){}
 }
@@ -411,14 +420,14 @@ function renderPlayerInfoBar(st){
   bar.innerHTML=`
     <div class="pi-side">
       <span class="pi-dot" style="background:#d64545;"></span>
-      <span class="pi-text"><div class="pi-name">${p0?esc(p0.username):'—'}${p0&&currentUser&&String(p0.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record">${rec(p0)}</div></span>
+      <span class="pi-text"><div class="pi-name">${p0?esc(p0.username):'—'}${p0&&currentUser&&String(p0.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record" id="recP0">${rec(p0)}</div></span>
     </div>
     <span class="pi-timer" id="timerP0">--</span>
     <span style="color:#8fa899;font-size:11px;">VS</span>
     <span class="pi-timer" id="timerP1">--</span>
     <div class="pi-side right">
       <span class="pi-dot" style="background:#2f4fa8;"></span>
-      <span class="pi-text"><div class="pi-name">${p1?esc(p1.username):'—'}${p1&&currentUser&&String(p1.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record">${rec(p1)}</div></span>
+      <span class="pi-text"><div class="pi-name">${p1?esc(p1.username):'—'}${p1&&currentUser&&String(p1.user_id)===String(currentUser.id)?' (나)':''}</div><div class="pi-record" id="recP1">${rec(p1)}</div></span>
     </div>
   `;
   updateTimerDisplay();
@@ -468,11 +477,14 @@ function renderGame(area,st){
 }
 
 let turnTickTimer=null, timeoutTriggeredKey=null;
+let opponentAwaySince=null, afkForfeitTriggeredKey=null;
+const AFK_THRESHOLD=10000, AFK_FORFEIT_AFTER=30000;
 function startTurnTicker(){
   if(turnTickTimer) return;
   turnTickTimer=setInterval(()=>{
     if(!room||room.status!=='playing'||!room.state||room.state.stage!=='playing') return;
     updateTimerDisplay();
+    checkOpponentAway();
     const st=room.state;
     const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
     if(elapsed>=20){
@@ -483,6 +495,38 @@ function startTurnTicker(){
       }
     }
   },250);
+}
+
+function checkOpponentAway(){
+  if(mySeat<0) return;
+  const oppSeat=mySeat===0?1:0;
+  const players=room.players||[];
+  const opp=players[oppSeat];
+  const recEl=document.getElementById(oppSeat===0?'recP0':'recP1');
+  if(!opp){ opponentAwaySince=null; return; }
+  const lastSeen=opp.lastSeenAt||0;
+  const silentFor=Date.now()-lastSeen;
+  if(silentFor>AFK_THRESHOLD){
+    if(!opponentAwaySince) opponentAwaySince=Date.now()-silentFor; // 처음 감지된 시점 역산
+    if(recEl) recEl.innerHTML='<span style="color:#ffb0b0;font-weight:700;">⏳ 자리비움</span>';
+    const awayDuration=Date.now()-opponentAwaySince;
+    if(awayDuration>=AFK_FORFEIT_AFTER){
+      const key=room.id+':'+room.move_count+':afk';
+      if(afkForfeitTriggeredKey!==key){
+        afkForfeitTriggeredKey=key;
+        declareForfeitWin();
+      }
+    }
+  } else {
+    opponentAwaySince=null;
+  }
+}
+
+async function declareForfeitWin(){
+  if(!room||!room.state||room.state.stage!=='playing') return;
+  const winnerSeat=mySeat;
+  await patchRoom({state:{...room.state, stage:'result', winner:winnerSeat, postHandAt:Date.now()}});
+  await settleMatch(winnerSeat);
 }
 async function autoPassTurn(){
   const st=room.state;
@@ -553,7 +597,7 @@ function setupBoardCanvas(){
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
       if(dist>6){
         const angle=Math.atan2(dy,dx);
-        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED*(piece.power||0.7);
+        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/piece.mass;
         const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
         fireShot(piece.id,vx,vy);
       }
@@ -563,6 +607,27 @@ function setupBoardCanvas(){
   }
   canvas.addEventListener('pointerup',onRelease);
   canvas.addEventListener('pointercancel',onRelease);
+}
+
+function drawJanggiGrid(ctx){
+  const marginX=20;
+  const colGap=(BOARD_W-marginX*2)/8;
+  const cols=[]; for(let i=0;i<9;i++) cols.push(marginX+colGap*i);
+  const marginY=22;
+  const rowGap=(BOARD_H-marginY*2)/9;
+  const rows=[]; for(let i=0;i<10;i++) rows.push(marginY+rowGap*i);
+
+  ctx.strokeStyle='rgba(60,30,10,0.5)'; ctx.lineWidth=1.2;
+  cols.forEach(x=>{ ctx.beginPath(); ctx.moveTo(x,rows[0]); ctx.lineTo(x,rows[rows.length-1]); ctx.stroke(); });
+  rows.forEach(y=>{ ctx.beginPath(); ctx.moveTo(cols[0],y); ctx.lineTo(cols[cols.length-1],y); ctx.stroke(); });
+
+  function palace(rowStart){
+    const x1=cols[3], x2=cols[5], y1=rows[rowStart], y2=rows[rowStart+2];
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x2,y1); ctx.lineTo(x1,y2); ctx.stroke();
+  }
+  palace(0);
+  palace(rows.length-3);
 }
 
 function drawOctagonPath(ctx,cx,cy,r){
@@ -592,6 +657,10 @@ function drawBoard(){
   ctx.fillStyle=g; ctx.fillRect(0,0,BOARD_W,BOARD_H);
   ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=6;
   ctx.strokeRect(3,3,BOARD_W-6,BOARD_H-6);
+
+  // 실제 장기판처럼 9x10 격자선 + 양쪽 궁성 대각선
+  drawJanggiGrid(ctx);
+
   // 경첩 접히는 선(중앙 가로줄) + 좌우 구간에 가로로 누운 경첩
   ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(0,BOARD_H/2); ctx.lineTo(BOARD_W,BOARD_H/2); ctx.stroke();
@@ -772,6 +841,8 @@ async function returnToLobby(){
   boardCanvasSetup=false;
   recordsLoadedFor=null;
   timeoutTriggeredKey=null;
+  opponentAwaySince=null;
+  afkForfeitTriggeredKey=null;
   if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
   await patchRoom({status:'waiting',players});
 }
@@ -780,14 +851,17 @@ async function returnToLobby(){
 async function leaveRoom(){
   try{
     if(mySeat>=0&&room){
-      const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
-      if(np.length===0){
-        await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+      if(room.status==='playing'){
+        // 게임 진행중엔 바로 방을 끝내지 않고, 상대방 쪽에서 자리비움->30초 후 기권패로 자연스럽게 처리돼요
       } else {
-        const patch={players:np};
-        if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
-        if(room.status==='playing'){ patch.status='finished'; }
-        await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+        const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+        if(np.length===0){
+          await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+        } else {
+          const patch={players:np};
+          if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+          await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+        }
       }
     }
   }catch(e){}
@@ -796,7 +870,7 @@ async function leaveRoom(){
 document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
 window.addEventListener('pagehide',()=>{
   try{
-    if(mySeat<0||!room) return;
+    if(mySeat<0||!room||room.status==='playing') return; // 게임중엔 자리비움 시스템에 맡김
     const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
     const patch={players:np};
     if(String(room.host_user_id)===String(currentUser.id)&&np.length){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
