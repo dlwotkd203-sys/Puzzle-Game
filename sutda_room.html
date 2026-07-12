@@ -1313,13 +1313,13 @@ function renderGame(wrap){
       const quarterCost=st.currentBet+quarterRaise-st.roundContrib[mySeat];
       const buttons=[];
       const myRemain=st.pointsSnapshot[mySeat]-st.contributions[mySeat];
-      if(canBbing) buttons.push(['삥',actBbing,unit]);
-      if(!locked) buttons.push(['따당',actDdadang, st.openingDone?st.currentBet*2-st.roundContrib[mySeat]:unit*2]);
-      if(canCall) buttons.push(['콜',actCall,st.currentBet-st.roundContrib[mySeat]]);
+      if(canBbing) buttons.push(['삥',()=>actBbing(),unit]);
+      if(!locked) buttons.push(['따당',()=>actDdadang(), st.openingDone?st.currentBet*2-st.roundContrib[mySeat]:unit*2]);
+      if(canCall) buttons.push(['콜',()=>actCall(),st.currentBet-st.roundContrib[mySeat]]);
       if(st.openingDone&&!locked) buttons.push(['하프',()=>actRaiseFrac(0.5),halfCost]);
       if(st.openingDone&&!locked) buttons.push(['쿼터',()=>actRaiseFrac(0.25),quarterCost]);
-      if(myRemain>0) buttons.push(['올인',actAllIn,myRemain]);
-      buttons.push(['다이',actDie,0]);
+      if(myRemain>0) buttons.push(['올인',()=>actAllIn(),myRemain]);
+      buttons.push(['다이',()=>actDie(),0]);
       buttons.forEach(([label,fn,cost])=>{
         const afford = label==='다이'?true:myAfford(cost);
         const btn=document.createElement('div');

@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>당구</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;background:#1f2e22;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;background:#1f2e22;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;flex-shrink:0;}
+.back-btn{background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:18px;padding:5px 11px;border-radius:10px;cursor:pointer;}
+.top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
+.center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
+#mainArea{flex:1;display:flex;flex-direction:column;min-height:0;}
+#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;min-height:0;}
+#boardCanvas{border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.4);touch-action:none;max-width:100%;max-height:100%;}
+#bottomBar{flex-shrink:0;padding:14px 16px 20px;text-align:center;}
+.lobby-wrap{padding:20px;color:#fff;}
+.player-row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+.player-name{font-weight:700;font-size:14px;}
+.ready-chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;background:rgba(255,255,255,0.15);}
+.ready-chip.on{background:#0f9e75;}
+.big-btn{width:100%;text-align:center;font-weight:800;font-size:15px;padding:14px;border-radius:16px;cursor:pointer;margin-top:10px;}
+.result-wrap{padding:30px 20px;text-align:center;color:#fff;}
+#playerInfoBar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;flex-shrink:0;gap:8px;}
+.pi-side{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+.pi-side.right{flex-direction:row-reverse;text-align:right;}
+.pi-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.pi-text{min-width:0;}
+.pi-name{color:#fff;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pi-record{color:#a8c4b2;font-size:10px;}
+.pi-timer{flex-shrink:0;font-weight:900;font-size:16px;color:#fff;background:rgba(255,255,255,0.12);border-radius:10px;padding:4px 10px;min-width:34px;text-align:center;}
+.pi-timer.active{background:#0f9e75;}
+.pi-timer.low{background:#c0392b;}
+.surrender-btn{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#e08080;background:rgba(224,128,128,0.12);padding:6px 14px;border-radius:10px;cursor:pointer;}
+.group-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">🎱 당구</span>
+  </div>
+  <div id="playerInfoBar" style="display:none;"></div>
+  <div id="mainArea"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const STARTING_POINTS=10000;
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const params=new URLSearchParams(location.search);
+const roomId=params.get('id');
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+// ---- 물리/테이블 상수 ----
+const TABLE_W=280, TABLE_H=520;
+const BALL_R=9.5;
+const POCKETS=[
+  {x:16,y:16,r:16},{x:TABLE_W-16,y:16,r:16},
+  {x:15,y:TABLE_H/2,r:14},{x:TABLE_W-15,y:TABLE_H/2,r:14},
+  {x:16,y:TABLE_H-16,r:16},{x:TABLE_W-16,y:TABLE_H-16,r:16}
+];
+const MAX_PULL=90;
+const BASE_LAUNCH_SPEED=22;
+const FRICTION=0.98;
+const WALL_RESTITUTION=0.82;
+const BALL_RESTITUTION=0.96;
+const SIM_MAX_STEPS=700;
+
+const BALL_COLORS={1:'#e6c619',2:'#1c4fd6',3:'#d61c1c',4:'#7a1cd6',5:'#e07b1a',6:'#1a8a3c',7:'#7a2b1a',8:'#161616'};
+function ballLabel(num){ return num===0?'':String(num); }
+
+function rackBalls(){
+  const r=BALL_R;
+  const footX=TABLE_W/2, footY=TABLE_H*0.24;
+  const rowSpacing=r*Math.sqrt(3)+0.4;
+  const positions=[];
+  for(let row=0;row<5;row++){
+    for(let col=0;col<=row;col++){
+      positions.push({x:footX+(col-row/2)*(r*2+0.5), y:footY+row*rowSpacing});
+    }
+  }
+  const eightIdx=4; // 3번째 줄(row2) 가운데
+  const others=[]; for(let n=1;n<=15;n++) if(n!==8) others.push(n);
+  for(let i=others.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [others[i],others[j]]=[others[j],others[i]]; }
+  const balls=[]; let oi=0;
+  positions.forEach((pos,idx)=>{
+    const num=idx===eightIdx?8:others[oi++];
+    const type=num===8?'eight':(num<=7?'solid':'stripe');
+    balls.push({id:num,num,type,x:pos.x,y:pos.y,vx:0,vy:0,r,alive:true,trail:[]});
+  });
+  balls.push({id:0,num:0,type:'cue',x:TABLE_W/2,y:TABLE_H*0.8,vx:0,vy:0,r,alive:true,trail:[]});
+  return balls;
+}
+
+// ---- 결정론적 물리 스텝 ----
+function stepPhysics(balls){
+  balls.forEach(b=>{
+    if(!b.alive) return;
+    const speed=Math.hypot(b.vx,b.vy);
+    if(speed>1.5){
+      if(!b.trail) b.trail=[];
+      b.trail.push({x:b.x,y:b.y});
+      if(b.trail.length>6) b.trail.shift();
+    } else if(b.trail&&b.trail.length){ b.trail.shift(); }
+    b.x+=b.vx; b.y+=b.vy;
+    b.vx*=FRICTION; b.vy*=FRICTION;
+    if(Math.hypot(b.vx,b.vy)<0.06){ b.vx=0; b.vy=0; }
+  });
+  // 공-공 충돌
+  for(let i=0;i<balls.length;i++){
+    for(let j=i+1;j<balls.length;j++){
+      const a=balls[i], b=balls[j];
+      if(!a.alive||!b.alive) continue;
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const dist=Math.hypot(dx,dy);
+      const minDist=a.r+b.r;
+      if(dist<minDist&&dist>0.0001){
+        const overlap=minDist-dist;
+        const nx=dx/dist, ny=dy/dist;
+        a.x-=nx*overlap*0.5; a.y-=ny*overlap*0.5;
+        b.x+=nx*overlap*0.5; b.y+=ny*overlap*0.5;
+        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+        const velAlongNormal=rvx*nx+rvy*ny;
+        if(velAlongNormal<0){
+          const jImp=-(1+BALL_RESTITUTION)*velAlongNormal/2;
+          a.vx-=jImp*nx; a.vy-=jImp*ny;
+          b.vx+=jImp*nx; b.vy+=jImp*ny;
+        }
+      }
+    }
+  }
+  // 쿠션(벽) 튕김
+  balls.forEach(b=>{
+    if(!b.alive) return;
+    if(b.x-b.r<0){ b.x=b.r; b.vx=-b.vx*WALL_RESTITUTION; }
+    if(b.x+b.r>TABLE_W){ b.x=TABLE_W-b.r; b.vx=-b.vx*WALL_RESTITUTION; }
+    if(b.y-b.r<0){ b.y=b.r; b.vy=-b.vy*WALL_RESTITUTION; }
+    if(b.y+b.r>TABLE_H){ b.y=TABLE_H-b.r; b.vy=-b.vy*WALL_RESTITUTION; }
+  });
+  // 포켓 판정
+  balls.forEach(b=>{
+    if(!b.alive) return;
+    POCKETS.forEach(p=>{
+      if(Math.hypot(b.x-p.x,b.y-p.y)<p.r){ b.alive=false; b.pocketedNow=true; }
+    });
+  });
+}
+function allSettled(balls){
+  return balls.every(b=>!b.alive||(Math.abs(b.vx)<0.001&&Math.abs(b.vy)<0.001));
+}
+
+// ---- 방/유저 상태 ----
+let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0, lastPresenceAt=0;
+let balls=[];
+let simulating=false;
+let dragState=null;
+let channel=null, channelReady=false;
+
+function safeSend(payload){
+  if(!channelReady||!channel) return;
+  try{ const res=channel.send(payload); if(res&&res.catch) res.catch(()=>{}); }catch(e){}
+}
+
+async function ensurePoints(){
+  if(!currentUser) return null;
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${currentUser.id}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(!data.length){
+    const created={user_id:currentUser.id,username:currentUser.username,points:STARTING_POINTS};
+    await fetch(`${SUPABASE_URL}/rest/v1/billiards_points`,{method:'POST',headers:jheaders(),body:JSON.stringify(created)});
+    return created;
+  }
+  return data[0];
+}
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('mainArea').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    if(!simulating) render();
+    const now=Date.now();
+    if(mySeat>=0&&now-lastHeartbeatAt>20000){
+      lastHeartbeatAt=now;
+      fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
+    if(mySeat>=0&&now-lastPresenceAt>5000){
+      lastPresenceAt=now;
+      const np=players.map((p,i)=>i===mySeat?{...p,lastSeenAt:now}:p);
+      fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})}).catch(()=>{});
+    }
+    if(room.status==='waiting'){ maybeStartGame(); }
+    if(isVsCom()) maybeRunComTurn();
+  }catch(e){}
+}
+function isVsCom(){ return !!(room&&((room.players||[]).some(p=>p.isCom)||room.vs_com)); }
+
+function render(){
+  const area=document.getElementById('mainArea');
+  const infoBar=document.getElementById('playerInfoBar');
+  document.getElementById('roomTitle').textContent='🎱 '+esc(room.host_username)+'님의 방';
+  if(room.status==='waiting'){
+    infoBar.style.display='none';
+    renderLobby(area);
+  } else if(room.status==='playing'){
+    const st=room.state;
+    if(st.stage==='result'){
+      infoBar.style.display='none';
+      renderResult(area,st);
+    } else {
+      infoBar.style.display='flex';
+      renderGame(area,st);
+    }
+  }
+}
+
+// ---- 로비(대기실) ----
+function renderLobby(area){
+  const players=room.players||[];
+  const isIn=mySeat>=0;
+  const myReady=isIn&&players[mySeat].ready;
+  let html='<div class="lobby-wrap">';
+  html+='<div style="text-align:center;font-size:40px;margin-bottom:6px;">🎱</div>';
+  html+='<div style="text-align:center;color:#a8c4b2;font-size:12px;margin-bottom:14px;">8볼 · 1:1 대전</div>';
+  players.forEach((p,i)=>{
+    html+=`<div class="player-row"><span class="player-name">${i===0?'🔴':'🔵'} ${esc(p.username)}${currentUser&&String(p.user_id)===String(currentUser.id)?' (나)':''}</span><span class="ready-chip ${p.ready?'on':''}">${p.ready?'준비완료':'대기중'}</span></div>`;
+  });
+  for(let i=players.length;i<2;i++){
+    html+='<div class="player-row" style="opacity:0.4;"><span class="player-name">— 빈 자리 —</span></div>';
+  }
+  if(isIn){
+    html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#555':'#0f9e75'};color:#fff;">${myReady?'준비 취소':'준비완료'}</div>`;
+  }
+  html+='</div>';
+  area.innerHTML=html;
+  if(isIn){
+    document.getElementById('readyBtn').addEventListener('click',async()=>{
+      const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+      await patchRoom({players:np});
+    });
+  }
+}
+
+async function patchRoom(patch){
+  let attempts=0;
+  while(attempts<6){
+    attempts++;
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({...patch,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; return true; }
+    await fetchRoom();
+  }
+  return false;
+}
+
+let startTriggeredKey=null;
+async function maybeStartGame(){
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const players=room.players||[];
+  if(players.length<2||!players.every(p=>p.ready)) return;
+  const key=room.id+':'+room.move_count;
+  if(startTriggeredKey===key) return;
+  startTriggeredKey=key;
+  const initBalls=rackBalls();
+  const now=Date.now();
+  const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
+  await patchRoom({
+    status:'playing', players:freshPlayers,
+    state:{ balls:initBalls, turn:0, stage:'playing', groups:{0:null,1:null}, winner:null, postHandAt:null, turnStartedAt:now, foulMsg:null }
+  });
+}
+
+// ---- 실시간 채널 ----
+async function joinChannel(){
+  channel=sb.channel('billiards-room-'+roomId, { config:{ broadcast:{ self:false } } });
+  channel.on('broadcast', {event:'shot'}, ({payload})=>{
+    if(simulating) return;
+    if(payload.seat===mySeat) return;
+    const ball=balls.find(b=>b.id===payload.ballId);
+    if(!ball) return;
+    ball.vx=payload.vx; ball.vy=payload.vy;
+    runSimulation(()=>{});
+  });
+  await new Promise(resolve=>{
+    channel.subscribe(status=>{ if(status==='SUBSCRIBED'){ channelReady=true; resolve(); } });
+  });
+}
+
+// ---- 플레이어 정보바 ----
+let playerRecords={};
+let recordsLoadedFor=null;
+async function loadPlayerRecords(){
+  const players=room.players||[];
+  const key=players.map(p=>p.user_id).join(',');
+  if(recordsLoadedFor===key) return;
+  recordsLoadedFor=key;
+  try{
+    const results=await Promise.all(players.map(p=>
+      p.isCom? Promise.resolve([{wins:0,losses:0}]) :
+      fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${p.user_id}&select=wins,losses`,{headers:headers()}).then(r=>r.json())
+    ));
+    players.forEach((p,i)=>{ playerRecords[p.user_id]=(results[i]&&results[i][0])||{wins:0,losses:0}; });
+    renderPlayerInfoBar(room.state);
+  }catch(e){}
+}
+function groupLabel(g){ return g==='solid'?'솔리드':g==='stripe'?'스트라이프':'미정'; }
+function renderPlayerInfoBar(st){
+  const players=room.players||[];
+  const p0=players[0], p1=players[1];
+  const rec=p=>{ const r=p&&playerRecords[p.user_id]; return r?(r.wins||0)+'승 '+(r.losses||0)+'패':'전적 없음'; };
+  const grp=seat=>{ const g=st&&st.groups&&st.groups[seat]; return g?`<span class="group-badge" style="background:${g==='solid'?'#e6c619':'#eee'};color:${g==='solid'?'#3a2c00':'#333'};">${groupLabel(g)}</span>`:''; };
+  const bar=document.getElementById('playerInfoBar');
+  bar.innerHTML=`
+    <div class="pi-side">
+      <span class="pi-dot" style="background:#d64545;"></span>
+      <span class="pi-text"><div class="pi-name">${p0?esc(p0.username):'—'}${p0&&currentUser&&String(p0.user_id)===String(currentUser.id)?' (나)':''}${grp(0)}</div><div class="pi-record" id="recP0">${rec(p0)}</div></span>
+    </div>
+    <span class="pi-timer" id="timerP0">--</span>
+    <span style="color:#8fa899;font-size:11px;">VS</span>
+    <span class="pi-timer" id="timerP1">--</span>
+    <div class="pi-side right">
+      <span class="pi-dot" style="background:#2f4fa8;"></span>
+      <span class="pi-text"><div class="pi-name">${p1?esc(p1.username):'—'}${p1&&currentUser&&String(p1.user_id)===String(currentUser.id)?' (나)':''}${grp(1)}</div><div class="pi-record" id="recP1">${rec(p1)}</div></span>
+    </div>
+  `;
+  updateTimerDisplay();
+}
+function updateTimerDisplay(){
+  if(!room||!room.state) return;
+  const st=room.state;
+  const t0=document.getElementById('timerP0'), t1=document.getElementById('timerP1');
+  if(!t0||!t1) return;
+  const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+  const remain=Math.max(0,Math.ceil(25-elapsed));
+  [[0,t0],[1,t1]].forEach(([seat,el])=>{
+    if(st.turn===seat&&!simulating){
+      el.textContent=remain;
+      el.className='pi-timer active'+(remain<=5?' low':'');
+    } else {
+      el.textContent=seat===st.turn?'⏸':'-';
+      el.className='pi-timer';
+    }
+  });
+}
+
+// ---- 게임 화면(캔버스 보드) ----
+let boardCanvasSetup=false;
+function renderGame(area,st){
+  if(!document.getElementById('boardCanvas')){
+    area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas></div><div id="bottomBar"></div>`;
+    boardCanvasSetup=false;
+  }
+  loadPlayerRecords();
+  renderPlayerInfoBar(st);
+  let bottomMsg;
+  if(st.stage==='ball_in_hand'){
+    bottomMsg = st.turn===mySeat ? '큐볼을 원하는 위치에 탭해서 놓아주세요' : '상대가 큐볼 위치를 정하고 있어요';
+  } else {
+    bottomMsg = st.turn===mySeat&&!simulating ? '큐볼을 뒤로 당겼다 놓으면 발사돼요' : (simulating?'굴러가는 중...':'상대가 준비하고 있어요');
+  }
+  document.getElementById('bottomBar').innerHTML =
+    `<div style="color:#cfe9d8;font-size:12px;">${bottomMsg}</div>`+
+    (st.foulMsg?`<div style="color:#ffb0b0;font-weight:700;font-size:12px;margin-top:4px;">${esc(st.foulMsg)}</div>`:'')+
+    '<div class="surrender-btn" id="surrenderBtn">🏳️ 항복하기</div>';
+  const sb2=document.getElementById('surrenderBtn');
+  if(sb2) sb2.addEventListener('click',surrender);
+  startTurnTicker();
+
+  if(!simulating){
+    balls=st.balls.map(b=>({...b,trail:[]}));
+  }
+  if(!boardCanvasSetup){
+    setupBoardCanvas();
+    boardCanvasSetup=true;
+  }
+  drawBoard();
+}
+
+let renderScale=1;
+function isFlipped(){ return mySeat===0; }
+function toLogical(bx,by){ return isFlipped()?{x:TABLE_W-bx,y:TABLE_H-by}:{x:bx,y:by}; }
+const VIEW_MARGIN=20;
+const TOTAL_W=TABLE_W+VIEW_MARGIN*2, TOTAL_H=TABLE_H+VIEW_MARGIN*2;
+
+function resizeCanvas(){
+  const canvas=document.getElementById('boardCanvas');
+  if(!canvas) return;
+  const topBarH=(document.querySelector('.top-bar')||{offsetHeight:0}).offsetHeight;
+  const infoBarH=(document.getElementById('playerInfoBar')||{offsetHeight:0}).offsetHeight;
+  const bottomBarH=(document.getElementById('bottomBar')||{offsetHeight:0}).offsetHeight;
+  const appW=Math.min(document.getElementById('app').clientWidth,430);
+  const availW=appW-16;
+  const availH=window.innerHeight-topBarH-infoBarH-bottomBarH-16;
+  const scale=Math.max(0.1,Math.min(availW/TOTAL_W,availH/TOTAL_H));
+  const dpr=window.devicePixelRatio||1;
+  renderScale=scale*dpr;
+  canvas.style.width=Math.floor(TOTAL_W*scale)+'px';
+  canvas.style.height=Math.floor(TOTAL_H*scale)+'px';
+  canvas.width=Math.round(TOTAL_W*renderScale);
+  canvas.height=Math.round(TOTAL_H*renderScale);
+  drawBoard();
+}
+
+function ballAt(bx,by){
+  return balls.find(b=>b.alive&&Math.hypot(b.x-bx,b.y-by)<=b.r+6);
+}
+
+function setupBoardCanvas(){
+  const canvas=document.getElementById('boardCanvas');
+  window.addEventListener('resize',resizeCanvas);
+  requestAnimationFrame(resizeCanvas);
+
+  canvas.addEventListener('pointerdown',e=>{
+    if(!room||!room.state||room.state.turn!==mySeat||simulating) return;
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
+    const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
+
+    if(room.state.stage==='ball_in_hand'){
+      placeCueBall(raw.x,raw.y);
+      return;
+    }
+    const cue=balls.find(b=>b.id===0&&b.alive);
+    if(!cue) return;
+    if(Math.hypot(cue.x-raw.x,cue.y-raw.y)>cue.r+10) return; // 큐볼 근처를 눌러야 조준 시작
+    canvas.setPointerCapture(e.pointerId);
+    dragState={curBX:raw.x, curBY:raw.y, pointerId:e.pointerId};
+    drawBoard();
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!dragState||e.pointerId!==dragState.pointerId) return;
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
+    const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
+    dragState.curBX=raw.x; dragState.curBY=raw.y;
+    drawBoard();
+  });
+  function onRelease(e){
+    if(!dragState||(e.pointerId!==undefined&&e.pointerId!==dragState.pointerId)) return;
+    const cue=balls.find(b=>b.id===0&&b.alive);
+    if(cue){
+      let dx=dragState.curBX-cue.x, dy=dragState.curBY-cue.y;
+      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
+      if(dist>6){
+        const angle=Math.atan2(dy,dx);
+        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED;
+        const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
+        fireShot(vx,vy);
+      }
+    }
+    dragState=null;
+    drawBoard();
+  }
+  canvas.addEventListener('pointerup',onRelease);
+  canvas.addEventListener('pointercancel',onRelease);
+}
+
+async function placeCueBall(x,y){
+  x=Math.max(BALL_R+2,Math.min(TABLE_W-BALL_R-2,x));
+  y=Math.max(BALL_R+2,Math.min(TABLE_H-BALL_R-2,y));
+  const overlap=balls.some(b=>b.alive&&b.id!==0&&Math.hypot(b.x-x,b.y-y)<b.r+BALL_R+1);
+  if(overlap) return;
+  const cue=balls.find(b=>b.id===0);
+  cue.x=x; cue.y=y; cue.vx=0; cue.vy=0; cue.alive=true;
+  drawBoard();
+  const cleanBalls=balls.map(({trail,...rest})=>rest);
+  await patchRoom({state:{...room.state, balls:cleanBalls, stage:'playing', foulMsg:null}});
+}
+
+function drawBall(ctx,b){
+  ctx.save();
+  ctx.translate(b.x,b.y);
+  ctx.beginPath(); ctx.arc(0,0,b.r,0,Math.PI*2);
+  if(b.type==='cue'){
+    ctx.fillStyle='#f5f5f0'; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1; ctx.stroke();
+  } else if(b.type==='eight'){
+    ctx.fillStyle='#161616'; ctx.fill();
+  } else {
+    const c=BALL_COLORS[b.num]||'#999';
+    if(b.type==='stripe'){
+      ctx.fillStyle='#f5f5f0'; ctx.fill();
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle=c;
+      ctx.fillRect(-b.r,-b.r*0.55,b.r*2,b.r*1.1);
+      ctx.restore();
+    } else {
+      ctx.fillStyle=c; ctx.fill();
+    }
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=1; ctx.stroke();
+  if(b.type!=='cue'){
+    ctx.beginPath(); ctx.arc(0,0,b.r*0.55,0,Math.PI*2);
+    ctx.fillStyle='#f5f5f0'; ctx.fill();
+    ctx.fillStyle='#161616'; ctx.font='bold '+(b.r*0.7)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(ballLabel(b.num),0,1);
+  }
+  // 하이라이트
+  ctx.beginPath(); ctx.arc(-b.r*0.3,-b.r*0.35,b.r*0.28,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fill();
+  ctx.restore();
+}
+
+function drawBoard(){
+  const canvas=document.getElementById('boardCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.scale(renderScale,renderScale);
+  ctx.fillStyle='#1a2a1e';
+  ctx.fillRect(0,0,TOTAL_W,TOTAL_H);
+  ctx.translate(VIEW_MARGIN,VIEW_MARGIN);
+  const flipped=isFlipped();
+  if(flipped){ ctx.translate(TABLE_W,TABLE_H); ctx.rotate(Math.PI); }
+
+  // 테이블 천
+  const g=ctx.createLinearGradient(0,0,0,TABLE_H);
+  g.addColorStop(0,'#1f7a4d'); g.addColorStop(1,'#186340');
+  ctx.fillStyle=g; ctx.fillRect(0,0,TABLE_W,TABLE_H);
+  // 레일(쿠션)
+  ctx.strokeStyle='#5a3a1e'; ctx.lineWidth=10;
+  ctx.strokeRect(5,5,TABLE_W-10,TABLE_H-10);
+
+  // 포켓
+  POCKETS.forEach(p=>{
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle='#0a0a0a'; ctx.fill();
+  });
+
+  let aimInfo=null;
+  if(dragState){
+    const cue=balls.find(b=>b.id===0&&b.alive);
+    if(cue){
+      let dx=dragState.curBX-cue.x, dy=dragState.curBY-cue.y;
+      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
+      const pct=dist/MAX_PULL;
+      const angle=Math.atan2(dy,dx);
+      const pullX=cue.x+Math.cos(angle)*dist, pullY=cue.y+Math.sin(angle)*dist;
+      const shootAngle=angle+Math.PI;
+      const powerColor = pct<0.5?'rgba(120,220,120,0.85)':pct<0.8?'rgba(255,210,80,0.9)':'rgba(255,80,80,0.95)';
+
+      ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=2.5; ctx.setLineDash([6,5]);
+      ctx.beginPath(); ctx.moveTo(cue.x,cue.y); ctx.lineTo(pullX,pullY); ctx.stroke();
+      ctx.setLineDash([]);
+
+      const aimLen=Math.max(TABLE_W,TABLE_H); // 조준선은 길게(당구식 가이드라인)
+      const aimX=cue.x+Math.cos(shootAngle)*aimLen, aimY=cue.y+Math.sin(shootAngle)*aimLen;
+      ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([3,4]);
+      ctx.beginPath(); ctx.moveTo(cue.x,cue.y); ctx.lineTo(aimX,aimY); ctx.stroke();
+      ctx.setLineDash([]);
+
+      let deg=Math.round(shootAngle*180/Math.PI); deg=((deg%360)+360)%360;
+      aimInfo={pct,powerColor,deg};
+    }
+  }
+
+  // 잔상
+  balls.forEach(b=>{
+    if(!b.alive||!b.trail||!b.trail.length) return;
+    b.trail.forEach((t,i)=>{
+      const alpha=(i+1)/(b.trail.length+1)*0.3;
+      ctx.beginPath(); ctx.arc(t.x,t.y,b.r*0.85,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,'+alpha+')'; ctx.fill();
+    });
+  });
+
+  balls.forEach(b=>{ if(b.alive) drawBall(ctx,b); });
+
+  // 큐볼 하이라이트(내 턴일 때)
+  const cue=balls.find(b=>b.id===0&&b.alive);
+  if(cue&&room&&room.state&&room.state.turn===mySeat&&!simulating&&room.state.stage!=='ball_in_hand'){
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cue.x,cue.y,cue.r+3,0,Math.PI*2); ctx.stroke();
+  }
+  // ball-in-hand 안내
+  if(room&&room.state&&room.state.stage==='ball_in_hand'&&room.state.turn===mySeat){
+    ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('탭해서 큐볼 놓기',TABLE_W/2,TABLE_H/2);
+  }
+
+  ctx.restore();
+
+  if(aimInfo){
+    ctx.save();
+    ctx.scale(renderScale,renderScale);
+    ctx.translate(VIEW_MARGIN,VIEW_MARGIN);
+    const gaugeW=150,gaugeH=15,gaugeX=TABLE_W/2-gaugeW/2,gaugeY=TABLE_H-28;
+    ctx.fillStyle='rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,gaugeW,gaugeH,8):ctx.rect(gaugeX,gaugeY,gaugeW,gaugeH); ctx.fill();
+    ctx.fillStyle=aimInfo.powerColor;
+    const fillW=Math.max(gaugeH,gaugeW*aimInfo.pct);
+    ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,fillW,gaugeH,8):ctx.rect(gaugeX,gaugeY,fillW,gaugeH); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect?ctx.roundRect(gaugeX,gaugeY,gaugeW,gaugeH,8):ctx.rect(gaugeX,gaugeY,gaugeW,gaugeH); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('파워 '+Math.round(aimInfo.pct*100)+'% · '+aimInfo.deg+'°',gaugeX+gaugeW/2,gaugeY+gaugeH/2+1);
+    ctx.restore();
+  }
+}
+
+function fireShot(vx,vy){
+  const cue=balls.find(b=>b.id===0);
+  if(!cue) return;
+  cue.vx=vx; cue.vy=vy;
+  safeSend({type:'broadcast',event:'shot',payload:{ballId:0,vx,vy,seat:mySeat}});
+  runSimulation(()=>{ finishTurnAfterShot(); });
+}
+function runSimulation(onDone){
+  simulating=true;
+  let steps=0;
+  function frame(){
+    stepPhysics(balls);
+    steps++;
+    drawBoard();
+    if(allSettled(balls)||steps>=SIM_MAX_STEPS){
+      simulating=false;
+      onDone();
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// 이번 샷으로 새로 포켓된 공들을 기준으로 결과 판정
+function evaluateOutcome(beforeBalls,shooterSeat,groups){
+  const newlyPocketed=balls.filter(b=>b.pocketedNow);
+  balls.forEach(b=>{ delete b.pocketedNow; });
+  const cueScratched=newlyPocketed.some(b=>b.num===0);
+  const eightPocketed=newlyPocketed.some(b=>b.num===8);
+  const oppSeat=shooterSeat===0?1:0;
+  let newGroups={...groups};
+  let winner=null, foulMsg=null, keepTurn=false;
+
+  if(eightPocketed){
+    const myGroup=newGroups[shooterSeat];
+    const myGroupBallsLeft=myGroup? balls.some(b=>b.alive&&b.type===myGroup) : true; // 그룹 미배정이면 무조건 이른 것으로 취급
+    if(!myGroup||myGroupBallsLeft||cueScratched){
+      winner=oppSeat; foulMsg='8번 공을 잘못 넣어서 패배!';
+    } else {
+      winner=shooterSeat; foulMsg=null;
+    }
+  } else {
+    // 그룹 미배정이면, 이번 샷으로 넣은(스크래치 제외) 첫 번째 공 종류로 배정
+    if(!newGroups[0]&&!newGroups[1]){
+      const firstGroupBall=newlyPocketed.find(b=>b.type==='solid'||b.type==='stripe');
+      if(firstGroupBall){
+        newGroups={...newGroups,[shooterSeat]:firstGroupBall.type,[oppSeat]:firstGroupBall.type==='solid'?'stripe':'solid'};
+      }
+    }
+    const myGroup=newGroups[shooterSeat];
+    const pocketedMine=myGroup?newlyPocketed.some(b=>b.type===myGroup):newlyPocketed.some(b=>b.type==='solid'||b.type==='stripe');
+    if(cueScratched){
+      foulMsg='스크래치! 상대에게 프리볼(볼인핸드)이 넘어가요';
+      keepTurn=false;
+    } else if(pocketedMine){
+      keepTurn=true;
+    } else {
+      keepTurn=false;
+    }
+  }
+  return {newGroups,winner,foulMsg,keepTurn,cueScratched};
+}
+
+async function finishTurnAfterShot(){
+  const st=room.state;
+  const shooterSeat=st.turn;
+  const result=evaluateOutcome(st.balls,shooterSeat,st.groups);
+  const cleanBalls=balls.map(({trail,...rest})=>rest);
+  let newState;
+  if(result.winner!==null){
+    newState={...st,balls:cleanBalls,groups:result.newGroups,stage:'result',winner:result.winner,foulMsg:result.foulMsg,postHandAt:Date.now()};
+    await settleMatch(result.winner);
+  } else if(result.cueScratched){
+    // 큐볼을 다시 테이블 위에 올려놓고(임시 위치), 상대가 볼인핸드로 재배치
+    const cue=cleanBalls.find(b=>b.id===0);
+    if(cue){ cue.alive=true; cue.x=TABLE_W/2; cue.y=TABLE_H/2; cue.vx=0; cue.vy=0; }
+    newState={...st,balls:cleanBalls,groups:result.newGroups,turn:shooterSeat===0?1:0,stage:'ball_in_hand',foulMsg:result.foulMsg,turnStartedAt:Date.now()};
+  } else {
+    newState={...st,balls:cleanBalls,groups:result.newGroups,turn:result.keepTurn?shooterSeat:(shooterSeat===0?1:0),stage:'playing',foulMsg:result.foulMsg,turnStartedAt:Date.now()};
+  }
+  await patchRoom({state:newState});
+}
+
+async function settleMatch(winnerSeat){
+  const players=room.players||[];
+  const winP=players[winnerSeat], loseP=players[winnerSeat===0?1:0];
+  if(!winP||!loseP) return;
+  const vsCom=isVsCom();
+  const winPts=vsCom?75:300;
+  const losePts=vsCom?25:100;
+  try{
+    if(!winP.isCom){
+      const wr=await fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${winP.user_id}&select=*`,{headers:headers()});
+      const wd=(await wr.json())[0];
+      if(wd){ await fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${winP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:(wd.points||0)+winPts,wins:(wd.wins||0)+1})}); }
+    }
+    if(!loseP.isCom){
+      const lr=await fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${loseP.user_id}&select=*`,{headers:headers()});
+      const ld=(await lr.json())[0];
+      if(ld){ await fetch(`${SUPABASE_URL}/rest/v1/billiards_points?user_id=eq.${loseP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:Math.max(0,(ld.points||0)-losePts),losses:(ld.losses||0)+1})}); }
+    }
+  }catch(e){ console.error('점수 반영 실패:',e); }
+}
+
+// ---- 턴 타이머 + 자리비움 감지 ----
+let turnTickTimer=null, timeoutTriggeredKey=null;
+let opponentAwaySince=null, afkForfeitTriggeredKey=null;
+const AFK_THRESHOLD=10000, AFK_FORFEIT_AFTER=30000;
+function startTurnTicker(){
+  if(turnTickTimer) return;
+  turnTickTimer=setInterval(()=>{
+    if(!room||room.status!=='playing'||!room.state||room.state.stage==='result') return;
+    updateTimerDisplay();
+    if(isVsCom()) return; // COM전은 자리비움/타임아웃 없음
+    checkOpponentAway();
+    const st=room.state;
+    const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+    if(elapsed>=25&&st.stage==='playing'){
+      const key=room.id+':'+room.move_count+':timeout';
+      if(timeoutTriggeredKey!==key&&st.turn===mySeat&&!simulating){
+        timeoutTriggeredKey=key;
+        autoPassTurn();
+      }
+    }
+  },250);
+}
+async function autoPassTurn(){
+  const st=room.state;
+  await patchRoom({state:{...st, turn:st.turn===0?1:0, turnStartedAt:Date.now()}});
+}
+function checkOpponentAway(){
+  if(mySeat<0) return;
+  const oppSeat=mySeat===0?1:0;
+  const players=room.players||[];
+  const opp=players[oppSeat];
+  const recEl=document.getElementById(oppSeat===0?'recP0':'recP1');
+  if(!opp){ opponentAwaySince=null; return; }
+  if(!opp.lastSeenAt){ opponentAwaySince=null; return; }
+  const silentFor=Date.now()-opp.lastSeenAt;
+  if(silentFor>AFK_THRESHOLD){
+    if(!opponentAwaySince) opponentAwaySince=Date.now()-silentFor;
+    if(recEl) recEl.innerHTML='<span style="color:#ffb0b0;font-weight:700;">⏳ 자리비움</span>';
+    if(Date.now()-opponentAwaySince>=AFK_FORFEIT_AFTER){
+      const key=room.id+':'+room.move_count+':afk';
+      if(afkForfeitTriggeredKey!==key){ afkForfeitTriggeredKey=key; declareForfeitWin(); }
+    }
+  } else { opponentAwaySince=null; }
+}
+async function declareForfeitWin(){
+  if(!room||!room.state||room.state.stage==='result') return;
+  await patchRoom({state:{...room.state, stage:'result', winner:mySeat, postHandAt:Date.now()}});
+  await settleMatch(mySeat);
+}
+async function surrender(){
+  if(!confirm('정말 항복하시겠어요?')) return;
+  const winnerSeat=mySeat===0?1:0;
+  await patchRoom({state:{...room.state, stage:'result', winner:winnerSeat, postHandAt:Date.now()}});
+  await settleMatch(winnerSeat);
+}
+
+// ---- 결과 화면 ----
+function renderResult(area,st){
+  const players=room.players||[];
+  const iWon=st.winner===mySeat;
+  const winP=players[st.winner];
+  area.innerHTML=`
+    <div class="result-wrap">
+      <div style="font-size:44px;margin-bottom:10px;">${iWon?'🏆':'🎱'}</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:6px;">${winP?esc(winP.username):''}님 승리!</div>
+      <div style="font-size:13px;color:#cfe9d8;margin-bottom:20px;">${esc(st.foulMsg||(iWon?'8번 공을 깔끔하게 넣었어요':'상대가 먼저 8번 공을 넣었어요'))}</div>
+      <div class="big-btn" id="backToLobbyBtn" style="background:#0f9e75;color:#fff;">방으로 돌아가기</div>
+    </div>
+  `;
+  document.getElementById('backToLobbyBtn').addEventListener('click',returnToLobby);
+}
+async function returnToLobby(){
+  const players=(room.players||[]).map(p=>({...p,ready:p.isCom?true:false}));
+  startTriggeredKey=null;
+  boardCanvasSetup=false;
+  recordsLoadedFor=null;
+  timeoutTriggeredKey=null;
+  opponentAwaySince=null;
+  afkForfeitTriggeredKey=null;
+  comThinking=false;
+  if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
+  await patchRoom({status:'waiting',players});
+}
+
+// ---- 컴퓨터(COM) 봇 - 여러 각도/세기를 미리 물리로 시뮬레이션 해보고 제일 나은 샷을 골라요 ----
+let comThinking=false;
+function comSeatIndices(){
+  const players=room.players||[];
+  return players.map((p,i)=>p.isCom?i:-1).filter(i=>i>=0);
+}
+function simulateCandidate(baseBalls,vx,vy){
+  const sim=baseBalls.map(b=>({...b}));
+  const cue=sim.find(b=>b.id===0);
+  if(!cue) return sim;
+  cue.vx=vx; cue.vy=vy;
+  let steps=0;
+  while(!allSettled(sim)&&steps<400){ stepPhysics(sim); steps++; }
+  return sim;
+}
+function scoreComOutcome(before,after,comSeat,groups){
+  const oppSeat=comSeat===0?1:0;
+  const myGroup=groups[comSeat];
+  const cueBefore=before.find(b=>b.id===0), cueAfter=after.find(b=>b.id===0);
+  const scratched=!cueAfter||!cueAfter.alive;
+  const eightAfter=after.find(b=>b.id===8);
+  const eightPocketed=!eightAfter||!eightAfter.alive;
+  let score=Math.random()*0.5;
+  if(scratched) score-=50;
+  if(eightPocketed){
+    const myBallsLeft=myGroup? before.some(b=>b.alive&&b.type===myGroup&&b.id!==0) : true;
+    if(!myGroup||myBallsLeft||scratched) score-=100; else score+=200;
+    return score;
+  }
+  before.forEach(b=>{
+    if(b.id===0||b.id===8) return;
+    const stillAlive=after.find(x=>x.id===b.id).alive;
+    if(b.alive&&!stillAlive){
+      const isMine=myGroup? b.type===myGroup : true; // 그룹 미정이면 아무거나 넣는 게 이득
+      score += isMine?30:-5;
+    }
+  });
+  return score;
+}
+function computeBestComShot(comSeat){
+  const base=room.state.balls.map(b=>({...b}));
+  const groups=room.state.groups||{};
+  let best=null, bestScore=-Infinity;
+  const angleSteps=16, powerLevels=[0.5,0.7,0.85,1.0];
+  for(let ai=0;ai<angleSteps;ai++){
+    const angle=(ai/angleSteps)*Math.PI*2;
+    for(const pct of powerLevels){
+      const power=pct*BASE_LAUNCH_SPEED;
+      const vx=Math.cos(angle)*power, vy=Math.sin(angle)*power;
+      const outcome=simulateCandidate(base,vx,vy);
+      const score=scoreComOutcome(base,outcome,comSeat,groups);
+      if(score>bestScore){ bestScore=score; best={vx,vy}; }
+    }
+  }
+  return best;
+}
+async function maybeRunComTurn(){
+  if(!isVsCom()||comThinking) return;
+  const st=room.state;
+  if(!st||st.stage==='result') return;
+  const comSeats=comSeatIndices();
+  if(!comSeats.length) return;
+
+  if(st.stage==='ball_in_hand'){
+    if(!comSeats.includes(st.turn)) return;
+    comThinking=true;
+    await new Promise(r=>setTimeout(r,700+Math.random()*500));
+    comThinking=false;
+    if(!room||!room.state||room.state.stage!=='ball_in_hand'||!comSeats.includes(room.state.turn)) return;
+    balls=room.state.balls.map(b=>({...b,trail:[]}));
+    let x=TABLE_W/2, y=TABLE_H/2;
+    let tries=0;
+    while(balls.some(b=>b.alive&&b.id!==0&&Math.hypot(b.x-x,b.y-y)<b.r+BALL_R+2)&&tries<20){
+      x=BALL_R+10+Math.random()*(TABLE_W-2*(BALL_R+10));
+      y=BALL_R+10+Math.random()*(TABLE_H-2*(BALL_R+10));
+      tries++;
+    }
+    await placeCueBall(x,y);
+    return;
+  }
+  if(st.stage!=='playing'||!comSeats.includes(st.turn)) return;
+  const seat=st.turn;
+  comThinking=true;
+  await new Promise(r=>setTimeout(r,900+Math.random()*900));
+  comThinking=false;
+  if(!room||!room.state||room.state.stage!=='playing'||room.state.turn!==seat||simulating) return;
+  balls=room.state.balls.map(b=>({...b,trail:[]}));
+  const shot=computeBestComShot(seat);
+  if(!shot) return;
+  fireShot(shot.vx,shot.vy);
+}
+
+// ---- 나가기 ----
+async function leaveRoom(){
+  try{
+    if(mySeat>=0&&room){
+      if(isVsCom()){
+        await fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+      } else if(room.status==='playing'){
+        // 게임중엔 자리비움->30초 기권패 시스템에 맡김
+      } else {
+        const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+        if(np.length===0){
+          await fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+        } else {
+          const patch={players:np};
+          if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+          await fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+        }
+      }
+    }
+  }catch(e){}
+  location.href='billiards_rooms.html';
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+window.addEventListener('pagehide',()=>{
+  try{
+    if(mySeat<0||!room||room.status==='playing'||isVsCom()) return;
+    const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+    const patch={players:np};
+    if(String(room.host_user_id)===String(currentUser.id)&&np.length){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+    fetch(`${SUPABASE_URL}/rest/v1/billiards_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch),keepalive:true});
+  }catch(e){}
+});
+
+// ---- 초기화 ----
+async function init(){
+  if(!roomId){ document.getElementById('mainArea').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>'; return; }
+  if(currentUser) await ensurePoints();
+  await fetchRoom();
+  await joinChannel();
+  pollTimer=setInterval(fetchRoom,1000);
+}
+init();
+</script>
+</body>
+</html>
