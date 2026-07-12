@@ -72,16 +72,20 @@ async function init(){
   startPreviewLoop();
 }
 
+let animConfig={states:{}};
 async function loadAll(){
-  const [pr,ir,ur]=await Promise.all([
+  const [pr,ir,ur,ar]=await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/character_parts?select=*`,{headers:headers()}),
     fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*&order=created_at.asc`,{headers:headers()}),
-    fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}&select=*`,{headers:headers()})
+    fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}&select=*`,{headers:headers()}),
+    fetch(`${SUPABASE_URL}/rest/v1/character_anim_config?id=eq.1&select=config`,{headers:headers()})
   ]);
   parts=await pr.json();
   items=await ir.json();
   const ud=await ur.json();
   equipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
+  const ad=await ar.json();
+  animConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{states:{}};
 }
 
 let currentPart=null;
@@ -144,15 +148,8 @@ function computeEndLocal(h,anchorY){
   return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY;
 }
 function idleAngleFor(part,phase){
-  const sway=Math.sin(phase)*0.04;
-  const k=part.key, l=part.label||'';
-  if(part.parent_key===null) return sway*0.25; // 최상위(몸통류)는 살짝만
-  if(l.includes('왼')&&(l.includes('위팔')||l.includes('팔')&&!l.includes('아래'))) return 0.12+sway;
-  if(l.includes('오')&&(l.includes('위팔')||l.includes('팔')&&!l.includes('아래'))) return -0.12-sway;
-  if(l.includes('아래팔')) return sway*0.6;
-  if(l.includes('허벅지')) return 0;
-  if(l.includes('종아리')) return 0;
-  return sway*0.3;
+  const cfg=(animConfig.states&&animConfig.states.idle&&animConfig.states.idle[part.key])||{baseAngle:0,amplitude:0,speed:1};
+  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
 }
 
 function drawJointImageAtOrigin(ctx,key,h){

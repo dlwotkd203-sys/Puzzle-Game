@@ -440,18 +440,22 @@ function goHome(){renderHome();showScreen('home');}
 const charImgCache={};
 function charGetImg(url){ if(!charImgCache[url]){ const img=new Image(); img.src=url; charImgCache[url]=img; } return charImgCache[url]; }
 let myParts=[], myCharItems=[], myEquipped={};
+let myAnimConfig={states:{}};
 async function loadMyCharacterPreview(u){
   try{
     const h={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
-    const [pr,ir,ur]=await Promise.all([
+    const [pr,ir,ur,ar]=await Promise.all([
       fetch(`${SUPABASE_URL}/rest/v1/character_parts?select=*`,{headers:h}),
       fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*`,{headers:h}),
-      fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${u.id}&select=*`,{headers:h})
+      fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${u.id}&select=*`,{headers:h}),
+      fetch(`${SUPABASE_URL}/rest/v1/character_anim_config?id=eq.1&select=config`,{headers:h})
     ]);
     myParts=await pr.json();
     myCharItems=await ir.json();
     const ud=await ur.json();
     myEquipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
+    const ad=await ar.json();
+    myAnimConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{states:{}};
   }catch(e){ myParts=[]; myEquipped={}; myCharItems=[]; }
   startMyCharLoop();
 }
@@ -466,13 +470,8 @@ function myImgInfoFor(key){
 }
 function myComputeEndLocal(h,anchorY){ return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY; }
 function myIdleAngleFor(part,phase){
-  const sway=Math.sin(phase)*0.04;
-  const l=part.label||'';
-  if(!part.parent_key) return sway*0.25;
-  if(l.includes('왼')&&l.includes('팔')&&!l.includes('아래')) return 0.12+sway;
-  if(l.includes('오')&&l.includes('팔')&&!l.includes('아래')) return -0.12-sway;
-  if(l.includes('아래팔')) return sway*0.6;
-  return sway*0.3;
+  const cfg=(myAnimConfig.states&&myAnimConfig.states.idle&&myAnimConfig.states.idle[part.key])||{baseAngle:0,amplitude:0,speed:1};
+  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
 }
 function myDrawJointAtOrigin(ctx,key,h){
   const info=myImgInfoFor(key);

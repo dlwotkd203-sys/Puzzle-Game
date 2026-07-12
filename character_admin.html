@@ -10,6 +10,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .topbar .back{cursor:pointer;font-size:18px;color:#ccc;}
 .topbar .title{font-weight:800;font-size:15px;flex:1;}
 .topbar .addPartBtn{background:#9c4dff;color:#fff;font-weight:700;font-size:12px;padding:8px 14px;border-radius:10px;cursor:pointer;}
+.topbar .modeTabBtn{background:rgba(255,255,255,0.08);color:#ccc;font-weight:700;font-size:12px;padding:8px 14px;border-radius:10px;cursor:pointer;}
+.topbar .modeTabBtn.sel{background:#fff;color:#1a1a2e;}
 .layout{display:flex;height:100vh;padding-top:52px;}
 .sidebar{width:280px;flex-shrink:0;background:#fff;border-right:1px solid #e5e5ea;overflow-y:auto;}
 .sidebar .part-row{padding:9px 14px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;color:#333;white-space:nowrap;}
@@ -57,11 +59,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="topbar">
   <span class="back" onclick="location.href='index.html'">←</span>
   <span class="title">🧑‍🎨 대표 캐릭터 아이템 관리자</span>
+  <span class="modeTabBtn sel" id="modeItemsBtn" data-mode="items">아이템 관리</span>
+  <span class="modeTabBtn" id="modeAnimBtn" data-mode="anim">동작 설정</span>
   <span class="addPartBtn" id="openAddPartBtn">＋ 새 부위 추가</span>
 </div>
-<div class="layout">
+<div class="layout" id="itemsLayout">
   <div class="sidebar" id="sidebar"></div>
   <div class="mainpanel" id="mainpanel"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<div class="layout" id="animLayout" style="display:none;">
+  <div class="sidebar" id="animStateSidebar"></div>
+  <div class="mainpanel" id="animMainpanel"></div>
 </div>
 
 <div class="modal-bg" id="addPartModal">
@@ -123,10 +131,22 @@ async function init(){
   if(!currentUser){ mp.innerHTML='<div class="center-msg">로그인 후 이용해주세요.</div>'; return; }
   if(!ADMIN_USERNAMES.includes(currentUser.username)){ mp.innerHTML='<div class="center-msg">관리자만 접근할 수 있는 페이지예요.</div>'; return; }
   await loadAll();
+  await loadAnimConfig();
   if(!pickedPart&&parts.length) pickedPart=parts[0].key;
   renderSidebar();
   renderMain();
+  document.getElementById('modeItemsBtn').addEventListener('click',()=>switchMode('items'));
+  document.getElementById('modeAnimBtn').addEventListener('click',()=>switchMode('anim'));
 }
+function switchMode(mode){
+  topMode=mode;
+  document.getElementById('itemsLayout').style.display=mode==='items'?'flex':'none';
+  document.getElementById('animLayout').style.display=mode==='anim'?'flex':'none';
+  document.getElementById('openAddPartBtn').style.display=mode==='items'?'inline-block':'none';
+  document.querySelectorAll('.modeTabBtn').forEach(b=>b.classList.toggle('sel',b.dataset.mode===mode));
+  if(mode==='anim'){ renderAnimStateSidebar(); renderAnimMain(); }
+}
+let topMode='items';
 
 async function loadAll(){
   const [pr,ir]=await Promise.all([
@@ -147,7 +167,7 @@ function renderSidebar(){
         const hasBase=items.some(i=>i.part_key===p.key&&i.is_base);
         badge=p.needs_base===false?'':(hasBase?'✅':'⚠️');
       } else { badge='🔗'; }
-      return `<div class="part-row ${pickedPart===p.key?'sel':''}" data-p="${p.key}" style="padding-left:${14+depth*16}px;"><span>${badge?badge+' ':''}${esc(p.label)}</span><span class="part-badge">${cnt}</span></div>`
+      return `<div class="part-row ${pickedPart===p.key?'sel':''}" data-p="${p.key}" style="padding-left:${14+depth*16}px;"><span>${badge?badge+' ':''}${esc(p.label)}</span><span style="display:flex;align-items:center;gap:6px;"><span class="part-badge">${cnt}</span><span class="part-del" data-delpart="${p.key}" style="color:#e63946;font-weight:800;cursor:pointer;padding:0 4px;">×</span></span></div>`
         + renderLevel(p.key,depth+1);
     }).join('');
   }
@@ -155,6 +175,44 @@ function renderSidebar(){
   sbEl.querySelectorAll('.part-row').forEach(el=>{
     el.addEventListener('click',()=>{ pickedPart=el.dataset.p; positioningItem=null; renderSidebar(); renderMain(); });
   });
+  sbEl.querySelectorAll('[data-delpart]').forEach(el=>{
+    el.addEventListener('click',e=>{ e.stopPropagation(); deletePart(el.dataset.delpart); });
+  });
+}
+
+function descendantKeys(key){
+  const kids=childrenOf(key);
+  let result=[key];
+  kids.forEach(k=>{ result=result.concat(descendantKeys(k.key)); });
+  return result;
+}
+async function deletePart(key){
+  const part=partByKey(key);
+  if(!part) return;
+  const affected=descendantKeys(key);
+  const affectedItemCount=items.filter(i=>affected.includes(i.part_key)).length;
+  const msg=affected.length>1
+    ? `"${part.label}" 부위를 삭제하면 하위 부위 ${affected.length-1}개와 등록된 아이템 ${affectedItemCount}개도 같이 삭제돼요. 계속할까요?`
+    : `"${part.label}" 부위를 삭제할까요? 등록된 아이템 ${affectedItemCount}개도 같이 삭제돼요.`;
+  if(!confirm(msg)) return;
+  try{
+    // 부위(및 하위부위)에 딸린 아이템들 먼저 정리
+    await Promise.all(affected.map(k=>
+      fetch(`${SUPABASE_URL}/rest/v1/character_items?part_key=eq.${encodeURIComponent(k)}`,{method:'DELETE',headers:headers()})
+    ));
+    // 부위 자체 삭제 (하위부위는 on delete cascade로 같이 삭제됨)
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/character_parts?key=eq.${encodeURIComponent(key)}`,{method:'DELETE',headers:{...headers(),'Prefer':'return=representation'}});
+    if(!res.ok){ const t=await res.text(); alert('삭제 실패: '+t); return; }
+    if(pickedPart&&affected.includes(pickedPart)) pickedPart=null;
+    positioningItem=null;
+    await loadAll();
+    if(!pickedPart&&parts.length) pickedPart=parts[0].key;
+    renderSidebar();
+    renderMain();
+  }catch(e){
+    console.error(e);
+    alert('삭제 중 오류가 발생했어요: '+(e.message||e));
+  }
 }
 
 // ---- 새 부위 추가 모달 ----
@@ -621,6 +679,204 @@ function renderPositioner(parentRep,item){
 }
 
 init();
+
+// ================= 동작(애니메이션) 설정 =================
+const ANIM_STATES=[
+  {key:'idle',label:'기본자세'},
+  {key:'walk',label:'걷기'},
+  {key:'run',label:'뛰기'},
+  {key:'jump',label:'점프'},
+  {key:'hit',label:'맞기'},
+  {key:'attack',label:'공격'}
+];
+let animConfig={states:{}};
+let animCurrentState='idle';
+function defaultPartAnim(){ return {baseAngle:0,amplitude:0,speed:1}; }
+function ensureAnimConfigShape(){
+  ANIM_STATES.forEach(s=>{
+    if(!animConfig.states[s.key]) animConfig.states[s.key]={};
+    parts.filter(p=>p.node_type==='joint').forEach(p=>{
+      if(!animConfig.states[s.key][p.key]) animConfig.states[s.key][p.key]=defaultPartAnim();
+    });
+  });
+}
+async function loadAnimConfig(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/character_anim_config?id=eq.1&select=config`,{headers:headers()});
+    const data=await r.json();
+    animConfig=(data&&data[0]&&data[0].config)?data[0].config:{states:{}};
+  }catch(e){ animConfig={states:{}}; }
+  ensureAnimConfigShape();
+}
+async function saveAnimConfig(){
+  const check=await fetch(`${SUPABASE_URL}/rest/v1/character_anim_config?id=eq.1&select=id`,{headers:headers()});
+  const exists=(await check.json()).length>0;
+  if(exists){
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/character_anim_config?id=eq.1`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({config:animConfig})});
+    if(!res.ok) throw new Error(await res.text());
+  } else {
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/character_anim_config`,{method:'POST',headers:jheaders(),body:JSON.stringify({id:1,config:animConfig})});
+    if(!res.ok) throw new Error(await res.text());
+  }
+}
+
+function renderAnimStateSidebar(){
+  const el=document.getElementById('animStateSidebar');
+  el.innerHTML='<div class="group-title">동작 목록</div>'+ANIM_STATES.map(s=>
+    `<div class="part-row ${animCurrentState===s.key?'sel':''}" data-s="${s.key}"><span>${esc(s.label)}</span></div>`
+  ).join('');
+  el.querySelectorAll('.part-row').forEach(r=>{
+    r.addEventListener('click',()=>{ animCurrentState=r.dataset.s; renderAnimStateSidebar(); renderAnimMain(); });
+  });
+}
+
+function flattenJoints(parentKey,depth){
+  return childrenOf(parentKey).flatMap(p=>{
+    const arr=p.node_type==='joint'?[{...p,depth}]:[];
+    return arr.concat(flattenJoints(p.key,depth+1));
+  });
+}
+
+function renderAnimMain(){
+  const mp=document.getElementById('animMainpanel');
+  const stateLabel=(ANIM_STATES.find(s=>s.key===animCurrentState)||{}).label||'';
+  mp.innerHTML=`
+    <div class="panel-title">${esc(stateLabel)} 동작 설정</div>
+    <div class="panel-sub">기본 캐릭터(베이스) 기준으로 미리보기가 나와요. 스킨은 이 동작을 그대로 물려받아요.</div>
+    <div class="two-col">
+      <div class="col" style="max-width:260px;">
+        <div class="card" style="text-align:center;">
+          <canvas id="animPreviewCanvas" width="220" height="260" style="background:#0f1c14;border-radius:12px;max-width:100%;"></canvas>
+        </div>
+        <div class="action-btn" id="saveAnimBtn" style="width:100%;text-align:center;box-sizing:border-box;">동작 설정 저장</div>
+        <div class="status-txt" id="animStatus" style="text-align:center;"></div>
+      </div>
+      <div class="col">
+        <div class="field-label">관절별 각도 설정</div>
+        <div id="animPartsList"></div>
+      </div>
+    </div>
+  `;
+  const list=document.getElementById('animPartsList');
+  const joints=flattenJoints(null,0);
+  if(!joints.length){
+    list.innerHTML='<div style="color:#bbb;font-size:12px;">관절 부위가 없어요. "아이템 관리"에서 먼저 관절 부위를 만들어주세요.</div>';
+  } else {
+    list.innerHTML=joints.map(p=>{
+      const cfg=(animConfig.states[animCurrentState]||{})[p.key]||defaultPartAnim();
+      return `
+        <div class="card" style="padding:10px 14px;margin-bottom:8px;">
+          <div style="font-weight:800;font-size:12px;margin-bottom:6px;">${'　'.repeat(p.depth)}${esc(p.label)}</div>
+          <div class="edit-row"><label>기본각도</label><input type="number" class="animInput" data-key="${p.key}" data-field="baseAngle" value="${cfg.baseAngle}"></div>
+          <div class="edit-row"><label>흔들림폭</label><input type="number" class="animInput" data-key="${p.key}" data-field="amplitude" value="${cfg.amplitude}"></div>
+          <div class="edit-row"><label>속도</label><input type="number" class="animInput" data-key="${p.key}" data-field="speed" value="${cfg.speed}" step="0.5"></div>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('.animInput').forEach(el=>{
+      el.addEventListener('change',()=>{
+        const key=el.dataset.key, field=el.dataset.field;
+        if(!animConfig.states[animCurrentState]) animConfig.states[animCurrentState]={};
+        if(!animConfig.states[animCurrentState][key]) animConfig.states[animCurrentState][key]=defaultPartAnim();
+        animConfig.states[animCurrentState][key][field]=parseFloat(el.value)||0;
+      });
+    });
+  }
+  document.getElementById('saveAnimBtn').addEventListener('click',async()=>{
+    const status=document.getElementById('animStatus');
+    status.style.color='#9c4dff'; status.textContent='저장 중...';
+    try{ await saveAnimConfig(); status.style.color='#0f9e75'; status.textContent='저장 완료!'; }
+    catch(e){ status.style.color='#e63946'; status.textContent='실패: '+(e.message||e); }
+  });
+  startAnimPreviewLoop();
+}
+
+// ---- 동작 미리보기 (기본(베이스) 캐릭터 기준, 트리를 재귀적으로 따라가며 그림) ----
+const animImgCache={};
+function getAnimImg(url){ if(!animImgCache[url]){ const img=new Image(); img.src=url; animImgCache[url]=img; } return animImgCache[url]; }
+function baseInfoFor(key){
+  const it=items.find(i=>i.part_key===key&&i.is_base);
+  if(!it) return null;
+  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5};
+}
+function animPartAngle(key,phase){
+  const cfg=(animConfig.states[animCurrentState]||{})[key]||defaultPartAnim();
+  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
+}
+function computeEndLocalAnim(h,anchorY){ return anchorY<0.5?h*(1-anchorY):-h*anchorY; }
+function drawJointAnim(ctx,key,phase){
+  const part=partByKey(key);
+  if(!part) return;
+  ctx.save();
+  ctx.rotate(animPartAngle(key,phase));
+  const h=part.default_length||16;
+  const info=baseInfoFor(key);
+  let w=h, anchorX=0.5, anchorY=0.05;
+  if(info){
+    const img=getAnimImg(info.url);
+    if(img.complete&&img.naturalWidth){
+      w=h*(img.naturalWidth/img.naturalHeight);
+      ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
+      anchorX=info.anchorX; anchorY=info.anchorY;
+    }
+  }
+  const endLocalY=computeEndLocalAnim(h,anchorY);
+  childrenOf(key).forEach(child=>{
+    const atEnd=child.attach_end!==false;
+    if(child.node_type==='joint'){
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      drawJointAnim(ctx,child.key,phase);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      drawAttachmentAnim(ctx,child.key,{w,h,anchorX,anchorY});
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+function drawAttachmentAnim(ctx,key,parentInfo){
+  const info=baseInfoFor(key);
+  if(!info) return;
+  const img=getAnimImg(info.url);
+  if(!img.complete||!img.naturalWidth) return;
+  const localX=parentInfo.w*(info.offsetX-parentInfo.anchorX);
+  const localY=parentInfo.h*(info.offsetY-parentInfo.anchorY);
+  const fh=parentInfo.h*0.32;
+  const fw=fh*(img.naturalWidth/img.naturalHeight);
+  ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
+}
+function drawAnimPreview(ctx,cw,ch,phase){
+  ctx.clearRect(0,0,cw,ch);
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
+  const groundY=ch-30;
+  ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(cw-20,groundY); ctx.stroke();
+  ctx.save();
+  ctx.translate(cw/2,groundY-60);
+  childrenOf(null).forEach(r=>{ ctx.save(); drawJointAnim(ctx,r.key,phase); ctx.restore(); });
+  ctx.restore();
+  if(!parts.some(p=>p.node_type==='joint')){
+    ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('부위를 먼저 만들어주세요',cw/2,ch/2);
+  }
+}
+let animPreviewPhase=0, animPreviewRaf=null;
+function startAnimPreviewLoop(){
+  const canvas=document.getElementById('animPreviewCanvas');
+  if(!canvas) return;
+  if(animPreviewRaf) cancelAnimationFrame(animPreviewRaf);
+  const ctx=canvas.getContext('2d');
+  function loop(){
+    if(!document.getElementById('animPreviewCanvas')){ animPreviewRaf=null; return; }
+    animPreviewPhase+=0.05;
+    drawAnimPreview(ctx,canvas.width,canvas.height,animPreviewPhase);
+    animPreviewRaf=requestAnimationFrame(loop);
+  }
+  loop();
+}
+
 </script>
 </body>
 </html>
