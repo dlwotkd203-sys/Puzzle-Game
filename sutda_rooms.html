@@ -60,12 +60,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <div class="modal-bg" id="createModal">
   <div class="modal">
-    <div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;">모드 선택</div>
+    <div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;">상대 선택</div>
+    <div class="mode-pick">
+      <div class="oppOpt sel" data-opp="human">사람과 대전</div>
+      <div class="oppOpt" data-opp="com">컴퓨터(COM)</div>
+    </div>
+    <div style="font-family:-apple-system,sans-serif;font-weight:800;font-size:15px;margin-top:14px;">모드 선택</div>
     <div class="mode-pick">
       <div class="modeOpt sel" data-mode="2card">2장 섯다</div>
       <div class="modeOpt" data-mode="3card">3장 섯다</div>
     </div>
-    <div style="display:flex;gap:8px;">
+    <div style="display:flex;gap:8px;margin-top:10px;">
       <div class="action-btn" id="confirmCreateBtn" style="flex:1;text-align:center;">만들기</div>
       <div class="action-btn disabled" id="cancelCreateBtn" style="flex:1;text-align:center;background:#eee;color:#888;">취소</div>
     </div>
@@ -150,7 +155,7 @@ function renderRooms(){
     div.innerHTML=`
       <div class="room-top">
         <div>
-          <div class="room-host">${esc(room.host_username)} 님의 방 <span class="mode-badge">${room.mode==='3card'?'3장':'2장'}</span></div>
+          <div class="room-host">${esc(room.host_username)} 님의 방 <span class="mode-badge">${room.mode==='3card'?'3장':'2장'}</span>${room.vs_com?'<span class="mode-badge" style="background:#e8f0ff;color:#2f4fa8;">🤖 COM</span>':''}</div>
           <div class="room-sub">${players.length}/8명 참가중</div>
         </div>
         <span class="badge ${badgeClass}">${badgeText}</span>
@@ -174,7 +179,8 @@ async function joinOrEnter(room){
   const isIn=players.some(p=>String(p.user_id)===String(currentUser.id));
   if(isIn||room.status==='playing'){ location.href='sutda_room.html?id='+room.id; return; }
   await ensurePoints();
-  if(players.length<8){
+  const maxPlayers=room.vs_com?2:8;
+  if(players.length<maxPlayers){
     const newPlayers=players.concat([{user_id:currentUser.id,username:currentUser.username,ready:false,seat:players.length}]);
     const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
       method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
@@ -191,6 +197,14 @@ document.getElementById('createBtn').addEventListener('click',()=>{
   document.getElementById('createModal').style.display='flex';
 });
 document.getElementById('cancelCreateBtn').addEventListener('click',()=>{ document.getElementById('createModal').style.display='none'; });
+let selectedOpp='human';
+document.querySelectorAll('.oppOpt').forEach(el=>{
+  el.addEventListener('click',()=>{
+    selectedOpp=el.dataset.opp;
+    document.querySelectorAll('.oppOpt').forEach(o=>o.classList.remove('sel'));
+    el.classList.add('sel');
+  });
+});
 document.querySelectorAll('.modeOpt').forEach(el=>{
   el.addEventListener('click',()=>{
     selectedMode=el.dataset.mode;
@@ -200,13 +214,15 @@ document.querySelectorAll('.modeOpt').forEach(el=>{
 });
 document.getElementById('confirmCreateBtn').addEventListener('click',async()=>{
   await ensurePoints();
+  const vsCom=selectedOpp==='com';
+  const players=[{user_id:currentUser.id,username:currentUser.username,ready:false,seat:0}];
+  if(vsCom) players.push({user_id:'COM',username:'컴퓨터',ready:true,seat:1,isCom:true});
   const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms`,{
     method:'POST',headers:{...jheaders(),'Prefer':'return=representation'},
     body:JSON.stringify({
       host_user_id:currentUser.id, host_username:currentUser.username,
-      mode:selectedMode, status:'waiting',
-      players:[{user_id:currentUser.id,username:currentUser.username,ready:false,seat:0}],
-      move_count:0, last_active_at:new Date().toISOString()
+      mode:selectedMode, status:'waiting', vs_com:vsCom,
+      players, move_count:0, last_active_at:new Date().toISOString()
     })
   });
   const data=await res.json();
