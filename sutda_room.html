@@ -528,7 +528,7 @@ async function startHand(){
   const hands=Array.from({length:n},()=>[]);
   for(let r=0;r<initCount;r++) for(let s=0;s<n;s++) hands[s].push(deck.pop());
   const pointsSnapshot=await Promise.all(players.map(async p=>{
-    if(p.user_id==='COM') return COM_VIRTUAL_BALANCE;
+    if(p.isCom) return COM_VIRTUAL_BALANCE;
     const r=await fetch(`${SUPABASE_URL}/rest/v1/sutda_points?user_id=eq.${p.user_id}&select=points`,{headers:headers()});
     const data=await r.json();
     return data.length?data[0].points:STARTING_POINTS;
@@ -764,7 +764,7 @@ async function settleHand(){
   }
   const effPot = st.pot-refundAmt;
   await Promise.all(players.map(async(p,i)=>{
-    if(p.user_id==='COM') return; // COM은 가상 잔액이라 실제 계정에는 반영 안 함
+    if(p.isCom) return; // COM은 가상 잔액이라 실제 계정에는 반영 안 함
     let delta;
     if(isPatohResolved){ delta=-st.contributions[i]; }
     else{
@@ -784,7 +784,7 @@ async function settleHand(){
   const st2=JSON.parse(JSON.stringify(room.state));
   st2._settled=true;
   st2.postHandAt=Date.now();
-  const resetPlayers=players.map(p=>({...p,ready:p.user_id==='COM'?true:false}));
+  const resetPlayers=players.map(p=>({...p,ready:p.isCom?true:false}));
   const roomPatch={state:st2,players:resetPlayers,move_count:room.move_count+1};
   if(isPatohResolved){ roomPatch.carry_pot=(room.carry_pot||0)+st.pot; }
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}&move_count=eq.${room.move_count}`,{
@@ -902,7 +902,7 @@ async function actPatohVote(voteYes,seat){
 }
 
 async function nextHand(){
-  const np=room.players.map(p=>({...p,ready:p.user_id==='COM'?true:false}));
+  const np=room.players.map(p=>({...p,ready:p.isCom?true:false}));
   await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{
     method:'PATCH',headers:jheaders(),body:JSON.stringify({status:'waiting',players:np,state:null})
   });
@@ -910,9 +910,12 @@ async function nextHand(){
 }
 
 // ================= 섯다 COM(컴퓨터) 봇 =================
-function comSeatIndex(){
+function isVsCom(){
+  return !!(room&&((room.players||[]).some(p=>p.isCom)||room.vs_com));
+}
+function comSeatIndices(){
   const players=room.players||[];
-  return players.findIndex(p=>p.user_id==='COM');
+  return players.map((p,i)=>p.isCom?i:-1).filter(i=>i>=0);
 }
 // 패 순위(rank)를 0~1 사이의 "강함 점수"로 환산
 function handStrength(ev){
@@ -995,30 +998,36 @@ async function execComBetDecision(dec,seat){
 }
 let comThinking=false;
 async function maybeRunComTurn(){
-  if(!room||!room.vs_com||comThinking) return;
+  if(!isVsCom()||comThinking) return;
   const st=room.state;
   if(!st) return;
-  const seat=comSeatIndex();
-  if(seat<0||st.folded[seat]) return;
+  const comSeats=comSeatIndices();
+  if(!comSeats.length) return;
   const stageAtCheck=st.stage;
 
   if(stageAtCheck==='bet1'||stageAtCheck==='bet2'||stageAtCheck==='bet3'){
-    if(st.turn!==seat) return;
+    const seat=st.turn;
+    if(!comSeats.includes(seat)||st.folded[seat]) return;
     comThinking=true;
     await new Promise(r=>setTimeout(r,900+Math.random()*900));
     comThinking=false;
     if(!room||!room.state||room.state.stage!==stageAtCheck||room.state.turn!==seat) return;
     const dec=computeComBetDecision(room.state,seat);
     await execComBetDecision(dec,seat);
-  } else if(stageAtCheck==='expose'){
-    if(st.exposed[seat]!==null) return;
+    return;
+  }
+  // expose/choose2/patohVote는 턴 순서 없이 각자 처리 - 아직 안 한 봇 하나를 골라 처리
+  if(stageAtCheck==='expose'){
+    const seat=comSeats.find(s=>!st.folded[s]&&st.exposed[s]===null);
+    if(seat===undefined) return;
     comThinking=true;
     await new Promise(r=>setTimeout(r,600+Math.random()*500));
     comThinking=false;
     if(!room||!room.state||room.state.stage!=='expose'||room.state.exposed[seat]!==null) return;
     await chooseExpose(0,seat);
   } else if(stageAtCheck==='choose2'){
-    if(st.chosenPair[seat]!==null) return;
+    const seat=comSeats.find(s=>!st.folded[s]&&st.chosenPair[s]===null);
+    if(seat===undefined) return;
     comThinking=true;
     await new Promise(r=>setTimeout(r,600+Math.random()*500));
     comThinking=false;
@@ -1026,7 +1035,8 @@ async function maybeRunComTurn(){
     const best=evalHand(room.state.hands[seat]);
     await actChoosePair(best.used[0],best.used[1],seat);
   } else if(stageAtCheck==='patohVote'){
-    if(st.patohVotes[seat]!==null) return;
+    const seat=comSeats.find(s=>st.patohVotes[s]===null);
+    if(seat===undefined) return;
     comThinking=true;
     await new Promise(r=>setTimeout(r,600+Math.random()*500));
     comThinking=false;
@@ -1343,8 +1353,9 @@ function renderGame(wrap){
 
 async function removeSelfAndLeave(){
   const wasHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  const remainingHumans=(room.players||[]).filter((_,i)=>i!==mySeat).filter(p=>!p.isCom);
   const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
-  if(np.length===0){
+  if(np.length===0||(isVsCom()&&remainingHumans.length===0)){
     let deleted=false;
     try{
       const res=await fetch(`${SUPABASE_URL}/rest/v1/sutda_rooms?id=eq.${room.id}`,{method:'DELETE',headers:{...headers(),'Prefer':'return=representation'}});
@@ -1443,7 +1454,7 @@ const POST_HAND_SECONDS=10;
 let autoDieKey=null;
 function tick(){
   if(!(room&&room.status==='playing'&&room.state)) return;
-  if(room.vs_com) maybeRunComTurn();
+  if(isVsCom()) maybeRunComTurn();
   const st=room.state;
   const isBettingStage=st.stage==='bet1'||st.stage==='bet2'||st.stage==='bet3';
   const el=document.getElementById('timerNum');
