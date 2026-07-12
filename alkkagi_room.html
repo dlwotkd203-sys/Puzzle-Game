@@ -81,6 +81,9 @@ const MAX_PULL=85;
 // 임펄스(F)/√질량 물리공식: v = (당긴 비율) × 기준속도 ÷ √질량. 무거운 말일수록 내가 쏠 때 조금 덜 나가지만,
 // 부딪혔을 때 운동량(질량×속도)은 확실히 더 커서 상대를 세게 밀어내요. 가벼운 말은 빠르게 나가는 대신 부딪힐 때 힘이 약해요.
 const BASE_LAUNCH_SPEED=24;
+// 쫄은 물리공식(√질량)만으로는 아직도 너무 세다는 피드백이 있어서, 밸런스용 추가 감쇠를 한 번 더 줘요
+const TYPE_POWER_ADJ={'졸':0.55,'사':0.85};
+function shotPower(piece,pct){ return pct*BASE_LAUNCH_SPEED/Math.sqrt(piece.mass)*(TYPE_POWER_ADJ[piece.type]||1); }
 const FRICTION=0.95;
 const RESTITUTION=0.5; // 충돌시 전달되는 힘을 더 줄여서, 가볍고 빠른 말이 한 방에 멀리 날려버리는 느낌을 완화
 const STOP_THRESHOLD=3;
@@ -489,6 +492,10 @@ function startTurnTicker(){
   turnTickTimer=setInterval(()=>{
     if(!room||room.status!=='playing'||!room.state||room.state.stage!=='playing') return;
     updateTimerDisplay();
+    if(room.vs_com){
+      maybeRunComTurn();
+      return;
+    }
     checkOpponentAway();
     const st=room.state;
     const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
@@ -609,9 +616,7 @@ function setupBoardCanvas(){
       const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
       if(dist>6){
         const angle=Math.atan2(dy,dx);
-        // 쫄은 물리공식(√질량)만으로는 아직도 너무 세다는 피드백이 있어서, 밸런스용 추가 감쇠를 한 번 더 줘요
-        const TYPE_POWER_ADJ={'졸':0.55,'사':0.85};
-        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED/Math.sqrt(piece.mass)*(TYPE_POWER_ADJ[piece.type]||1);
+        const power=shotPower(piece,dist/MAX_PULL);
         const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
         fireShot(piece.id,vx,vy);
       }
@@ -789,6 +794,12 @@ function fireShot(pieceId,vx,vy){
   safeSend({type:'broadcast',event:'shot',payload:{pieceId,vx,vy,seat:mySeat}});
   runSimulation(()=>{ finishTurnAfterShot(); });
 }
+function fireComShot(pieceId,vx,vy){
+  const piece=pieces.find(p=>p.id===pieceId);
+  if(!piece) return;
+  piece.vx=vx; piece.vy=vy;
+  runSimulation(()=>{ finishTurnAfterShot(); });
+}
 
 function runSimulation(onDone){
   simulating=true;
@@ -823,18 +834,79 @@ async function finishTurnAfterShot(){
   await patchRoom({state:newState});
 }
 
+// ---- 컴퓨터(COM) 대전 - 여러 각도/세기를 미리 물리로 시뮬레이션 해보고 제일 나은 샷을 골라요 ----
+let comThinking=false;
+function simulateCandidate(basePieces,pieceId,vx,vy){
+  const sim=basePieces.map(p=>({...p}));
+  const piece=sim.find(p=>p.id===pieceId);
+  if(!piece) return sim;
+  piece.vx=vx; piece.vy=vy;
+  let steps=0;
+  while(!allSettled(sim)&&steps<300){ stepPhysics(sim); steps++; }
+  return sim;
+}
+function scoreOutcome(before,after){
+  const humanBefore=before.filter(p=>p.seat===0&&p.alive).length;
+  const humanAfter=after.filter(p=>p.seat===0&&p.alive).length;
+  const comBefore=before.filter(p=>p.seat===1&&p.alive).length;
+  const comAfter=after.filter(p=>p.seat===1&&p.alive).length;
+  return (humanBefore-humanAfter)*10 - (comBefore-comAfter)*12 + Math.random()*0.5;
+}
+function computeBestComShot(){
+  const base=room.state.pieces.map(p=>({...p}));
+  const myAlive=base.filter(p=>p.seat===1&&p.alive);
+  if(!myAlive.length) return null;
+  let best=null, bestScore=-Infinity;
+  const angleSteps=12, powerLevels=[0.6,0.8,1.0];
+  myAlive.forEach(piece=>{
+    for(let ai=0;ai<angleSteps;ai++){
+      const angle=(ai/angleSteps)*Math.PI*2;
+      powerLevels.forEach(pct=>{
+        const power=shotPower(piece,pct);
+        const vx=Math.cos(angle)*power, vy=Math.sin(angle)*power;
+        const outcome=simulateCandidate(base,piece.id,vx,vy);
+        const score=scoreOutcome(base,outcome);
+        if(score>bestScore){ bestScore=score; best={pieceId:piece.id,vx,vy}; }
+      });
+    }
+  });
+  return best;
+}
+async function maybeRunComTurn(){
+  if(!room||!room.vs_com||comThinking||simulating) return;
+  const st=room.state;
+  if(!st||st.stage!=='playing'||st.turn!==1) return;
+  comThinking=true;
+  await new Promise(r=>setTimeout(r,800+Math.random()*700)); // 생각하는 척 살짝 뜸들이기
+  comThinking=false;
+  if(!room||!room.state||room.state.turn!==1||room.state.stage!=='playing'||simulating) return;
+  pieces=room.state.pieces.map(p=>({...p,trail:[]}));
+  const shot=computeBestComShot();
+  if(!shot){
+    await patchRoom({state:{...room.state,turn:0,turnStartedAt:Date.now()}});
+    return;
+  }
+  fireComShot(shot.pieceId,shot.vx,shot.vy);
+}
+
 async function settleMatch(winnerSeat){
   const players=room.players||[];
   const winP=players[winnerSeat], loseP=players[winnerSeat===0?1:0];
   if(!winP||!loseP) return;
+  const vsCom=!!room.vs_com;
+  const winPts=vsCom?75:300;   // COM전은 사람과 할 때의 1/4 정도
+  const losePts=vsCom?25:100;
   try{
-    const [wr,lr]=await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}&select=*`,{headers:headers()}),
-      fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}&select=*`,{headers:headers()})
-    ]);
-    const wd=(await wr.json())[0], ld=(await lr.json())[0];
-    if(wd){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:(wd.points||0)+300,wins:(wd.wins||0)+1})}); }
-    if(ld){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:Math.max(0,(ld.points||0)-100),losses:(ld.losses||0)+1})}); }
+    if(winP.user_id!=='COM'){
+      const wr=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}&select=*`,{headers:headers()});
+      const wd=(await wr.json())[0];
+      if(wd){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${winP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:(wd.points||0)+winPts,wins:(wd.wins||0)+1})}); }
+    }
+    if(loseP.user_id!=='COM'){
+      const lr=await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}&select=*`,{headers:headers()});
+      const ld=(await lr.json())[0];
+      if(ld){ await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_points?user_id=eq.${loseP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:Math.max(0,(ld.points||0)-losePts),losses:(ld.losses||0)+1})}); }
+    }
   }catch(e){ console.error('점수 반영 실패:',e); }
 }
 
@@ -855,13 +927,14 @@ function renderResult(area,st){
 }
 
 async function returnToLobby(){
-  const players=(room.players||[]).map(p=>({...p,ready:false}));
+  const players=(room.players||[]).map(p=>({...p,ready:p.user_id==='COM'?true:false}));
   startTriggeredKey=null;
   boardCanvasSetup=false;
   recordsLoadedFor=null;
   timeoutTriggeredKey=null;
   opponentAwaySince=null;
   afkForfeitTriggeredKey=null;
+  comThinking=false;
   if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
   await patchRoom({status:'waiting',players});
 }
@@ -870,7 +943,10 @@ async function returnToLobby(){
 async function leaveRoom(){
   try{
     if(mySeat>=0&&room){
-      if(room.status==='playing'){
+      if(room.vs_com){
+        // COM전은 실제 상대가 없으니 나가면 그냥 방 자체를 삭제
+        await fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+      } else if(room.status==='playing'){
         // 게임 진행중엔 바로 방을 끝내지 않고, 상대방 쪽에서 자리비움->30초 후 기권패로 자연스럽게 처리돼요
       } else {
         const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
