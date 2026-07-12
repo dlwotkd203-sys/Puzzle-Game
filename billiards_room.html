@@ -669,12 +669,13 @@ function drawGhostPreview(){
   ctx.save(); ctx.translate(cx,cy);
   const fakeBall={...hit.ball,x:0,y:0,r:br};
   drawBall(ctx,fakeBall);
-  // 충돌 순간 큐볼 위치(고스트) - perp 방향의 반대쪽에서 접근
-  let nx=-hit.perpX, ny=-hit.perpY;
-  const nmag=Math.hypot(nx,ny)||1;
-  nx/=nmag; ny/=nmag;
+  // 큐볼이 오는 방향(진행방향)이 항상 "아래쪽"이 되도록 좌표계를 돌려서 계산 - 이래야 정가운데를 겨눴을 때
+  // 고스트공이 정확히 목표공 바로 아래(정중앙)에 나오고, 살짝 빗맞으면 그만큼만 좌우로 나와요
+  const dirx=Math.cos(aimAngle), diry=Math.sin(aimAngle);
+  const rightx=-diry, righty=dirx; // 진행방향 기준 오른쪽
+  const rightOffset=hit.perpX*rightx+hit.perpY*righty; // 목표공 중심이 조준선 기준 오른쪽으로 얼마나 벗어나 있는지
   const cueR=BALL_R*scale;
-  const gx=nx*(br+cueR)*0.98, gy=ny*(br+cueR)*0.98;
+  const gx=-rightOffset*scale, gy=(br+cueR)*0.98;
   ctx.beginPath(); ctx.arc(gx,gy,cueR,0,Math.PI*2);
   ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=1.5; ctx.stroke();
