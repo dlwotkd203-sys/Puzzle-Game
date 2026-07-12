@@ -13,7 +13,12 @@ html,body{width:100%;height:100%;background:#1f2e22;font-family:-apple-system,Bl
 .top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
 .center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
 #mainArea{flex:1;display:flex;flex-direction:column;min-height:0;}
-#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;min-height:0;}
+#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;gap:10px;min-height:0;}
+#powerCanvas{flex-shrink:0;touch-action:none;border-radius:16px;}
+#auxRow{display:flex;justify-content:center;align-items:flex-start;gap:22px;padding:2px 16px 6px;flex-shrink:0;}
+.aux-box{text-align:center;}
+.aux-label{color:#a8c4b2;font-size:10px;margin-bottom:4px;font-weight:700;}
+.aux-box canvas{touch-action:none;border-radius:50%;background:rgba(255,255,255,0.06);}
 #boardCanvas{border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.4);touch-action:none;max-width:100%;max-height:100%;}
 #bottomBar{flex-shrink:0;padding:14px 16px 20px;text-align:center;}
 .lobby-wrap{padding:20px;color:#fff;}
@@ -136,6 +141,18 @@ function stepPhysics(balls){
           const jImp=-(1+BALL_RESTITUTION)*velAlongNormal/2;
           a.vx-=jImp*nx; a.vy-=jImp*ny;
           b.vx+=jImp*nx; b.vy+=jImp*ny;
+          // 큐볼 당점(위/아래=밀어치기/끌어치기) - 다른 공과 처음 부딪힐 때 한 번만 적용(단순화된 근사치)
+          [a,b].forEach(ball=>{
+            if(ball.id===0&&ball.spin&&ball.spin.sy&&!ball.spinUsedV){
+              const spd=Math.hypot(ball.vx,ball.vy);
+              if(spd>0.4){
+                const dirx=ball.vx/spd, diry=ball.vy/spd;
+                const boost=-ball.spin.sy*spd*0.55; // sy<0(위/밀어치기)->전진 가속, sy>0(아래/끌어치기)->역행
+                ball.vx+=dirx*boost; ball.vy+=diry*boost;
+              }
+              ball.spinUsedV=true;
+            }
+          });
         }
       }
     }
@@ -143,10 +160,20 @@ function stepPhysics(balls){
   // 쿠션(벽) 튕김
   balls.forEach(b=>{
     if(!b.alive) return;
-    if(b.x-b.r<0){ b.x=b.r; b.vx=-b.vx*WALL_RESTITUTION; }
-    if(b.x+b.r>TABLE_W){ b.x=TABLE_W-b.r; b.vx=-b.vx*WALL_RESTITUTION; }
-    if(b.y-b.r<0){ b.y=b.r; b.vy=-b.vy*WALL_RESTITUTION; }
-    if(b.y+b.r>TABLE_H){ b.y=TABLE_H-b.r; b.vy=-b.vy*WALL_RESTITUTION; }
+    let bounced=false;
+    if(b.x-b.r<0){ b.x=b.r; b.vx=-b.vx*WALL_RESTITUTION; bounced=true; }
+    if(b.x+b.r>TABLE_W){ b.x=TABLE_W-b.r; b.vx=-b.vx*WALL_RESTITUTION; bounced=true; }
+    if(b.y-b.r<0){ b.y=b.r; b.vy=-b.vy*WALL_RESTITUTION; bounced=true; }
+    if(b.y+b.r>TABLE_H){ b.y=TABLE_H-b.r; b.vy=-b.vy*WALL_RESTITUTION; bounced=true; }
+    // 큐볼 좌우 당점(회전) - 쿠션에 맞을 때마다 살짝 커브(단순화된 근사치)
+    if(bounced&&b.id===0&&b.spin&&b.spin.sx){
+      const spd=Math.hypot(b.vx,b.vy);
+      if(spd>0.3){
+        const curAngle=Math.atan2(b.vy,b.vx);
+        const newAngle=curAngle+b.spin.sx*0.3;
+        b.vx=Math.cos(newAngle)*spd; b.vy=Math.sin(newAngle)*spd;
+      }
+    }
   });
   // 포켓 판정
   balls.forEach(b=>{
@@ -297,6 +324,7 @@ async function joinChannel(){
     const ball=balls.find(b=>b.id===payload.ballId);
     if(!ball) return;
     ball.vx=payload.vx; ball.vy=payload.vy;
+    if(payload.spin){ ball.spin={sx:payload.spin.sx,sy:payload.spin.sy}; ball.spinUsedV=false; }
     runSimulation(()=>{});
   });
   await new Promise(resolve=>{
@@ -365,7 +393,7 @@ function updateTimerDisplay(){
 let boardCanvasSetup=false;
 function renderGame(area,st){
   if(!document.getElementById('boardCanvas')){
-    area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas></div><div id="bottomBar"></div>`;
+    area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas><canvas id="powerCanvas" width="34" height="300"></canvas></div><div id="auxRow"><div class="aux-box"><div class="aux-label">당점(회전)</div><canvas id="spinCanvas" width="70" height="70"></canvas></div><div class="aux-box"><div class="aux-label">조준 미리보기</div><canvas id="ghostCanvas" width="70" height="70"></canvas></div></div><div id="bottomBar"></div>`;
     boardCanvasSetup=false;
   }
   loadPlayerRecords();
@@ -374,7 +402,7 @@ function renderGame(area,st){
   if(st.stage==='ball_in_hand'){
     bottomMsg = st.turn===mySeat ? '큐볼을 원하는 위치에 탭해서 놓아주세요' : '상대가 큐볼 위치를 정하고 있어요';
   } else {
-    bottomMsg = st.turn===mySeat&&!simulating ? '큐볼을 뒤로 당겼다 놓으면 발사돼요' : (simulating?'굴러가는 중...':'상대가 준비하고 있어요');
+    bottomMsg = st.turn===mySeat&&!simulating ? '테이블을 드래그해서 방향을 정하고, 옆 파워바를 당겼다 놓으면 발사돼요' : (simulating?'굴러가는 중...':'상대가 준비하고 있어요');
   }
   document.getElementById('bottomBar').innerHTML =
     `<div style="color:#cfe9d8;font-size:12px;">${bottomMsg}</div>`+
@@ -389,9 +417,14 @@ function renderGame(area,st){
   }
   if(!boardCanvasSetup){
     setupBoardCanvas();
+    setupPowerSlider();
+    setupSpinSelector();
     boardCanvasSetup=true;
   }
   drawBoard();
+  drawPowerSlider();
+  drawSpinSelector();
+  drawGhostPreview();
 }
 
 let renderScale=1;
@@ -400,15 +433,17 @@ function toLogical(bx,by){ return isFlipped()?{x:TABLE_W-bx,y:TABLE_H-by}:{x:bx,
 const VIEW_MARGIN=20;
 const TOTAL_W=TABLE_W+VIEW_MARGIN*2, TOTAL_H=TABLE_H+VIEW_MARGIN*2;
 
+const POWER_SLIDER_W=34, POWER_GAP=10, AUX_SIZE=70;
 function resizeCanvas(){
   const canvas=document.getElementById('boardCanvas');
   if(!canvas) return;
   const topBarH=(document.querySelector('.top-bar')||{offsetHeight:0}).offsetHeight;
   const infoBarH=(document.getElementById('playerInfoBar')||{offsetHeight:0}).offsetHeight;
   const bottomBarH=(document.getElementById('bottomBar')||{offsetHeight:0}).offsetHeight;
+  const auxRowH=(document.getElementById('auxRow')||{offsetHeight:0}).offsetHeight;
   const appW=Math.min(document.getElementById('app').clientWidth,430);
-  const availW=appW-16;
-  const availH=window.innerHeight-topBarH-infoBarH-bottomBarH-16;
+  const availW=appW-16-POWER_SLIDER_W-POWER_GAP;
+  const availH=window.innerHeight-topBarH-infoBarH-bottomBarH-auxRowH-16;
   const scale=Math.max(0.1,Math.min(availW/TOTAL_W,availH/TOTAL_H));
   const dpr=window.devicePixelRatio||1;
   renderScale=scale*dpr;
@@ -416,11 +451,37 @@ function resizeCanvas(){
   canvas.style.height=Math.floor(TOTAL_H*scale)+'px';
   canvas.width=Math.round(TOTAL_W*renderScale);
   canvas.height=Math.round(TOTAL_H*renderScale);
+
+  const powerCanvas=document.getElementById('powerCanvas');
+  if(powerCanvas){
+    const tableH=Math.floor(TOTAL_H*scale);
+    powerCanvas.style.height=tableH+'px';
+    powerCanvas.style.width=POWER_SLIDER_W+'px';
+    powerCanvas.width=Math.round(POWER_SLIDER_W*dpr);
+    powerCanvas.height=Math.round(tableH*dpr);
+  }
+  ['spinCanvas','ghostCanvas'].forEach(id=>{
+    const c=document.getElementById(id);
+    if(!c) return;
+    c.style.width=AUX_SIZE+'px'; c.style.height=AUX_SIZE+'px';
+    c.width=Math.round(AUX_SIZE*dpr); c.height=Math.round(AUX_SIZE*dpr);
+  });
   drawBoard();
+  drawPowerSlider();
+  drawSpinSelector();
+  drawGhostPreview();
 }
 
 function ballAt(bx,by){
   return balls.find(b=>b.alive&&Math.hypot(b.x-bx,b.y-by)<=b.r+6);
+}
+
+let aimAngle=0;
+let aimDragging=false;
+let ballSpin={sx:0,sy:0}; // 당점(회전) - sx: 좌우, sy: 위(-1,밀어치기)~아래(1,끌어치기)
+
+function isMyShotTurn(){
+  return room&&room.state&&room.state.turn===mySeat&&!simulating&&room.state.stage==='playing';
 }
 
 function setupBoardCanvas(){
@@ -428,49 +489,196 @@ function setupBoardCanvas(){
   window.addEventListener('resize',resizeCanvas);
   requestAnimationFrame(resizeCanvas);
 
-  canvas.addEventListener('pointerdown',e=>{
-    if(!room||!room.state||room.state.turn!==mySeat||simulating) return;
+  function updateAim(e){
     const rect=canvas.getBoundingClientRect();
     const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
     const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
+    const cue=balls.find(b=>b.id===0&&b.alive);
+    if(!cue) return;
+    aimAngle=Math.atan2(raw.y-cue.y,raw.x-cue.x);
+    drawBoard();
+    drawGhostPreview();
+  }
 
+  canvas.addEventListener('pointerdown',e=>{
+    if(!room||!room.state) return;
     if(room.state.stage==='ball_in_hand'){
+      if(room.state.turn!==mySeat) return;
+      const rect=canvas.getBoundingClientRect();
+      const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
+      const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
       placeCueBall(raw.x,raw.y);
       return;
     }
-    const cue=balls.find(b=>b.id===0&&b.alive);
-    if(!cue) return;
-    if(Math.hypot(cue.x-raw.x,cue.y-raw.y)>cue.r+10) return; // 큐볼 근처를 눌러야 조준 시작
+    if(!isMyShotTurn()) return;
+    aimDragging=true;
     canvas.setPointerCapture(e.pointerId);
-    dragState={curBX:raw.x, curBY:raw.y, pointerId:e.pointerId};
-    drawBoard();
+    updateAim(e);
   });
-  canvas.addEventListener('pointermove',e=>{
-    if(!dragState||e.pointerId!==dragState.pointerId) return;
-    const rect=canvas.getBoundingClientRect();
-    const scaleX=TOTAL_W/rect.width, scaleY=TOTAL_H/rect.height;
-    const raw=toLogical((e.clientX-rect.left)*scaleX-VIEW_MARGIN,(e.clientY-rect.top)*scaleY-VIEW_MARGIN);
-    dragState.curBX=raw.x; dragState.curBY=raw.y;
-    drawBoard();
-  });
-  function onRelease(e){
-    if(!dragState||(e.pointerId!==undefined&&e.pointerId!==dragState.pointerId)) return;
-    const cue=balls.find(b=>b.id===0&&b.alive);
-    if(cue){
-      let dx=dragState.curBX-cue.x, dy=dragState.curBY-cue.y;
-      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
-      if(dist>6){
-        const angle=Math.atan2(dy,dx);
-        const power=(dist/MAX_PULL)*BASE_LAUNCH_SPEED;
-        const vx=-Math.cos(angle)*power, vy=-Math.sin(angle)*power;
-        fireShot(vx,vy);
-      }
-    }
-    dragState=null;
-    drawBoard();
+  canvas.addEventListener('pointermove',e=>{ if(aimDragging) updateAim(e); });
+  function endAimDrag(){ aimDragging=false; }
+  canvas.addEventListener('pointerup',endAimDrag);
+  canvas.addEventListener('pointercancel',endAimDrag);
+}
+
+// ---- 파워 슬라이더 (누른 상태로 드래그, 손을 떼면 발사) ----
+let powerDragging=false, pendingPower=0;
+function setupPowerSlider(){
+  const c=document.getElementById('powerCanvas');
+  if(!c) return;
+  function updatePower(e){
+    const rect=c.getBoundingClientRect();
+    const relY=(e.clientY-rect.top)/rect.height;
+    pendingPower=Math.max(0,Math.min(1,1-relY));
+    drawPowerSlider();
   }
-  canvas.addEventListener('pointerup',onRelease);
-  canvas.addEventListener('pointercancel',onRelease);
+  c.addEventListener('pointerdown',e=>{
+    if(!isMyShotTurn()) return;
+    powerDragging=true;
+    c.setPointerCapture(e.pointerId);
+    updatePower(e);
+  });
+  c.addEventListener('pointermove',e=>{ if(powerDragging) updatePower(e); });
+  function release(){
+    if(!powerDragging) return;
+    powerDragging=false;
+    if(pendingPower>0.07){
+      const power=pendingPower*BASE_LAUNCH_SPEED;
+      const vx=Math.cos(aimAngle)*power, vy=Math.sin(aimAngle)*power;
+      fireShot(vx,vy);
+    }
+    pendingPower=0;
+    drawPowerSlider();
+  }
+  c.addEventListener('pointerup',release);
+  c.addEventListener('pointercancel',release);
+}
+function drawPowerSlider(){
+  const c=document.getElementById('powerCanvas');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.scale(dpr,dpr);
+  const w=c.width/dpr, h=c.height/dpr;
+  ctx.fillStyle='rgba(255,255,255,0.1)';
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.fill();
+  const fillH=Math.max(6,h*pendingPower);
+  const g=ctx.createLinearGradient(0,h,0,0);
+  g.addColorStop(0,'#7ed957'); g.addColorStop(0.6,'#ffd166'); g.addColorStop(1,'#ff6b6b');
+  ctx.fillStyle=g;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.clip();
+  ctx.fillRect(0,h-fillH,w,fillH);
+  ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.stroke();
+  if(pendingPower>0){
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center';
+    ctx.save(); ctx.translate(w/2,h-fillH-8); ctx.fillText(Math.round(pendingPower*100)+'%',0,0); ctx.restore();
+  }
+}
+
+// ---- 당점(회전) 선택기 - 큐볼 미니 이미지 위에서 원하는 지점을 탭/드래그 ----
+let spinDragging=false;
+function setupSpinSelector(){
+  const c=document.getElementById('spinCanvas');
+  if(!c) return;
+  function updateSpin(e){
+    const rect=c.getBoundingClientRect();
+    const cx=rect.width/2, cy=rect.height/2;
+    let dx=(e.clientX-rect.left-cx)/cx, dy=(e.clientY-rect.top-cy)/cy;
+    const mag=Math.hypot(dx,dy);
+    if(mag>1){ dx/=mag; dy/=mag; }
+    ballSpin={sx:dx,sy:dy};
+    drawSpinSelector();
+  }
+  c.addEventListener('pointerdown',e=>{ spinDragging=true; c.setPointerCapture(e.pointerId); updateSpin(e); });
+  c.addEventListener('pointermove',e=>{ if(spinDragging) updateSpin(e); });
+  function release(){ spinDragging=false; }
+  c.addEventListener('pointerup',release);
+  c.addEventListener('pointercancel',release);
+}
+function drawSpinSelector(){
+  const c=document.getElementById('spinCanvas');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.scale(dpr,dpr);
+  const w=c.width/dpr, h=c.height/dpr, r=Math.min(w,h)/2-3;
+  const cx=w/2, cy=h/2;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fillStyle='#f5f5f0'; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(cx-r,cy); ctx.lineTo(cx+r,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-r); ctx.lineTo(cx,cy+r); ctx.stroke();
+  const px=cx+ballSpin.sx*r, py=cy+ballSpin.sy*r;
+  ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2);
+  ctx.fillStyle='#e63946'; ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
+}
+
+// ---- 조준 미리보기 (내가 겨눈 방향에서 어떤 공의 어느 지점에 맞는지) ----
+function findAimedBall(cueX,cueY,angle){
+  const dx=Math.cos(angle), dy=Math.sin(angle);
+  let best=null, bestT=Infinity;
+  balls.forEach(b=>{
+    if(b.id===0||!b.alive) return;
+    const toX=b.x-cueX, toY=b.y-cueY;
+    const proj=toX*dx+toY*dy;
+    if(proj<=0) return;
+    const perpX=toX-proj*dx, perpY=toY-proj*dy;
+    const perpDist=Math.hypot(perpX,perpY);
+    const rSum=b.r+BALL_R;
+    if(perpDist<rSum){
+      const backT=Math.sqrt(Math.max(0,rSum*rSum-perpDist*perpDist));
+      const hitT=proj-backT;
+      if(hitT<bestT){ bestT=hitT; best={ball:b,perpX,perpY,perpDist,rSum}; }
+    }
+  });
+  return best;
+}
+function drawGhostPreview(){
+  const c=document.getElementById('ghostCanvas');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.scale(dpr,dpr);
+  const w=c.width/dpr, h=c.height/dpr, cx=w/2, cy=h/2;
+  const cue=balls.find(b=>b.id===0&&b.alive);
+  if(!cue||!isMyShotTurn()){
+    ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('조준 시',cx,cy-6); ctx.fillText('표시돼요',cx,cy+6);
+    return;
+  }
+  const hit=findAimedBall(cue.x,cue.y,aimAngle);
+  if(!hit){
+    ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('맞는 공',cx,cy-6); ctx.fillText('없음',cx,cy+6);
+    return;
+  }
+  const scale=(Math.min(w,h)*0.34)/hit.ball.r;
+  const br=hit.ball.r*scale;
+  // 목표공(정면)
+  ctx.save(); ctx.translate(cx,cy);
+  const fakeBall={...hit.ball,x:0,y:0,r:br};
+  drawBall(ctx,fakeBall);
+  // 충돌 순간 큐볼 위치(고스트) - perp 방향의 반대쪽에서 접근
+  let nx=-hit.perpX, ny=-hit.perpY;
+  const nmag=Math.hypot(nx,ny)||1;
+  nx/=nmag; ny/=nmag;
+  const cueR=BALL_R*scale;
+  const gx=nx*(br+cueR)*0.98, gy=ny*(br+cueR)*0.98;
+  ctx.beginPath(); ctx.arc(gx,gy,cueR,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.restore();
 }
 
 async function placeCueBall(x,y){
@@ -481,7 +689,7 @@ async function placeCueBall(x,y){
   const cue=balls.find(b=>b.id===0);
   cue.x=x; cue.y=y; cue.vx=0; cue.vy=0; cue.alive=true;
   drawBoard();
-  const cleanBalls=balls.map(({trail,...rest})=>rest);
+  const cleanBalls=balls.map(({trail,spin,spinUsedV,...rest})=>rest);
   await patchRoom({state:{...room.state, balls:cleanBalls, stage:'playing', foulMsg:null}});
 }
 
@@ -567,33 +775,24 @@ function drawBoard(){
   });
 
   let aimInfo=null;
-  if(dragState){
+  if(isMyShotTurn()){
     const cue=balls.find(b=>b.id===0&&b.alive);
     if(cue){
-      let dx=dragState.curBX-cue.x, dy=dragState.curBY-cue.y;
-      const dist=Math.min(MAX_PULL,Math.hypot(dx,dy));
-      const pct=dist/MAX_PULL;
-      const angle=Math.atan2(dy,dx);
-      const pullX=cue.x+Math.cos(angle)*dist, pullY=cue.y+Math.sin(angle)*dist;
-      const shootAngle=angle+Math.PI;
-      const powerColor = pct<0.5?'rgba(120,220,120,0.85)':pct<0.8?'rgba(255,210,80,0.9)':'rgba(255,80,80,0.95)';
-
-      ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=2.5; ctx.setLineDash([6,5]);
-      ctx.beginPath(); ctx.moveTo(cue.x,cue.y); ctx.lineTo(pullX,pullY); ctx.stroke();
-      ctx.setLineDash([]);
+      const shootAngle=aimAngle;
+      const powerColor = pendingPower<0.5?'rgba(120,220,120,0.85)':pendingPower<0.8?'rgba(255,210,80,0.9)':'rgba(255,80,80,0.95)';
 
       const aimLen=(TABLE_W+TABLE_H); // 벽 한번 튕기고도 남을 만큼 충분히 길게
       const path=computeAimPath(cue.x,cue.y,shootAngle,aimLen);
-      ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1.5; ctx.setLineDash([3,4]);
+      ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=2; ctx.setLineDash([6,5]);
       ctx.beginPath(); ctx.moveTo(path.seg1.x1,path.seg1.y1); ctx.lineTo(path.seg1.x2,path.seg1.y2); ctx.stroke();
       if(path.seg2){
-        ctx.strokeStyle='rgba(255,255,255,0.3)';
+        ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1.5;
         ctx.beginPath(); ctx.moveTo(path.seg2.x1,path.seg2.y1); ctx.lineTo(path.seg2.x2,path.seg2.y2); ctx.stroke();
       }
       ctx.setLineDash([]);
 
       let deg=Math.round(shootAngle*180/Math.PI); deg=((deg%360)+360)%360;
-      aimInfo={pct,powerColor,deg};
+      aimInfo={pct:pendingPower,powerColor,deg};
     }
   }
 
@@ -641,11 +840,14 @@ function drawBoard(){
   }
 }
 
-function fireShot(vx,vy){
+function fireShot(vx,vy,spinOverride){
   const cue=balls.find(b=>b.id===0);
   if(!cue) return;
+  const useSpin=spinOverride||ballSpin;
   cue.vx=vx; cue.vy=vy;
-  safeSend({type:'broadcast',event:'shot',payload:{ballId:0,vx,vy,seat:mySeat}});
+  cue.spin={sx:useSpin.sx,sy:useSpin.sy};
+  cue.spinUsedV=false;
+  safeSend({type:'broadcast',event:'shot',payload:{ballId:0,vx,vy,spin:cue.spin,seat:mySeat}});
   runSimulation(()=>{ finishTurnAfterShot(); });
 }
 const SLOWMO_FACTOR=1.4; // 물리 결과(도착 위치/각도)는 그대로, 화면 재생 속도만 살짝 느리게
@@ -715,7 +917,7 @@ async function finishTurnAfterShot(){
   const st=room.state;
   const shooterSeat=st.turn;
   const result=evaluateOutcome(st.balls,shooterSeat,st.groups);
-  const cleanBalls=balls.map(({trail,...rest})=>rest);
+  const cleanBalls=balls.map(({trail,spin,spinUsedV,...rest})=>rest);
   let newState;
   if(result.winner!==null){
     newState={...st,balls:cleanBalls,groups:result.newGroups,stage:'result',winner:result.winner,foulMsg:result.foulMsg,postHandAt:Date.now()};
@@ -925,7 +1127,7 @@ async function maybeRunComTurn(){
   balls=room.state.balls.map(b=>({...b,trail:[]}));
   const shot=computeBestComShot(seat);
   if(!shot) return;
-  fireShot(shot.vx,shot.vy);
+  fireShot(shot.vx,shot.vy,{sx:0,sy:0});
 }
 
 // ---- 나가기 ----
