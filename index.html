@@ -428,48 +428,88 @@ if(game.available&&!isMaintenance){
 }
 function goHome(){renderHome();showScreen('home');}
 
-// ---- 내 캐릭터 미니 미리보기 ----
-const CHAR_SKELETON={ head:9, neck:3, torso:9, upper_arm_left:7, lower_arm_left:6, upper_arm_right:7, lower_arm_right:6, upper_leg_left:9, lower_leg_left:8, upper_leg_right:9, lower_leg_right:8, weapon:9 };
-const CHAR_PART_DIR={ neck:-1, head:-1 };
+// ---- 내 캐릭터 미니 미리보기 (트리 기반 범용 렌더러 - 꾸미기 페이지와 같은 방식) ----
 const charImgCache={};
 function charGetImg(url){ if(!charImgCache[url]){ const img=new Image(); img.src=url; charImgCache[url]=img; } return charImgCache[url]; }
-let myEquipped={}, myCharItems=[];
+let myParts=[], myCharItems=[], myEquipped={};
 async function loadMyCharacterPreview(u){
   try{
     const h={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
-    const [ir,ur]=await Promise.all([
+    const [pr,ir,ur]=await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/character_parts?select=*`,{headers:h}),
       fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*`,{headers:h}),
       fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${u.id}&select=*`,{headers:h})
     ]);
+    myParts=await pr.json();
     myCharItems=await ir.json();
     const ud=await ur.json();
     myEquipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
-  }catch(e){ myEquipped={}; myCharItems=[]; }
+  }catch(e){ myParts=[]; myEquipped={}; myCharItems=[]; }
   startMyCharLoop();
 }
-function charEquippedImg(partKey){
-  const id=myEquipped[partKey];
-  if(!id) return null;
-  const it=myCharItems.find(i=>i.id===id);
+function myPartByKey(k){ return myParts.find(p=>p.key===k); }
+function myChildrenOf(pk){ return myParts.filter(p=>(p.parent_key||null)===(pk||null)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)); }
+function myBaseItemFor(key){ return myCharItems.find(i=>i.part_key===key&&i.is_base); }
+function myImgInfoFor(key){
+  const id=myEquipped[key];
+  const it=id?myCharItems.find(i=>i.id===id):myBaseItemFor(key);
   if(!it) return null;
-  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.1};
+  return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
 }
-function drawMiniLimb(ctx,partKey,jointX,jointY,angleRad,facing){
-  const dir=CHAR_PART_DIR[partKey]||1;
-  const info=charEquippedImg(partKey);
-  const hgt=CHAR_SKELETON[partKey]||9;
-  if(!info) return {endX:jointX,endY:jointY+dir*hgt};
+function myComputeEndLocal(h,anchorY){ return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY; }
+function myIdleAngleFor(part,phase){
+  const sway=Math.sin(phase)*0.04;
+  const l=part.label||'';
+  if(!part.parent_key) return sway*0.25;
+  if(l.includes('왼')&&l.includes('팔')&&!l.includes('아래')) return 0.12+sway;
+  if(l.includes('오')&&l.includes('팔')&&!l.includes('아래')) return -0.12-sway;
+  if(l.includes('아래팔')) return sway*0.6;
+  return sway*0.3;
+}
+function myDrawJointAtOrigin(ctx,key,h){
+  const info=myImgInfoFor(key);
+  if(!info) return {w:h,h,anchorX:0.5,anchorY:0.05};
   const img=charGetImg(info.url);
-  if(!img.complete||!img.naturalWidth) return {endX:jointX,endY:jointY+dir*hgt};
-  const w=hgt*(img.naturalWidth/img.naturalHeight);
+  if(!img.complete||!img.naturalWidth) return {w:h,h,anchorX:info.anchorX,anchorY:info.anchorY};
+  const w=h*(img.naturalWidth/img.naturalHeight);
+  ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
+  return {w,h,anchorX:info.anchorX,anchorY:info.anchorY};
+}
+function myDrawAttachment(ctx,key,parentInfo){
+  const info=myImgInfoFor(key);
+  if(!info) return;
+  const img=charGetImg(info.url);
+  if(!img.complete||!img.naturalWidth) return;
+  const localX=parentInfo.w*(info.offsetX-parentInfo.anchorX);
+  const localY=parentInfo.h*(info.offsetY-parentInfo.anchorY);
+  const fh=parentInfo.h*0.32;
+  const fw=fh*(img.naturalWidth/img.naturalHeight);
+  ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
+}
+function myRenderNode(ctx,key,phase){
+  const part=myPartByKey(key);
+  if(!part||part.node_type==='attachment') return;
+  const angle=myIdleAngleFor(part,phase);
   ctx.save();
-  ctx.translate(jointX,jointY);
-  ctx.scale(facing<0?-1:1,1);
-  ctx.rotate(angleRad);
-  ctx.drawImage(img,-w*info.anchorX,-hgt*info.anchorY,w,hgt);
+  ctx.rotate(angle);
+  const info=myDrawJointAtOrigin(ctx,key,part.default_length||9);
+  const endLocalY=myComputeEndLocal(info.h,info.anchorY);
+  myChildrenOf(key).forEach(child=>{
+    const atEnd=child.attach_end!==false;
+    if(child.node_type==='joint'){
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      myRenderNode(ctx,child.key,phase);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      myDrawAttachment(ctx,child.key,info);
+      myChildrenOf(child.key).forEach(g=>{ if(g.node_type==='attachment') myDrawAttachment(ctx,g.key,info); });
+      ctx.restore();
+    }
+  });
   ctx.restore();
-  const d=dir>0?hgt*(1-info.anchorY):hgt*info.anchorY;
-  return {endX:jointX-facing*d*Math.sin(angleRad),endY:jointY+d*Math.cos(angleRad)};
 }
 let myCharPhase=0, myCharRaf=null;
 function startMyCharLoop(){
@@ -481,23 +521,12 @@ function startMyCharLoop(){
     if(!document.getElementById('myCharCanvas')){ myCharRaf=null; return; }
     myCharPhase+=0.03;
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    const x=canvas.width/2, groundY=canvas.height-6, facing=1;
-    const sway=Math.sin(myCharPhase)*0.04;
-    const hipY=groundY-CHAR_SKELETON.upper_leg_left-CHAR_SKELETON.lower_leg_left;
-    const shoulderY=hipY-CHAR_SKELETON.torso;
-    drawMiniLimb(ctx,'upper_leg_left',x-2,hipY,0.05,facing);
-    drawMiniLimb(ctx,'upper_leg_right',x+2,hipY,-0.05,facing);
-    drawMiniLimb(ctx,'lower_leg_left',x-2,hipY+CHAR_SKELETON.upper_leg_left,0.05,facing);
-    drawMiniLimb(ctx,'lower_leg_right',x+2,hipY+CHAR_SKELETON.upper_leg_right,-0.05,facing);
-    drawMiniLimb(ctx,'torso',x,shoulderY,sway*0.3,facing);
-    const neckTop=drawMiniLimb(ctx,'neck',x,shoulderY,sway*0.3,facing);
-    drawMiniLimb(ctx,'head',neckTop.endX,neckTop.endY,sway*0.3,facing);
-    const armLAngle=0.12+sway, armRAngle=-0.12-sway;
-    const elbowL=drawMiniLimb(ctx,'upper_arm_left',x,shoulderY,armLAngle,facing);
-    const elbowR=drawMiniLimb(ctx,'upper_arm_right',x,shoulderY,armRAngle,facing);
-    const handR=drawMiniLimb(ctx,'lower_arm_right',elbowR.endX,elbowR.endY,armRAngle*0.6,facing);
-    drawMiniLimb(ctx,'lower_arm_left',elbowL.endX,elbowL.endY,armLAngle*0.6,facing);
-    drawMiniLimb(ctx,'weapon',handR.endX,handR.endY,armRAngle*0.6,facing);
+    const x=canvas.width/2, groundY=canvas.height-6, hipY=groundY-24, facing=1;
+    ctx.save();
+    ctx.translate(x,hipY);
+    ctx.scale(facing,1);
+    myChildrenOf(null).forEach(r=>{ ctx.save(); myRenderNode(ctx,r.key,myCharPhase); ctx.restore(); });
+    ctx.restore();
     myCharRaf=requestAnimationFrame(loop);
   }
   loop();

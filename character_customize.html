@@ -43,37 +43,14 @@ function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPA
 function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
 function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
-const PARTS=[
-  {key:'head',label:'머리'},
-  {key:'neck',label:'목'},
-  {key:'torso',label:'몸통'},
-  {key:'upper_arm_left',label:'위팔(왼)'},
-  {key:'lower_arm_left',label:'아래팔(왼)'},
-  {key:'upper_arm_right',label:'위팔(오)'},
-  {key:'lower_arm_right',label:'아래팔(오)'},
-  {key:'upper_leg_left',label:'허벅지(왼)'},
-  {key:'lower_leg_left',label:'종아리(왼)'},
-  {key:'upper_leg_right',label:'허벅지(오)'},
-  {key:'lower_leg_right',label:'종아리(오)'},
-  {key:'weapon',label:'무기/소품'}
-];
-const SKELETON={
-  head:22, neck:6, torso:20,
-  upper_arm_left:15, lower_arm_left:14, upper_arm_right:15, lower_arm_right:14,
-  upper_leg_left:19, lower_leg_left:18, upper_leg_right:19, lower_leg_right:18,
-  weapon:22
-};
-const PART_DIR={ neck:-1, head:-1 };
-
-let items=[];
-let equipped={};
+let parts=[], items=[], equipped={};
 const imgCache={};
-function getImg(url){
-  if(!imgCache[url]){ const img=new Image(); img.src=url; imgCache[url]=img; }
-  return imgCache[url];
-}
+function getImg(url){ if(!imgCache[url]){ const img=new Image(); img.src=url; imgCache[url]=img; } return imgCache[url]; }
+function partByKey(k){ return parts.find(p=>p.key===k); }
+function childrenOf(parentKey){ return parts.filter(p=>(p.parent_key||null)===(parentKey||null)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)); }
 function itemById(id){ return items.find(i=>i.id===id); }
-function itemsForPart(partKey){ return items.filter(i=>i.part_key===partKey); }
+function baseItemFor(key){ return items.find(i=>i.part_key===key&&i.is_base); }
+function wardrobeFor(key){ return items.filter(i=>i.part_key===key&&!i.is_base); }
 
 async function init(){
   const content=document.getElementById('content');
@@ -89,27 +66,32 @@ async function init(){
     <div class="item-grid" id="itemGrid"></div>
   `;
   await loadAll();
-  currentPart='head';
+  currentPart=(parts[0]||{}).key||null;
   renderTabs();
   renderGrid();
   startPreviewLoop();
 }
 
 async function loadAll(){
-  const [ir,ur]=await Promise.all([
+  const [pr,ir,ur]=await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/character_parts?select=*`,{headers:headers()}),
     fetch(`${SUPABASE_URL}/rest/v1/character_items?select=*&order=created_at.asc`,{headers:headers()}),
     fetch(`${SUPABASE_URL}/rest/v1/user_characters?user_id=eq.${currentUser.id}&select=*`,{headers:headers()})
   ]);
+  parts=await pr.json();
   items=await ir.json();
   const ud=await ur.json();
-  if(ud&&ud[0]&&ud[0].equipped){ equipped=ud[0].equipped; }
-  else { equipped={}; }
+  equipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
 }
 
-let currentPart='head';
+let currentPart=null;
 function renderTabs(){
   const tabsEl=document.getElementById('partTabs');
-  tabsEl.innerHTML=PARTS.map(p=>`<div class="part-tab ${currentPart===p.key?'sel':''}" data-p="${p.key}">${esc(p.label)}${equipped[p.key]?' ✓':''}</div>`).join('');
+  function flat(parentKey,depth){
+    return childrenOf(parentKey).flatMap(p=>[{...p,depth}, ...flat(p.key,depth+1)]);
+  }
+  const list=flat(null,0);
+  tabsEl.innerHTML=list.map(p=>`<div class="part-tab ${currentPart===p.key?'sel':''}" data-p="${p.key}">${'　'.repeat(p.depth)}${esc(p.label)}${equipped[p.key]?' ✓':''}</div>`).join('');
   tabsEl.querySelectorAll('.part-tab').forEach(el=>{
     el.addEventListener('click',()=>{ currentPart=el.dataset.p; renderTabs(); renderGrid(); });
   });
@@ -117,14 +99,15 @@ function renderTabs(){
 
 function renderGrid(){
   const grid=document.getElementById('itemGrid');
-  const list=itemsForPart(currentPart);
-  let html=`<div class="item-card empty-slot ${!equipped[currentPart]?'sel':''}" data-empty="1">🚫<br>없음</div>`;
+  if(!currentPart){ grid.innerHTML='<div class="center-msg">아직 등록된 부위가 없어요</div>'; return; }
+  const list=wardrobeFor(currentPart);
+  let html=`<div class="item-card empty-slot ${!equipped[currentPart]?'sel':''}" data-empty="1">🚫<br>기본만</div>`;
   list.forEach(it=>{
     html+=`<div class="item-card ${equipped[currentPart]===it.id?'sel':''}" data-id="${it.id}"><img src="${esc(it.url)}"><div class="iname">${esc(it.name)}</div></div>`;
   });
   grid.innerHTML=html;
   if(!list.length){
-    grid.innerHTML+='<div style="grid-column:1/-1;color:#bbb;font-size:12px;text-align:center;padding:10px;">아직 이 부위 아이템이 없어요</div>';
+    grid.innerHTML+='<div style="grid-column:1/-1;color:#bbb;font-size:12px;text-align:center;padding:10px;">아직 이 부위에 입힐 아이템이 없어요</div>';
   }
   grid.querySelectorAll('.item-card').forEach(el=>{
     el.addEventListener('click',()=>{
@@ -150,31 +133,84 @@ async function equipItem(partKey,itemId){
   }catch(e){ console.error('저장 실패:',e); }
 }
 
-// ---- 미리보기 (정지 자세, 나중에 게임에 넣을 때 이 로직을 그대로 재사용해요) ----
-function getEquippedImg(partKey){
-  const id=equipped[partKey];
-  if(!id) return null;
-  const it=itemById(id);
+// ---- 미리보기: 트리를 재귀적으로 따라가며 그리기 (관절 회전이 자식(장식 포함)에게 자동으로 전달돼요) ----
+function imgInfoFor(key){
+  const equippedId=equipped[key];
+  const it=equippedId?itemById(equippedId):baseItemFor(key);
   if(!it) return null;
-  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.1};
+  return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
 }
-function drawPreviewLimb(ctx,partKey,jointX,jointY,angleRad,facing){
-  const dir=PART_DIR[partKey]||1;
-  const info=getEquippedImg(partKey);
-  const h=SKELETON[partKey]||20;
-  if(!info) return {endX:jointX,endY:jointY+dir*h};
+function computeEndLocal(h,anchorY){
+  return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY;
+}
+function idleAngleFor(part,phase){
+  const sway=Math.sin(phase)*0.04;
+  const k=part.key, l=part.label||'';
+  if(part.parent_key===null) return sway*0.25; // 최상위(몸통류)는 살짝만
+  if(l.includes('왼')&&(l.includes('위팔')||l.includes('팔')&&!l.includes('아래'))) return 0.12+sway;
+  if(l.includes('오')&&(l.includes('위팔')||l.includes('팔')&&!l.includes('아래'))) return -0.12-sway;
+  if(l.includes('아래팔')) return sway*0.6;
+  if(l.includes('허벅지')) return 0;
+  if(l.includes('종아리')) return 0;
+  return sway*0.3;
+}
+
+function drawJointImageAtOrigin(ctx,key,h){
+  const info=imgInfoFor(key);
+  if(!info) return {w:h,h,anchorX:0.5,anchorY:0.05};
   const img=getImg(info.url);
-  if(!img.complete||!img.naturalWidth) return {endX:jointX,endY:jointY+dir*h};
+  if(!img.complete||!img.naturalWidth) return {w:h,h,anchorX:info.anchorX,anchorY:info.anchorY};
   const w=h*(img.naturalWidth/img.naturalHeight);
-  ctx.save();
-  ctx.translate(jointX,jointY);
-  ctx.scale(facing<0?-1:1,1);
-  ctx.rotate(angleRad);
   ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
-  ctx.restore();
-  const d=dir>0?h*(1-info.anchorY):h*info.anchorY;
-  return {endX:jointX-facing*d*Math.sin(angleRad),endY:jointY+d*Math.cos(angleRad)};
+  return {w,h,anchorX:info.anchorX,anchorY:info.anchorY};
 }
+function drawAttachmentAtParentLocal(ctx,key,parentInfo){
+  const info=imgInfoFor(key);
+  if(!info) return;
+  const img=getImg(info.url);
+  if(!img.complete||!img.naturalWidth) return;
+  const localX=parentInfo.w*(info.offsetX-parentInfo.anchorX);
+  const localY=parentInfo.h*(info.offsetY-parentInfo.anchorY);
+  const fh=parentInfo.h*0.32;
+  const fw=fh*(img.naturalWidth/img.naturalHeight);
+  ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
+  return {localX,localY};
+}
+
+function renderNode(ctx,key,phase,facing){
+  const part=partByKey(key);
+  if(!part) return;
+  if(part.node_type==='attachment'){
+    // 장식은 별도 회전 없이 부모 좌표계 그대로 사용 (renderJointChildren에서 위치까지 처리해서 호출함)
+    return;
+  }
+  const angle=idleAngleFor(part,phase);
+  ctx.save();
+  ctx.rotate(angle);
+  const info=drawJointImageAtOrigin(ctx,key,part.default_length||16);
+  const endLocalY=computeEndLocal(info.h,info.anchorY);
+  childrenOf(key).forEach(child=>{
+    if(child.node_type==='joint'){
+      ctx.save();
+      const atEnd=child.attach_end!==false;
+      ctx.translate(0, atEnd?endLocalY:0);
+      renderNode(ctx,child.key,phase,facing);
+      ctx.restore();
+    } else {
+      const atEnd=child.attach_end!==false;
+      ctx.save();
+      ctx.translate(0, atEnd?endLocalY:0);
+      drawAttachmentAtParentLocal(ctx,child.key,info);
+      // 장식에도 자식(예: 귀->귀고리)이 있을 수 있음 - 같은 좌표계에서 이어서 처리
+      childrenOf(child.key).forEach(grand=>{
+        if(grand.node_type==='attachment') drawAttachmentAtParentLocal(ctx,grand.key,info);
+      });
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+
 function drawPreviewRig(ctx,cw,ch,phase){
   ctx.clearRect(0,0,cw,ch);
   const groundY=ch-30;
@@ -182,32 +218,24 @@ function drawPreviewRig(ctx,cw,ch,phase){
   ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(cw-20,groundY); ctx.stroke();
 
   const x=cw/2, facing=1;
-  const idleSway=Math.sin(phase)*0.04; // 살짝 숨쉬는 듯한 흔들림
-  const hipY=groundY-SKELETON.upper_leg_left-SKELETON.lower_leg_left;
-  const shoulderY=hipY-SKELETON.torso;
+  // 최상위(부모 없는) 부위들을 전부 같은 기준점(대략 골반 높이)에서 시작
+  const roots=childrenOf(null);
+  const hipY=groundY-60;
 
-  drawPreviewLimb(ctx,'upper_leg_left',x-4,hipY,0.05,facing);
-  drawPreviewLimb(ctx,'upper_leg_right',x+4,hipY,-0.05,facing);
-  const kneeL={endX:x-4,endY:hipY+SKELETON.upper_leg_left};
-  const kneeR={endX:x+4,endY:hipY+SKELETON.upper_leg_right};
-  drawPreviewLimb(ctx,'lower_leg_left',kneeL.endX,kneeL.endY,0.05,facing);
-  drawPreviewLimb(ctx,'lower_leg_right',kneeR.endX,kneeR.endY,-0.05,facing);
+  ctx.save();
+  ctx.translate(x,hipY);
+  ctx.scale(facing,1);
+  roots.forEach(r=>{
+    ctx.save();
+    renderNode(ctx,r.key,phase,facing);
+    ctx.restore();
+  });
+  ctx.restore();
 
-  drawPreviewLimb(ctx,'torso',x,shoulderY,idleSway*0.3,facing);
-  const neckTop=drawPreviewLimb(ctx,'neck',x,shoulderY,idleSway*0.3,facing);
-  drawPreviewLimb(ctx,'head',neckTop.endX,neckTop.endY,idleSway*0.3,facing);
-
-  const armLAngle=0.12+idleSway, armRAngle=-0.12-idleSway;
-  const elbowL=drawPreviewLimb(ctx,'upper_arm_left',x,shoulderY,armLAngle,facing);
-  const elbowR=drawPreviewLimb(ctx,'upper_arm_right',x,shoulderY,armRAngle,facing);
-  const handL=drawPreviewLimb(ctx,'lower_arm_left',elbowL.endX,elbowL.endY,armLAngle*0.6,facing);
-  const handR=drawPreviewLimb(ctx,'lower_arm_right',elbowR.endX,elbowR.endY,armRAngle*0.6,facing);
-  drawPreviewLimb(ctx,'weapon',handR.endX,handR.endY,armRAngle*0.6,facing);
-
-  if(!getEquippedImg('torso')&&!getEquippedImg('head')){
+  if(!parts.length){
     ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('아래에서 부위를 골라',cw/2,ch/2-8);
-    ctx.fillText('캐릭터를 꾸며보세요',cw/2,ch/2+8);
+    ctx.fillText('관리자가 부위를 먼저 만들어야',cw/2,ch/2-8);
+    ctx.fillText('여기서 캐릭터가 보여요',cw/2,ch/2+8);
   }
 }
 let previewPhase=0, previewRafId=null;

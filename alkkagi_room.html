@@ -268,6 +268,9 @@ async function fetchRoom(){
       const np=players.map((p,i)=>i===mySeat?{...p,lastSeenAt:now}:p);
       fetch(`${SUPABASE_URL}/rest/v1/alkkagi_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})}).catch(()=>{});
     }
+    if(room.status==='waiting'){
+      maybeStartGame(); // 방장 쪽에서 매번 폴링할 때마다 "전원 준비됐는지" 확인 (누가 마지막에 준비를 눌렀든 시작되도록)
+    }
   }catch(e){}
 }
 
@@ -372,9 +375,11 @@ async function maybeStartGame(){
   if(startTriggeredKey===key) return;
   startTriggeredKey=key;
   const initPieces=buildPieces(room.mode,room.omok_count);
+  const now=Date.now();
+  const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
   await patchRoom({
-    status:'playing',
-    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null, turnStartedAt:Date.now() }
+    status:'playing', players:freshPlayers,
+    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null, turnStartedAt:now }
   });
 }
 
@@ -504,7 +509,12 @@ function checkOpponentAway(){
   const opp=players[oppSeat];
   const recEl=document.getElementById(oppSeat===0?'recP0':'recP1');
   if(!opp){ opponentAwaySince=null; return; }
-  const lastSeen=opp.lastSeenAt||0;
+  if(!opp.lastSeenAt){
+    // 아직 하트비트가 한 번도 기록되지 않음(막 시작함) -> 자리비움 아님으로 간주
+    opponentAwaySince=null;
+    return;
+  }
+  const lastSeen=opp.lastSeenAt;
   const silentFor=Date.now()-lastSeen;
   if(silentFor>AFK_THRESHOLD){
     if(!opponentAwaySince) opponentAwaySince=Date.now()-silentFor; // 처음 감지된 시점 역산
