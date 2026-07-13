@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>볼링</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;background:#0e1420;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;background:#0e1420;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;flex-shrink:0;}
+.back-btn{background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:18px;padding:5px 11px;border-radius:10px;cursor:pointer;}
+.top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
+.center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
+#mainArea{flex:1;display:flex;flex-direction:column;min-height:0;}
+#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:6px;gap:10px;min-height:0;position:relative;}
+#threeMount{border-radius:10px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.5);touch-action:none;position:relative;background:#000;}
+#threeMount canvas{display:block;}
+#powerCanvas{flex-shrink:0;touch-action:none;border-radius:16px;}
+#scoreStrip{display:flex;overflow-x:auto;gap:2px;padding:6px 10px;flex-shrink:0;background:rgba(255,255,255,0.04);}
+.frame-box{flex-shrink:0;width:30px;text-align:center;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:3px 1px;}
+.frame-box.cur{border-color:#4a8cff;background:rgba(74,140,255,0.12);}
+.frame-rolls{font-size:9px;color:#cfe0ff;min-height:11px;}
+.frame-total{font-size:10px;font-weight:800;color:#fff;margin-top:2px;}
+#bottomBar{flex-shrink:0;padding:10px 16px 18px;text-align:center;}
+.lobby-wrap{padding:20px;color:#fff;}
+.player-row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+.player-name{font-weight:700;font-size:14px;}
+.ready-chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;background:rgba(255,255,255,0.15);}
+.ready-chip.on{background:#1e5aa8;}
+.big-btn{width:100%;text-align:center;font-weight:800;font-size:15px;padding:14px;border-radius:16px;cursor:pointer;margin-top:10px;}
+.result-wrap{padding:30px 20px;text-align:center;color:#fff;}
+#playerInfoBar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;flex-shrink:0;gap:8px;}
+.pi-side{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+.pi-side.right{flex-direction:row-reverse;text-align:right;}
+.pi-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+.pi-text{min-width:0;}
+.pi-name{color:#fff;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pi-record{color:#a8bfe0;font-size:10px;}
+.pi-timer{flex-shrink:0;font-weight:900;font-size:16px;color:#fff;background:rgba(255,255,255,0.12);border-radius:10px;padding:4px 10px;min-width:34px;text-align:center;}
+.pi-timer.active{background:#1e5aa8;}
+.pi-timer.low{background:#c0392b;}
+.surrender-btn{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#e08080;background:rgba(224,128,128,0.12);padding:6px 14px;border-radius:10px;cursor:pointer;}
+#aimHint{position:absolute;top:8px;left:0;right:0;text-align:center;color:rgba(255,255,255,0.75);font-size:11px;font-weight:700;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,0.8);}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">🎳 볼링</span>
+  </div>
+  <div id="playerInfoBar" style="display:none;"></div>
+  <div id="scoreStrip" style="display:none;"></div>
+  <div id="mainArea"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const STARTING_POINTS=10000;
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const params=new URLSearchParams(location.search);
+const roomId=params.get('id');
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+// ================= 볼링 물리/레인 상수 =================
+const LANE_W=1.05, LANE_LEN=18, GUTTER_W=0.22;
+const BALL_R=0.11, BALL_MASS=6.2;
+const PIN_R=0.06, PIN_H=0.38, PIN_MASS=1.55;
+const PIN_SPACING=0.305;
+const FOUL_Z=1.5;              // 파울선(공 출발 지점) z좌표
+const PIN_AREA_Z=-(LANE_LEN-2); // 핀 삼각형의 맨 앞줄(1번핀) z좌표
+const MAX_POWER_SPEED=9.5;      // 최대 파워일 때 공 속도(m/s)
+const MAX_AIM_ANGLE=0.30;       // 좌우 최대 조준각(라디안)
+
+function pinLayout(){
+  const rows=[[0],[-0.5,0.5],[-1,0,1],[-1.5,-0.5,0.5,1.5]];
+  const rowDepth=PIN_SPACING*Math.sqrt(3)/2;
+  const list=[];
+  rows.forEach((row,ri)=>{
+    row.forEach(xOff=>{ list.push({x:xOff*PIN_SPACING, z:PIN_AREA_Z-ri*rowDepth}); });
+  });
+  return list; // 10개, 인덱스 0~9
+}
+
+// ================= Three.js 씬 + Cannon 물리월드 =================
+let renderer,scene,camera,threeReady=false;
+let world;
+let ballMesh,ballBody;
+let pinMeshes=[],pinBodies=[];
+let laneMaterial,ballCMaterial,pinCMaterial;
+
+function setupThree(mountEl){
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0a0e18);
+  scene.fog=new THREE.Fog(0x0a0e18,10,LANE_LEN+8);
+
+  camera=new THREE.PerspectiveCamera(52,1,0.05,60);
+  camera.position.set(0,1.15,FOUL_Z+1.6);
+  camera.lookAt(0,0.3,PIN_AREA_Z);
+
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.shadowMap.enabled=true;
+  mountEl.appendChild(renderer.domElement);
+
+  const ambient=new THREE.AmbientLight(0x8899cc,0.65);
+  scene.add(ambient);
+  const spot=new THREE.SpotLight(0xffffff,1.4,30,Math.PI/5,0.4);
+  spot.position.set(0,6,FOUL_Z);
+  spot.target.position.set(0,0,PIN_AREA_Z);
+  spot.castShadow=true;
+  scene.add(spot); scene.add(spot.target);
+  const pinLight=new THREE.PointLight(0xfff3d8,1.1,10);
+  pinLight.position.set(0,2.2,PIN_AREA_Z-0.5);
+  scene.add(pinLight);
+
+  // 레인 바닥
+  const laneGeo=new THREE.PlaneGeometry(LANE_W,LANE_LEN);
+  const laneMat=new THREE.MeshStandardMaterial({color:0xc9a05a,roughness:0.35,metalness:0.15});
+  const laneMesh=new THREE.Mesh(laneGeo,laneMat);
+  laneMesh.rotation.x=-Math.PI/2;
+  laneMesh.position.set(0,0,-(LANE_LEN/2-FOUL_Z));
+  laneMesh.receiveShadow=true;
+  scene.add(laneMesh);
+  // 레인 중앙 화살표 장식(라인)
+  for(let i=0;i<7;i++){
+    const g=new THREE.PlaneGeometry(0.03,0.5);
+    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x3a2a12}));
+    m.rotation.x=-Math.PI/2;
+    m.position.set((i-3)*0.13,0.001,FOUL_Z-3.5);
+    scene.add(m);
+  }
+  // 거터
+  [-1,1].forEach(side=>{
+    const gGeo=new THREE.PlaneGeometry(GUTTER_W,LANE_LEN);
+    const gMat=new THREE.MeshStandardMaterial({color:0x2a3040,roughness:0.8});
+    const gMesh=new THREE.Mesh(gGeo,gMat);
+    gMesh.rotation.x=-Math.PI/2;
+    gMesh.position.set(side*(LANE_W/2+GUTTER_W/2),-0.05,-(LANE_LEN/2-FOUL_Z));
+    scene.add(gMesh);
+  });
+  // 핀 뒤 백보드
+  const backGeo=new THREE.PlaneGeometry(LANE_W+GUTTER_W*2+0.6,2.2);
+  const backMesh=new THREE.Mesh(backGeo,new THREE.MeshStandardMaterial({color:0x14181f}));
+  backMesh.position.set(0,1.0,PIN_AREA_Z-1.0);
+  scene.add(backMesh);
+
+  // 공
+  const ballGeo=new THREE.SphereGeometry(BALL_R,24,24);
+  const ballMat=new THREE.MeshStandardMaterial({color:0x2255dd,roughness:0.25,metalness:0.5});
+  ballMesh=new THREE.Mesh(ballGeo,ballMat);
+  ballMesh.castShadow=true;
+  scene.add(ballMesh);
+
+  // 핀 10개
+  const pinGeo=new THREE.CylinderGeometry(PIN_R*0.55,PIN_R,PIN_H,14);
+  const layout=pinLayout();
+  pinMeshes=layout.map(()=>{
+    const g=new THREE.Group();
+    const body=new THREE.Mesh(pinGeo,new THREE.MeshStandardMaterial({color:0xf3f0e6,roughness:0.4}));
+    body.position.y=PIN_H/2;
+    body.castShadow=true;
+    const stripe=new THREE.Mesh(new THREE.CylinderGeometry(PIN_R*0.62,PIN_R*0.62,PIN_H*0.14,14),new THREE.MeshStandardMaterial({color:0xcc2222}));
+    stripe.position.y=PIN_H*0.72;
+    g.add(body); g.add(stripe);
+    scene.add(g);
+    return g;
+  });
+
+  threeReady=true;
+  resizeThree(mountEl);
+}
+function resizeThree(mountEl){
+  if(!threeReady) return;
+  const w=mountEl.clientWidth, h=mountEl.clientHeight;
+  if(w<10||h<10) return;
+  renderer.setSize(w,h);
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+}
+
+function setupWorld(){
+  world=new CANNON.World({gravity:new CANNON.Vec3(0,-9.82,0)});
+  world.broadphase=new CANNON.SAPBroadphase(world);
+  world.allowSleep=true;
+
+  laneMaterial=new CANNON.Material('lane');
+  ballCMaterial=new CANNON.Material('ball');
+  pinCMaterial=new CANNON.Material('pin');
+  world.addContactMaterial(new CANNON.ContactMaterial(laneMaterial,ballCMaterial,{friction:0.02,restitution:0.1}));
+  world.addContactMaterial(new CANNON.ContactMaterial(laneMaterial,pinCMaterial,{friction:0.35,restitution:0.1}));
+  world.addContactMaterial(new CANNON.ContactMaterial(ballCMaterial,pinCMaterial,{friction:0.15,restitution:0.35}));
+  world.addContactMaterial(new CANNON.ContactMaterial(pinCMaterial,pinCMaterial,{friction:0.25,restitution:0.2}));
+
+  // 레인(넓게, 거터까지 포함해서 하나의 평면으로 - 거터에 빠지면 핀에 안 닿도록 핀은 레인 폭 안에만 있음)
+  const laneShape=new CANNON.Box(new CANNON.Vec3((LANE_W+GUTTER_W*2)/2,0.1,LANE_LEN/2));
+  const laneBody=new CANNON.Body({mass:0,material:laneMaterial});
+  laneBody.addShape(laneShape);
+  laneBody.position.set(0,-0.1,-(LANE_LEN/2-FOUL_Z));
+  world.addBody(laneBody);
+  // 거터보다 바깥쪽엔 벽(공이 완전히 레인을 벗어나지 않도록)
+  [-1,1].forEach(side=>{
+    const wallShape=new CANNON.Box(new CANNON.Vec3(0.05,0.4,LANE_LEN/2));
+    const wallBody=new CANNON.Body({mass:0,material:laneMaterial});
+    wallBody.addShape(wallShape);
+    wallBody.position.set(side*(LANE_W/2+GUTTER_W+0.05),0.2,-(LANE_LEN/2-FOUL_Z));
+    world.addBody(wallBody);
+  });
+  // 핀 뒤쪽 벽(핀/공이 안 날아가도록)
+  const backWallShape=new CANNON.Box(new CANNON.Vec3((LANE_W+GUTTER_W*2)/2,1.2,0.1));
+  const backWallBody=new CANNON.Body({mass:0,material:laneMaterial});
+  backWallBody.addShape(backWallShape);
+  backWallBody.position.set(0,1.2,PIN_AREA_Z-1.1);
+  world.addBody(backWallBody);
+
+  // 공
+  ballBody=new CANNON.Body({mass:BALL_MASS,material:ballCMaterial,linearDamping:0.02,angularDamping:0.3});
+  ballBody.addShape(new CANNON.Sphere(BALL_R));
+  ballBody.sleepSpeedLimit=0.12;
+  ballBody.sleepTimeLimit=0.4;
+  world.addBody(ballBody);
+
+  // 핀 10개
+  const layout=pinLayout();
+  pinBodies=layout.map(()=>{
+    const b=new CANNON.Body({mass:PIN_MASS,material:pinCMaterial,linearDamping:0.4,angularDamping:0.5});
+    b.addShape(new CANNON.Cylinder(PIN_R*0.8,PIN_R,PIN_H,10));
+    b.sleepSpeedLimit=0.15;
+    b.sleepTimeLimit=0.4;
+    world.addBody(b);
+    return b;
+  });
+}
+function resetPinsPhysics(standingMask){
+  const layout=pinLayout();
+  pinBodies.forEach((b,i)=>{
+    if(standingMask[i]){
+      b.position.set(layout[i].x,PIN_H/2,layout[i].z);
+      b.quaternion.set(0,0,0,1);
+      b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0);
+      b.wakeUp();
+    } else {
+      b.position.set(layout[i].x, -3, layout[i].z); // 이미 쓰러진 핀은 화면 밖(아래)로 치워둠
+      b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0);
+      b.sleep();
+    }
+  });
+}
+function resetBallPhysics(x,z){
+  ballBody.position.set(x,BALL_R,z);
+  ballBody.velocity.set(0,0,0);
+  ballBody.angularVelocity.set(0,0,0);
+  ballBody.quaternion.set(0,0,0,1);
+  ballBody.wakeUp();
+}
+function isPinDown(body){
+  const up=new CANNON.Vec3(0,1,0);
+  const worldUp=body.quaternion.vmult(up);
+  const angle=Math.acos(Math.max(-1,Math.min(1,worldUp.y)));
+  return angle>Math.PI/3 || body.position.y< -1; // 60도 이상 기울거나 이미 치워진 핀
+}
+function syncMeshesFromBodies(){
+  ballMesh.position.copy(ballBody.position);
+  ballMesh.quaternion.copy(ballBody.quaternion);
+  pinBodies.forEach((b,i)=>{
+    pinMeshes[i].position.copy(b.position);
+    pinMeshes[i].quaternion.copy(b.quaternion);
+  });
+}
+
+// ================= 방/유저 상태 =================
+let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0, lastPresenceAt=0;
+let simulating=false;
+let channel=null, channelReady=false;
+
+function safeSend(payload){
+  if(!channelReady||!channel) return;
+  try{ const res=channel.send(payload); if(res&&res.catch) res.catch(()=>{}); }catch(e){}
+}
+function isVsCom(){ return !!(room&&((room.players||[]).some(p=>p.isCom)||room.vs_com)); }
+
+async function ensurePoints(){
+  if(!currentUser) return null;
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${currentUser.id}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(!data.length){
+    const created={user_id:currentUser.id,username:currentUser.username,points:STARTING_POINTS};
+    await fetch(`${SUPABASE_URL}/rest/v1/bowling_points`,{method:'POST',headers:jheaders(),body:JSON.stringify(created)});
+    return created;
+  }
+  return data[0];
+}
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('mainArea').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    if(!simulating) render();
+    const now=Date.now();
+    if(mySeat>=0&&now-lastHeartbeatAt>20000){
+      lastHeartbeatAt=now;
+      fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
+    if(mySeat>=0&&now-lastPresenceAt>5000){
+      lastPresenceAt=now;
+      const np=players.map((p,i)=>i===mySeat?{...p,lastSeenAt:now}:p);
+      fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})}).catch(()=>{});
+    }
+    if(room.status==='waiting'){ maybeStartGame(); }
+    if(isVsCom()) maybeRunComTurn();
+  }catch(e){}
+}
+
+function render(){
+  const area=document.getElementById('mainArea');
+  const infoBar=document.getElementById('playerInfoBar');
+  const scoreStrip=document.getElementById('scoreStrip');
+  document.getElementById('roomTitle').textContent='🎳 '+esc(room.host_username)+'님의 방';
+  if(room.status==='waiting'){
+    infoBar.style.display='none'; scoreStrip.style.display='none';
+    renderLobby(area);
+  } else if(room.status==='playing'){
+    const st=room.state;
+    if(st.stage==='result'){
+      infoBar.style.display='none'; scoreStrip.style.display='none';
+      renderResult(area,st);
+    } else {
+      infoBar.style.display='flex'; scoreStrip.style.display='flex';
+      renderGame(area,st);
+    }
+  }
+}
+
+// ---- 로비 ----
+function renderLobby(area){
+  const players=room.players||[];
+  const isIn=mySeat>=0;
+  const myReady=isIn&&players[mySeat].ready;
+  let html='<div class="lobby-wrap">';
+  html+='<div style="text-align:center;font-size:40px;margin-bottom:6px;">🎳</div>';
+  html+='<div style="text-align:center;color:#a8bfe0;font-size:12px;margin-bottom:14px;">10프레임 볼링 · 1:1 대전</div>';
+  players.forEach((p,i)=>{
+    html+=`<div class="player-row"><span class="player-name">${i===0?'🔴':'🔵'} ${esc(p.username)}${currentUser&&String(p.user_id)===String(currentUser.id)?' (나)':''}</span><span class="ready-chip ${p.ready?'on':''}">${p.ready?'준비완료':'대기중'}</span></div>`;
+  });
+  for(let i=players.length;i<2;i++){
+    html+='<div class="player-row" style="opacity:0.4;"><span class="player-name">— 빈 자리 —</span></div>';
+  }
+  if(isIn){
+    html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#555':'#1e5aa8'};color:#fff;">${myReady?'준비 취소':'준비완료'}</div>`;
+  }
+  html+='</div>';
+  area.innerHTML=html;
+  if(isIn){
+    document.getElementById('readyBtn').addEventListener('click',async()=>{
+      const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+      await patchRoom({players:np});
+    });
+  }
+}
+
+async function patchRoom(patch){
+  let attempts=0;
+  while(attempts<6){
+    attempts++;
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({...patch,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; return true; }
+    await fetchRoom();
+  }
+  return false;
+}
+
+// ================= 프레임/점수 엔진 =================
+let startTriggeredKey=null;
+async function maybeStartGame(){
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const players=room.players||[];
+  if(players.length<2||!players.every(p=>p.ready)) return;
+  const key=room.id+':'+room.move_count;
+  if(startTriggeredKey===key) return;
+  startTriggeredKey=key;
+  const now=Date.now();
+  const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
+  await patchRoom({
+    status:'playing', players:freshPlayers,
+    state:{
+      stage:'playing', turn:(Math.random()<0.5?0:1),
+      frameIdx:[0,0], rollInFrame:[0,0],
+      rolls:[[],[]], pinsStanding:new Array(10).fill(true),
+      needsReset:true, winner:null, postHandAt:null, turnStartedAt:now
+    }
+  });
+}
+
+// 표준 볼링 점수 계산 (스트라이크/스페어 보너스 포함)
+function calcScore(rolls){
+  let score=0, i=0;
+  for(let frame=0; frame<10 && i<rolls.length; frame++){
+    if(rolls[i]===10){
+      score += 10 + (rolls[i+1]||0) + (rolls[i+2]||0);
+      i+=1;
+    } else {
+      const r0=rolls[i]||0, r1=rolls[i+1];
+      if(r1===undefined){ score+=r0; i+=1; continue; }
+      const two=r0+r1;
+      if(two===10) score += 10 + (rolls[i+2]||0);
+      else score += two;
+      i+=2;
+    }
+  }
+  return score;
+}
+// 프레임별로 나눠서 UI 표시용으로 가공 (각 프레임의 롤 표시 + 누적점수)
+// 프레임별 롤 목록 + 각 프레임까지의 확정 누적점수(보너스가 아직 안 나왔으면 null)
+function frameBreakdown(rolls){
+  const frames=[]; let i=0;
+  for(let frame=0; frame<10; frame++){
+    if(i>=rolls.length){ frames.push(null); continue; }
+    if(frame<9){
+      if(rolls[i]===10){ frames.push({rolls:[rolls[i]]}); i+=1; }
+      else if(rolls[i+1]!==undefined){ frames.push({rolls:[rolls[i],rolls[i+1]]}); i+=2; }
+      else { frames.push({rolls:[rolls[i]],partial:true}); i+=1; }
+    } else {
+      frames.push({rolls:rolls.slice(i)});
+      i=rolls.length;
+    }
+  }
+  let score=0, ri=0; const cums=[];
+  for(let frame=0; frame<10; frame++){
+    if(!frames[frame]||frames[frame].partial){ cums.push(null); continue; }
+    if(rolls[ri]===10){
+      if(rolls[ri+1]===undefined||rolls[ri+2]===undefined){ cums.push(null); continue; }
+      score+=10+rolls[ri+1]+rolls[ri+2]; cums.push(score); ri+=1;
+    } else {
+      const r0=rolls[ri]||0, r1=rolls[ri+1];
+      if(r1===undefined){ cums.push(null); continue; }
+      const two=r0+r1;
+      if(two===10){
+        if(rolls[ri+2]===undefined){ cums.push(null); continue; }
+        score+=10+rolls[ri+2];
+      } else { score+=two; }
+      cums.push(score); ri+=2;
+    }
+  }
+  return {frames,cums};
+}
+
+function totalPinsStanding(mask){ return mask.filter(Boolean).length; }
+
+// ================= 턴 진행 로직 =================
+// 이번 롤을 시작하기 전에 핀을 새로 세워야 하는지 판단
+function needsPinResetForRoll(state,seat){
+  const frame=state.frameIdx[seat], rollN=state.rollInFrame[seat];
+  if(frame>=10) return false;
+  if(frame<9) return rollN===0;
+  // 10프레임
+  if(rollN===0) return true;
+  if(rollN===1){
+    const lastRoll=state.rolls[seat][state.rolls[seat].length-1];
+    return lastRoll===10; // 1구가 스트라이크였으면 2구도 새 핀
+  }
+  if(rollN===2) return true; // 보너스 3구는 항상 새 핀
+  return false;
+}
+// 롤 결과를 받아 프레임/턴을 진행시키고 새 state를 반환
+function advanceAfterRoll(state,seat,knocked){
+  const s={...state, frameIdx:[...state.frameIdx], rollInFrame:[...state.rollInFrame], rolls:[state.rolls[0].slice(),state.rolls[1].slice()]};
+  s.rolls[seat].push(knocked);
+  const frame=s.frameIdx[seat];
+  let frameOver=false;
+  if(frame<9){
+    if(s.rollInFrame[seat]===0){
+      if(knocked===10){ s.frameIdx[seat]++; s.rollInFrame[seat]=0; frameOver=true; }
+      else { s.rollInFrame[seat]=1; }
+    } else {
+      s.frameIdx[seat]++; s.rollInFrame[seat]=0; frameOver=true;
+    }
+  } else {
+    const r=s.rollInFrame[seat];
+    if(r===0){ s.rollInFrame[seat]=1; }
+    else if(r===1){
+      const firstRoll=s.rolls[seat][s.rolls[seat].length-2];
+      if(firstRoll===10 || firstRoll+knocked>=10){ s.rollInFrame[seat]=2; }
+      else { s.frameIdx[seat]=10; frameOver=true; }
+    } else {
+      s.frameIdx[seat]=10; frameOver=true;
+    }
+  }
+  if(frameOver){
+    const other=seat===0?1:0;
+    if(s.frameIdx[other]<10){ s.turn=other; }
+    else if(s.frameIdx[seat]<10){ s.turn=seat; }
+    else {
+      s.stage='result';
+      const sc0=calcScore(s.rolls[0]), sc1=calcScore(s.rolls[1]);
+      s.winner = sc0>=sc1 ? 0 : 1;
+      s.postHandAt=Date.now();
+    }
+  }
+  s.needsReset=needsPinResetForRoll(s,s.turn);
+  s.turnStartedAt=Date.now();
+  return s;
+}
+
+// ================= 게임 화면 =================
+let boardSetup=false;
+let aimAngle=0, aimDragging=false;
+let pendingPower=0, powerDragging=false;
+let myPinsMask=null; // 현재 서 있는 핀(로컬 시뮬레이션용)
+
+function isMyRollTurn(){
+  return room&&room.state&&room.state.turn===mySeat&&!simulating&&room.state.stage==='playing';
+}
+
+function renderGame(area,st){
+  if(!document.getElementById('threeMount')){
+    area.innerHTML=`<div id="boardWrap"><div id="threeMount"><div id="aimHint"></div></div><canvas id="powerCanvas" width="34" height="300"></canvas></div><div id="bottomBar"></div>`;
+    boardSetup=false;
+  }
+  loadPlayerRecords();
+  renderPlayerInfoBar(st);
+  renderScoreStrip(st);
+  const myTurn=st.turn===mySeat&&!simulating;
+  document.getElementById('bottomBar').innerHTML =
+    `<div style="color:#cfe0ff;font-size:12px;">${myTurn?'화면을 좌우로 드래그해서 조준하고, 옆 파워바를 당겼다 놓으면 던져요':(simulating?'공이 굴러가는 중...':'상대가 준비하고 있어요')}</div>`+
+    '<div class="surrender-btn" id="surrenderBtn">🏳️ 항복하기</div>';
+  const sb2=document.getElementById('surrenderBtn');
+  if(sb2) sb2.addEventListener('click',surrender);
+  startTurnTicker();
+
+  if(!boardSetup){
+    setupThree(document.getElementById('threeMount'));
+    setupWorld();
+    setupControls();
+    boardSetup=true;
+  }
+  if(!simulating){
+    myPinsMask=st.pinsStanding.slice();
+    resetPinsPhysics(myPinsMask);
+    resetBallPhysics(0,FOUL_Z);
+    syncMeshesFromBodies();
+  }
+  resizeThree(document.getElementById('threeMount'));
+  renderer.render(scene,camera);
+  drawPowerSlider();
+  const hint=document.getElementById('aimHint');
+  if(hint) hint.textContent = myTurn?('조준 '+Math.round(aimAngle*180/Math.PI)+'°'):'';
+}
+
+function renderScoreStrip(st){
+  const strip=document.getElementById('scoreStrip');
+  const players=room.players||[];
+  strip.innerHTML=[0,1].map(seat=>{
+    const p=players[seat];
+    const {frames,cums}=frameBreakdown(st.rolls[seat]);
+    const boxes=frames.map((f,fi)=>{
+      const isCur=st.turn===seat&&st.frameIdx[seat]===fi&&st.stage==='playing';
+      const rollsTxt=f?f.rolls.map(r=>r===10?'X':(r===0?'-':r)).join(' '):'';
+      const totalTxt=cums[fi]!==null&&cums[fi]!==undefined?cums[fi]:'';
+      return `<div class="frame-box ${isCur?'cur':''}"><div class="frame-rolls">${rollsTxt}</div><div class="frame-total">${totalTxt}</div></div>`;
+    }).join('');
+    return `<div style="display:flex;gap:2px;margin-right:8px;"><div class="frame-box" style="background:${seat===0?'rgba(214,69,69,0.15)':'rgba(47,79,168,0.15)'};"><div class="frame-rolls" style="font-size:8px;">${esc((p&&p.username||'').slice(0,3))}</div></div>${boxes}</div>`;
+  }).join('');
+}
+
+// ---- 플레이어 정보바 ----
+let playerRecords={};
+let recordsLoadedFor=null;
+async function loadPlayerRecords(){
+  const players=room.players||[];
+  const key=players.map(p=>p.user_id).join(',');
+  if(recordsLoadedFor===key) return;
+  recordsLoadedFor=key;
+  try{
+    const results=await Promise.all(players.map(p=>
+      p.isCom? Promise.resolve([{wins:0,losses:0}]) :
+      fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${p.user_id}&select=wins,losses`,{headers:headers()}).then(r=>r.json())
+    ));
+    players.forEach((p,i)=>{ playerRecords[p.user_id]=(results[i]&&results[i][0])||{wins:0,losses:0}; });
+    renderPlayerInfoBar(room.state);
+  }catch(e){}
+}
+function renderPlayerInfoBar(st){
+  const players=room.players||[];
+  const p0=players[0], p1=players[1];
+  const rec=p=>{ const r=p&&playerRecords[p.user_id]; return r?(r.wins||0)+'승 '+(r.losses||0)+'패':'전적 없음'; };
+  const bar=document.getElementById('playerInfoBar');
+  const sc0=st?calcScore(st.rolls[0]):0, sc1=st?calcScore(st.rolls[1]):0;
+  bar.innerHTML=`
+    <div class="pi-side">
+      <span class="pi-dot" style="background:#d64545;"></span>
+      <span class="pi-text"><div class="pi-name">${p0?esc(p0.username):'—'}${p0&&currentUser&&String(p0.user_id)===String(currentUser.id)?' (나)':''} <b>${sc0}</b></div><div class="pi-record" id="recP0">${rec(p0)}</div></span>
+    </div>
+    <span class="pi-timer" id="timerP0">--</span>
+    <span style="color:#8fa8c8;font-size:11px;">VS</span>
+    <span class="pi-timer" id="timerP1">--</span>
+    <div class="pi-side right">
+      <span class="pi-dot" style="background:#2f4fa8;"></span>
+      <span class="pi-text"><div class="pi-name">${p1?esc(p1.username):'—'}${p1&&currentUser&&String(p1.user_id)===String(currentUser.id)?' (나)':''} <b>${sc1}</b></div><div class="pi-record" id="recP1">${rec(p1)}</div></span>
+    </div>
+  `;
+  updateTimerDisplay();
+}
+function updateTimerDisplay(){
+  if(!room||!room.state) return;
+  const st=room.state;
+  const t0=document.getElementById('timerP0'), t1=document.getElementById('timerP1');
+  if(!t0||!t1) return;
+  const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+  const remain=Math.max(0,Math.ceil(25-elapsed));
+  [[0,t0],[1,t1]].forEach(([seat,el])=>{
+    if(st.turn===seat&&!simulating){
+      el.textContent=remain;
+      el.className='pi-timer active'+(remain<=5?' low':'');
+    } else {
+      el.textContent=seat===st.turn?'⏸':'-';
+      el.className='pi-timer';
+    }
+  });
+}
+
+// ---- 조준(드래그) + 파워(슬라이더) 컨트롤 ----
+function setupControls(){
+  const mount=document.getElementById('threeMount');
+  mount.addEventListener('pointerdown',e=>{
+    if(!isMyRollTurn()) return;
+    aimDragging=true;
+    mount.setPointerCapture(e.pointerId);
+    mount.dataset.startX=e.clientX;
+    mount.dataset.startAngle=aimAngle;
+  });
+  mount.addEventListener('pointermove',e=>{
+    if(!aimDragging) return;
+    const dx=e.clientX-parseFloat(mount.dataset.startX);
+    const startAngle=parseFloat(mount.dataset.startAngle);
+    aimAngle=Math.max(-MAX_AIM_ANGLE,Math.min(MAX_AIM_ANGLE,startAngle-dx*0.003));
+    renderer.render(scene,camera);
+    const hint=document.getElementById('aimHint');
+    if(hint) hint.textContent='조준 '+Math.round(aimAngle*180/Math.PI)+'°';
+  });
+  function endAim(){ aimDragging=false; }
+  mount.addEventListener('pointerup',endAim);
+  mount.addEventListener('pointercancel',endAim);
+
+  const pc=document.getElementById('powerCanvas');
+  function updatePower(e){
+    const rect=pc.getBoundingClientRect();
+    const relY=(e.clientY-rect.top)/rect.height;
+    pendingPower=Math.max(0,Math.min(1,1-relY));
+    drawPowerSlider();
+  }
+  pc.addEventListener('pointerdown',e=>{
+    if(!isMyRollTurn()) return;
+    powerDragging=true;
+    pc.setPointerCapture(e.pointerId);
+    updatePower(e);
+  });
+  pc.addEventListener('pointermove',e=>{ if(powerDragging) updatePower(e); });
+  function releasePower(){
+    if(!powerDragging) return;
+    powerDragging=false;
+    if(pendingPower>0.1){ rollBall(aimAngle,pendingPower); }
+    pendingPower=0;
+    drawPowerSlider();
+  }
+  pc.addEventListener('pointerup',releasePower);
+  pc.addEventListener('pointercancel',releasePower);
+  window.addEventListener('resize',()=>{ const m=document.getElementById('threeMount'); if(m) resizeThree(m); });
+}
+function drawPowerSlider(){
+  const c=document.getElementById('powerCanvas');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  if(c.width!==Math.round(34*dpr)){ c.width=Math.round(34*dpr); c.height=Math.round(300*dpr); }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.scale(dpr,dpr);
+  const w=34,h=300;
+  ctx.fillStyle='rgba(255,255,255,0.1)';
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.fill();
+  const fillH=Math.max(6,h*pendingPower);
+  const g=ctx.createLinearGradient(0,h,0,0);
+  g.addColorStop(0,'#7ed957'); g.addColorStop(0.6,'#ffd166'); g.addColorStop(1,'#ff6b6b');
+  ctx.fillStyle=g;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.clip();
+  ctx.fillRect(0,h-fillH,w,fillH);
+  ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(0,0,w,h,w/2):ctx.rect(0,0,w,h); ctx.stroke();
+  if(pendingPower>0){
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center';
+    ctx.save(); ctx.translate(w/2,h-fillH-8); ctx.fillText(Math.round(pendingPower*100)+'%',0,0); ctx.restore();
+  }
+}
+
+// ================= 공 굴리기 + 물리 시뮬레이션 =================
+function rollBall(angle,powerPct){
+  const speed=powerPct*MAX_POWER_SPEED;
+  // z축(-)방향이 핀 쪽. 각도(angle)만큼 좌우로 틀어서 속도 성분 계산
+  ballBody.velocity.set(Math.sin(angle)*speed, 0, -Math.cos(angle)*speed);
+  ballBody.angularVelocity.set(0,0,0);
+  safeSend({type:'broadcast',event:'rollStart',payload:{angle,powerPct,seat:mySeat}});
+  runSimulation(true);
+}
+
+let simStep=0;
+let lastBroadcastAt=0;
+function runSimulation(isAuthoritative){
+  simulating=true;
+  simStep=0;
+  function frame(){
+    world.step(1/60);
+    syncMeshesFromBodies();
+    // 카메라가 공을 살짝 따라가도록
+    const followZ=Math.max(-2,ballBody.position.z-FOUL_Z)*0.3;
+    camera.position.z=FOUL_Z+1.6-followZ*0.4;
+    camera.lookAt(ballBody.position.x*0.4,0.3,PIN_AREA_Z);
+    renderer.render(scene,camera);
+    simStep++;
+
+    if(isAuthoritative){
+      const now=Date.now();
+      if(now-lastBroadcastAt>90){
+        lastBroadcastAt=now;
+        safeSend({type:'broadcast',event:'rollFrame',payload:{
+          ball:[ballBody.position.x,ballBody.position.y,ballBody.position.z,ballBody.quaternion.x,ballBody.quaternion.y,ballBody.quaternion.z,ballBody.quaternion.w],
+          pins:pinBodies.map(b=>[b.position.x,b.position.y,b.position.z,b.quaternion.x,b.quaternion.y,b.quaternion.z,b.quaternion.w])
+        }});
+      }
+    }
+
+    const settled = ballBody.position.z<PIN_AREA_Z-1.3 || (ballBody.velocity.length()<0.15 && simStep>20);
+    const pinsSettled = pinBodies.every(b=>b.velocity.length()<0.2)||simStep>420;
+    if((settled&&pinsSettled)||simStep>600){
+      simulating=false;
+      camera.position.z=FOUL_Z+1.6; camera.lookAt(0,0.3,PIN_AREA_Z);
+      if(isAuthoritative){
+        safeSend({type:'broadcast',event:'rollEnd',payload:{seat:mySeat}});
+        finishRoll();
+      }
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+async function finishRoll(){
+  const st=room.state;
+  const seat=st.turn;
+  const newMask=myPinsMask.map((was,i)=>was && !isPinDown(pinBodies[i]));
+  const knockedThisRoll=myPinsMask.filter(Boolean).length - newMask.filter(Boolean).length;
+  myPinsMask=newMask;
+  let newState=advanceAfterRoll(st,seat,knockedThisRoll);
+  newState={...newState, pinsStanding: newState.needsReset? new Array(10).fill(true) : myPinsMask};
+  if(newState.stage==='result'){
+    await settleMatch(newState.winner);
+  }
+  await patchRoom({state:newState});
+}
+
+async function settleMatch(winnerSeat){
+  const players=room.players||[];
+  const winP=players[winnerSeat], loseP=players[winnerSeat===0?1:0];
+  if(!winP||!loseP) return;
+  const vsCom=isVsCom();
+  const winPts=vsCom?75:300;
+  const losePts=vsCom?25:100;
+  try{
+    if(!winP.isCom){
+      const wr=await fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${winP.user_id}&select=*`,{headers:headers()});
+      const wd=(await wr.json())[0];
+      if(wd){ await fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${winP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:(wd.points||0)+winPts,wins:(wd.wins||0)+1})}); }
+    }
+    if(!loseP.isCom){
+      const lr=await fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${loseP.user_id}&select=*`,{headers:headers()});
+      const ld=(await lr.json())[0];
+      if(ld){ await fetch(`${SUPABASE_URL}/rest/v1/bowling_points?user_id=eq.${loseP.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({points:Math.max(0,(ld.points||0)-losePts),losses:(ld.losses||0)+1})}); }
+    }
+  }catch(e){ console.error('점수 반영 실패:',e); }
+}
+
+// ---- 실시간 채널 (관전자는 굴러가는 모습을 그대로 받아서 렌더링만) ----
+async function joinChannel(){
+  channel=sb.channel('bowling-room-'+roomId, { config:{ broadcast:{ self:false } } });
+  channel.on('broadcast', {event:'rollStart'}, ({payload})=>{
+    if(payload.seat===mySeat) return;
+    simulating=true;
+  });
+  channel.on('broadcast', {event:'rollFrame'}, ({payload})=>{
+    if(!boardSetup) return;
+    ballBody.position.set(payload.ball[0],payload.ball[1],payload.ball[2]);
+    ballBody.quaternion.set(payload.ball[3],payload.ball[4],payload.ball[5],payload.ball[6]);
+    payload.pins.forEach((p,i)=>{
+      pinBodies[i].position.set(p[0],p[1],p[2]);
+      pinBodies[i].quaternion.set(p[3],p[4],p[5],p[6]);
+    });
+    syncMeshesFromBodies();
+    renderer.render(scene,camera);
+  });
+  channel.on('broadcast', {event:'rollEnd'}, ({payload})=>{
+    if(payload.seat===mySeat) return;
+    simulating=false; // 최종 상태는 다음 poll에서 room.state로 정확히 동기화됨
+  });
+  await new Promise(resolve=>{
+    channel.subscribe(status=>{ if(status==='SUBSCRIBED'){ channelReady=true; resolve(); } });
+  });
+}
+
+// ================= 컴퓨터(COM) 봇 =================
+let comThinking=false;
+function computeComRoll(){
+  const st=room.state;
+  const standing=st.pinsStanding;
+  const layout=pinLayout();
+  const standingPositions=layout.filter((p,i)=>standing[i]);
+  if(!standingPositions.length) return {angle:0,power:0.85};
+  const avgX=standingPositions.reduce((s,p)=>s+p.x,0)/standingPositions.length;
+  const dist=Math.abs(PIN_AREA_Z-FOUL_Z);
+  let angle=Math.atan2(avgX,dist);
+  angle=Math.max(-MAX_AIM_ANGLE,Math.min(MAX_AIM_ANGLE, angle+(Math.random()-0.5)*0.04));
+  const power=0.82+Math.random()*0.14;
+  return {angle,power};
+}
+async function maybeRunComTurn(){
+  if(!boardSetup||!isVsCom()||comThinking) return;
+  const st=room.state;
+  if(!st||st.stage!=='playing') return;
+  const players=room.players||[];
+  const comSeats=players.map((p,i)=>p.isCom?i:-1).filter(i=>i>=0);
+  if(!comSeats.includes(st.turn)||simulating) return;
+  comThinking=true;
+  await new Promise(r=>setTimeout(r,900+Math.random()*700));
+  comThinking=false;
+  if(!room||!room.state||room.state.turn!==st.turn||room.state.stage!=='playing'||simulating) return;
+  myPinsMask=room.state.pinsStanding.slice();
+  resetPinsPhysics(myPinsMask);
+  resetBallPhysics(0,FOUL_Z);
+  syncMeshesFromBodies();
+  const {angle,power}=computeComRoll();
+  aimAngle=angle;
+  rollBall(angle,power);
+}
+
+// ================= 턴 타이머 + 자리비움 감지 =================
+let turnTickTimer=null, timeoutTriggeredKey=null;
+let opponentAwaySince=null, afkForfeitTriggeredKey=null;
+const AFK_THRESHOLD=10000, AFK_FORFEIT_AFTER=30000;
+function startTurnTicker(){
+  if(turnTickTimer) return;
+  turnTickTimer=setInterval(()=>{
+    if(!room||room.status!=='playing'||!room.state||room.state.stage==='result') return;
+    updateTimerDisplay();
+    if(isVsCom()) return;
+    checkOpponentAway();
+    const st=room.state;
+    const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+    if(elapsed>=25){
+      const key=room.id+':'+room.move_count+':timeout';
+      if(timeoutTriggeredKey!==key&&st.turn===mySeat&&!simulating){
+        timeoutTriggeredKey=key;
+        autoRollWeak();
+      }
+    }
+  },250);
+}
+async function autoRollWeak(){
+  // 시간초과시 그냥 약하게 굴려서 턴을 넘김
+  if(!boardSetup||simulating) return;
+  rollBall(0,0.35);
+}
+function checkOpponentAway(){
+  if(mySeat<0) return;
+  const oppSeat=mySeat===0?1:0;
+  const players=room.players||[];
+  const opp=players[oppSeat];
+  const recEl=document.getElementById(oppSeat===0?'recP0':'recP1');
+  if(!opp){ opponentAwaySince=null; return; }
+  if(!opp.lastSeenAt){ opponentAwaySince=null; return; }
+  const silentFor=Date.now()-opp.lastSeenAt;
+  if(silentFor>AFK_THRESHOLD){
+    if(!opponentAwaySince) opponentAwaySince=Date.now()-silentFor;
+    if(recEl) recEl.innerHTML='<span style="color:#ffb0b0;font-weight:700;">⏳ 자리비움</span>';
+    if(Date.now()-opponentAwaySince>=AFK_FORFEIT_AFTER){
+      const key=room.id+':'+room.move_count+':afk';
+      if(afkForfeitTriggeredKey!==key){ afkForfeitTriggeredKey=key; declareForfeitWin(); }
+    }
+  } else { opponentAwaySince=null; }
+}
+async function declareForfeitWin(){
+  if(!room||!room.state||room.state.stage==='result') return;
+  await patchRoom({state:{...room.state, stage:'result', winner:mySeat, postHandAt:Date.now()}});
+  await settleMatch(mySeat);
+}
+async function surrender(){
+  if(!confirm('정말 항복하시겠어요?')) return;
+  const winnerSeat=mySeat===0?1:0;
+  await patchRoom({state:{...room.state, stage:'result', winner:winnerSeat, postHandAt:Date.now()}});
+  await settleMatch(winnerSeat);
+}
+
+// ---- 결과 화면 ----
+function renderResult(area,st){
+  const players=room.players||[];
+  const iWon=st.winner===mySeat;
+  const winP=players[st.winner];
+  const sc0=calcScore(st.rolls[0]), sc1=calcScore(st.rolls[1]);
+  area.innerHTML=`
+    <div class="result-wrap">
+      <div style="font-size:44px;margin-bottom:10px;">${iWon?'🏆':'🎳'}</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:6px;">${winP?esc(winP.username):''}님 승리!</div>
+      <div style="font-size:13px;color:#a8bfe0;margin-bottom:8px;">${esc((players[0]||{}).username||'')} ${sc0}점 · ${esc((players[1]||{}).username||'')} ${sc1}점</div>
+      <div style="font-size:12px;color:#8fa8c8;margin-bottom:20px;">${st.foulMsg?esc(st.foulMsg):''}</div>
+      <div class="big-btn" id="backToLobbyBtn" style="background:#1e5aa8;color:#fff;">방으로 돌아가기</div>
+    </div>
+  `;
+  document.getElementById('backToLobbyBtn').addEventListener('click',returnToLobby);
+}
+async function returnToLobby(){
+  const players=(room.players||[]).map(p=>({...p,ready:p.isCom?true:false}));
+  startTriggeredKey=null;
+  boardSetup=false;
+  recordsLoadedFor=null;
+  timeoutTriggeredKey=null;
+  opponentAwaySince=null;
+  afkForfeitTriggeredKey=null;
+  comThinking=false;
+  if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
+  await patchRoom({status:'waiting',players});
+}
+
+// ---- 나가기 ----
+async function leaveRoom(){
+  try{
+    if(mySeat>=0&&room){
+      if(isVsCom()){
+        await fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+      } else if(room.status==='playing'){
+        // 게임중엔 자리비움->30초 기권패 시스템에 맡김
+      } else {
+        const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+        if(np.length===0){
+          await fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+        } else {
+          const patch={players:np};
+          if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+          await fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+        }
+      }
+    }
+  }catch(e){}
+  location.href='bowling_rooms.html';
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+window.addEventListener('pagehide',()=>{
+  try{
+    if(mySeat<0||!room||room.status==='playing'||isVsCom()) return;
+    const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+    const patch={players:np};
+    if(String(room.host_user_id)===String(currentUser.id)&&np.length){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+    fetch(`${SUPABASE_URL}/rest/v1/bowling_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch),keepalive:true});
+  }catch(e){}
+});
+
+// ---- 초기화 ----
+async function init(){
+  if(!roomId){ document.getElementById('mainArea').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>'; return; }
+  if(currentUser) await ensurePoints();
+  await fetchRoom();
+  await joinChannel();
+  pollTimer=setInterval(fetchRoom,1000);
+}
+init();
+</script>
+</body>
+</html>

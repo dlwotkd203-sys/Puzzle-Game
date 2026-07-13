@@ -383,7 +383,7 @@ async function maybeStartGame(){
   const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
   await patchRoom({
     status:'playing', players:freshPlayers,
-    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:(Math.random()<0.5?0:1), stage:'playing', winner:null, postHandAt:null, turnStartedAt:now }
+    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:(Math.random()<0.5?0:1), stage:'playing', winner:null, postHandAt:null, turnStartedAt:now, gameStartedAt:now }
   });
 }
 
@@ -462,7 +462,7 @@ function updateTimerDisplay(){
 
 let introKey=null, introActive=false;
 function renderGame(area,st){
-  const key=room.id+':'+st.turnStartedAt;
+  const key=room.id+':'+(st.gameStartedAt||st.turnStartedAt);
   if(introKey!==key){
     introKey=key;
     introActive=true;
