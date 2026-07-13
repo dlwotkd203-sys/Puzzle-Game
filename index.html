@@ -462,19 +462,44 @@ async function loadMyCharacterPreview(u){
 function myPartByKey(k){ return myParts.find(p=>p.key===k); }
 function myChildrenOf(pk){ return myParts.filter(p=>(p.parent_key||null)===(pk||null)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)); }
 function myBaseItemFor(key){ return myCharItems.find(i=>i.part_key===key&&i.is_base); }
-function myImgInfoFor(key){
+function myGetAngleAtFrame(partKey,frame){
+  const st=myAnimConfig.states&&myAnimConfig.states.idle;
+  if(!st||!st.keyframes) return 0;
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].angle!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return 0;
+  let prev=null,next=null;
+  kfNums.forEach(f=>{ if(f<=frame) prev=f; if(f>=frame&&next===null) next=f; });
+  if(prev===null) prev=next;
+  if(next===null) next=prev;
+  if(prev===next) return st.keyframes[prev][partKey].angle*Math.PI/180;
+  const t=(frame-prev)/(next-prev);
+  const a=st.keyframes[prev][partKey].angle, b=st.keyframes[next][partKey].angle;
+  return (a+(b-a)*t)*Math.PI/180;
+}
+function myGetItemIdAtFrame(partKey,frame){
+  const st=myAnimConfig.states&&myAnimConfig.states.idle;
+  if(!st||!st.keyframes) return undefined;
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].itemId!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return undefined;
+  let chosen=null;
+  kfNums.forEach(f=>{ if(f<=frame) chosen=f; });
+  if(chosen===null) chosen=kfNums[kfNums.length-1];
+  return st.keyframes[chosen][partKey].itemId;
+}
+function myImgInfoFor(key,frame){
   const id=myEquipped[key];
-  const it=id?myCharItems.find(i=>i.id===id):myBaseItemFor(key);
+  if(id){
+    const it=myCharItems.find(i=>i.id===id);
+    if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
+  }
+  const frameItemId=frame!==undefined?myGetItemIdAtFrame(key,frame):undefined;
+  const it=frameItemId?myCharItems.find(i=>i.id===frameItemId):myBaseItemFor(key);
   if(!it) return null;
   return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
 }
 function myComputeEndLocal(h,anchorY){ return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY; }
-function myIdleAngleFor(part,phase){
-  const cfg=(myAnimConfig.states&&myAnimConfig.states.idle&&myAnimConfig.states.idle[part.key])||{baseAngle:0,amplitude:0,speed:1};
-  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
-}
-function myDrawJointAtOrigin(ctx,key,h){
-  const info=myImgInfoFor(key);
+function myDrawJointAtOrigin(ctx,key,h,frame){
+  const info=myImgInfoFor(key,frame);
   if(!info) return {w:h,h,anchorX:0.5,anchorY:0.05};
   const img=charGetImg(info.url);
   if(!img.complete||!img.naturalWidth) return {w:h,h,anchorX:info.anchorX,anchorY:info.anchorY};
@@ -482,8 +507,8 @@ function myDrawJointAtOrigin(ctx,key,h){
   ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
   return {w,h,anchorX:info.anchorX,anchorY:info.anchorY};
 }
-function myDrawAttachment(ctx,key,parentInfo){
-  const info=myImgInfoFor(key);
+function myDrawAttachment(ctx,key,parentInfo,frame){
+  const info=myImgInfoFor(key,frame);
   if(!info) return;
   const img=charGetImg(info.url);
   if(!img.complete||!img.naturalWidth) return;
@@ -493,50 +518,56 @@ function myDrawAttachment(ctx,key,parentInfo){
   const fw=fh*(img.naturalWidth/img.naturalHeight);
   ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
 }
-function myRenderNode(ctx,key,phase){
+function myRenderNode(ctx,key,frame){
   const part=myPartByKey(key);
   if(!part||part.node_type==='attachment') return;
-  const angle=myIdleAngleFor(part,phase);
+  const angle=myGetAngleAtFrame(key,frame);
   ctx.save();
   ctx.rotate(angle);
-  const info=myDrawJointAtOrigin(ctx,key,part.default_length||9);
+  const info=myDrawJointAtOrigin(ctx,key,part.default_length||9,frame);
   const endLocalY=myComputeEndLocal(info.h,info.anchorY);
   myChildrenOf(key).forEach(child=>{
     const atEnd=child.attach_end!==false;
     if(child.node_type==='joint'){
       ctx.save();
       ctx.translate(0,atEnd?endLocalY:0);
-      myRenderNode(ctx,child.key,phase);
+      myRenderNode(ctx,child.key,frame);
       ctx.restore();
     } else {
       ctx.save();
       ctx.translate(0,atEnd?endLocalY:0);
-      myDrawAttachment(ctx,child.key,info);
-      myChildrenOf(child.key).forEach(g=>{ if(g.node_type==='attachment') myDrawAttachment(ctx,g.key,info); });
+      myDrawAttachment(ctx,child.key,info,frame);
+      myChildrenOf(child.key).forEach(g=>{ if(g.node_type==='attachment') myDrawAttachment(ctx,g.key,info,frame); });
       ctx.restore();
     }
   });
   ctx.restore();
 }
-let myCharPhase=0, myCharRaf=null;
+let myCharFrame=0, myCharRaf=null, myCharLastTime=0;
 function startMyCharLoop(){
   const canvas=document.getElementById('myCharCanvas');
   if(!canvas) return;
   if(myCharRaf) cancelAnimationFrame(myCharRaf);
   const ctx=canvas.getContext('2d');
-  function loop(){
+  function loop(ts){
     if(!document.getElementById('myCharCanvas')){ myCharRaf=null; return; }
-    myCharPhase+=0.03;
+    const idleState=(myAnimConfig.states&&myAnimConfig.states.idle)||{frameCount:60,loop:true};
+    if(!myCharLastTime) myCharLastTime=ts||0;
+    if((ts||0)-myCharLastTime>1000/24){
+      myCharLastTime=ts||0;
+      myCharFrame++;
+      if(myCharFrame>=idleState.frameCount) myCharFrame=idleState.loop?0:idleState.frameCount-1;
+    }
     ctx.clearRect(0,0,canvas.width,canvas.height);
     const x=canvas.width/2, groundY=canvas.height-6, hipY=groundY-24, facing=1;
     ctx.save();
     ctx.translate(x,hipY);
     ctx.scale(facing,1);
-    myChildrenOf(null).forEach(r=>{ ctx.save(); myRenderNode(ctx,r.key,myCharPhase); ctx.restore(); });
+    myChildrenOf(null).forEach(r=>{ ctx.save(); myRenderNode(ctx,r.key,myCharFrame); ctx.restore(); });
     ctx.restore();
     myCharRaf=requestAnimationFrame(loop);
   }
-  loop();
+  requestAnimationFrame(loop);
 }
 function openGame(game){
   if(game.id==='sutda'){ location.href='sutda_rooms.html'; return; }

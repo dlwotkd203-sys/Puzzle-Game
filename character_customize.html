@@ -138,22 +138,48 @@ async function equipItem(partKey,itemId){
 }
 
 // ---- 미리보기: 트리를 재귀적으로 따라가며 그리기 (관절 회전이 자식(장식 포함)에게 자동으로 전달돼요) ----
-function imgInfoFor(key){
+function getAngleAtFrame(partKey,frame){
+  const st=animConfig.states&&animConfig.states.idle;
+  if(!st||!st.keyframes) return 0;
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].angle!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return 0;
+  let prev=null,next=null;
+  kfNums.forEach(f=>{ if(f<=frame) prev=f; if(f>=frame&&next===null) next=f; });
+  if(prev===null) prev=next;
+  if(next===null) next=prev;
+  if(prev===next) return st.keyframes[prev][partKey].angle;
+  const t=(frame-prev)/(next-prev);
+  const a=st.keyframes[prev][partKey].angle, b=st.keyframes[next][partKey].angle;
+  return (a+(b-a)*t)*Math.PI/180;
+}
+function getItemIdAtFrame(partKey,frame){
+  const st=animConfig.states&&animConfig.states.idle;
+  if(!st||!st.keyframes) return undefined;
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].itemId!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return undefined;
+  let chosen=null;
+  kfNums.forEach(f=>{ if(f<=frame) chosen=f; });
+  if(chosen===null) chosen=kfNums[kfNums.length-1];
+  return st.keyframes[chosen][partKey].itemId;
+}
+function imgInfoFor(key,frame){
   const equippedId=equipped[key];
-  const it=equippedId?itemById(equippedId):baseItemFor(key);
+  if(equippedId){
+    const it=itemById(equippedId);
+    if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
+  }
+  // 장착한 스킨이 없으면 기본 캐릭터의 애니메이션(눈깜빡임 등 이미지 전환)을 그대로 보여줘요
+  const frameItemId=frame!==undefined?getItemIdAtFrame(key,frame):undefined;
+  const it=frameItemId?itemById(frameItemId):baseItemFor(key);
   if(!it) return null;
   return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
 }
 function computeEndLocal(h,anchorY){
   return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY;
 }
-function idleAngleFor(part,phase){
-  const cfg=(animConfig.states&&animConfig.states.idle&&animConfig.states.idle[part.key])||{baseAngle:0,amplitude:0,speed:1};
-  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
-}
 
-function drawJointImageAtOrigin(ctx,key,h){
-  const info=imgInfoFor(key);
+function drawJointImageAtOrigin(ctx,key,h,frame){
+  const info=imgInfoFor(key,frame);
   if(!info) return {w:h,h,anchorX:0.5,anchorY:0.05};
   const img=getImg(info.url);
   if(!img.complete||!img.naturalWidth) return {w:h,h,anchorX:info.anchorX,anchorY:info.anchorY};
@@ -161,8 +187,8 @@ function drawJointImageAtOrigin(ctx,key,h){
   ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
   return {w,h,anchorX:info.anchorX,anchorY:info.anchorY};
 }
-function drawAttachmentAtParentLocal(ctx,key,parentInfo){
-  const info=imgInfoFor(key);
+function drawAttachmentAtParentLocal(ctx,key,parentInfo,frame){
+  const info=imgInfoFor(key,frame);
   if(!info) return;
   const img=getImg(info.url);
   if(!img.complete||!img.naturalWidth) return;
@@ -174,33 +200,33 @@ function drawAttachmentAtParentLocal(ctx,key,parentInfo){
   return {localX,localY};
 }
 
-function renderNode(ctx,key,phase,facing){
+function renderNode(ctx,key,frame,facing){
   const part=partByKey(key);
   if(!part) return;
   if(part.node_type==='attachment'){
     // 장식은 별도 회전 없이 부모 좌표계 그대로 사용 (renderJointChildren에서 위치까지 처리해서 호출함)
     return;
   }
-  const angle=idleAngleFor(part,phase);
+  const angle=getAngleAtFrame(key,frame);
   ctx.save();
   ctx.rotate(angle);
-  const info=drawJointImageAtOrigin(ctx,key,part.default_length||16);
+  const info=drawJointImageAtOrigin(ctx,key,part.default_length||16,frame);
   const endLocalY=computeEndLocal(info.h,info.anchorY);
   childrenOf(key).forEach(child=>{
     if(child.node_type==='joint'){
       ctx.save();
       const atEnd=child.attach_end!==false;
       ctx.translate(0, atEnd?endLocalY:0);
-      renderNode(ctx,child.key,phase,facing);
+      renderNode(ctx,child.key,frame,facing);
       ctx.restore();
     } else {
       const atEnd=child.attach_end!==false;
       ctx.save();
       ctx.translate(0, atEnd?endLocalY:0);
-      drawAttachmentAtParentLocal(ctx,child.key,info);
+      drawAttachmentAtParentLocal(ctx,child.key,info,frame);
       // 장식에도 자식(예: 귀->귀고리)이 있을 수 있음 - 같은 좌표계에서 이어서 처리
       childrenOf(child.key).forEach(grand=>{
-        if(grand.node_type==='attachment') drawAttachmentAtParentLocal(ctx,grand.key,info);
+        if(grand.node_type==='attachment') drawAttachmentAtParentLocal(ctx,grand.key,info,frame);
       });
       ctx.restore();
     }
@@ -208,7 +234,7 @@ function renderNode(ctx,key,phase,facing){
   ctx.restore();
 }
 
-function drawPreviewRig(ctx,cw,ch,phase){
+function drawPreviewRig(ctx,cw,ch,frame){
   ctx.clearRect(0,0,cw,ch);
   const groundY=ch-30;
   ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
@@ -224,7 +250,7 @@ function drawPreviewRig(ctx,cw,ch,phase){
   ctx.scale(facing,1);
   roots.forEach(r=>{
     ctx.save();
-    renderNode(ctx,r.key,phase,facing);
+    renderNode(ctx,r.key,frame,facing);
     ctx.restore();
   });
   ctx.restore();
@@ -235,17 +261,23 @@ function drawPreviewRig(ctx,cw,ch,phase){
     ctx.fillText('여기서 캐릭터가 보여요',cw/2,ch/2+8);
   }
 }
-let previewPhase=0, previewRafId=null;
+let previewFrame=0, previewRafId=null, previewLastTime=0;
 function startPreviewLoop(){
   const canvas=document.getElementById('previewCanvas');
   if(!canvas) return;
   const ctx=canvas.getContext('2d');
-  function loop(){
-    previewPhase+=0.03;
-    drawPreviewRig(ctx,canvas.width,canvas.height,previewPhase);
+  function loop(ts){
+    const idleState=(animConfig.states&&animConfig.states.idle)||{frameCount:60,loop:true};
+    if(!previewLastTime) previewLastTime=ts||0;
+    if((ts||0)-previewLastTime>1000/24){
+      previewLastTime=ts||0;
+      previewFrame++;
+      if(previewFrame>=idleState.frameCount) previewFrame=idleState.loop?0:idleState.frameCount-1;
+    }
+    drawPreviewRig(ctx,canvas.width,canvas.height,previewFrame);
     previewRafId=requestAnimationFrame(loop);
   }
-  loop();
+  requestAnimationFrame(loop);
 }
 
 init();

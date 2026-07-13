@@ -60,12 +60,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <span class="back" onclick="location.href='index.html'">←</span>
   <span class="title">🧑‍🎨 대표 캐릭터 아이템 관리자</span>
   <span class="modeTabBtn sel" id="modeItemsBtn" data-mode="items">아이템 관리</span>
+  <span class="modeTabBtn" id="modeLayoutBtn" data-mode="layout">전체 배치</span>
   <span class="modeTabBtn" id="modeAnimBtn" data-mode="anim">동작 설정</span>
   <span class="addPartBtn" id="openAddPartBtn">＋ 새 부위 추가</span>
 </div>
 <div class="layout" id="itemsLayout">
   <div class="sidebar" id="sidebar"></div>
   <div class="mainpanel" id="mainpanel"><div class="center-msg">불러오는 중...</div></div>
+</div>
+<div class="layout" id="layoutLayout" style="display:none;">
+  <div class="sidebar" id="layoutSidebar"></div>
+  <div class="mainpanel" id="layoutMainpanel"></div>
 </div>
 <div class="layout" id="animLayout" style="display:none;">
   <div class="sidebar" id="animStateSidebar"></div>
@@ -136,14 +141,17 @@ async function init(){
   renderSidebar();
   renderMain();
   document.getElementById('modeItemsBtn').addEventListener('click',()=>switchMode('items'));
+  document.getElementById('modeLayoutBtn').addEventListener('click',()=>switchMode('layout'));
   document.getElementById('modeAnimBtn').addEventListener('click',()=>switchMode('anim'));
 }
 function switchMode(mode){
   topMode=mode;
   document.getElementById('itemsLayout').style.display=mode==='items'?'flex':'none';
+  document.getElementById('layoutLayout').style.display=mode==='layout'?'flex':'none';
   document.getElementById('animLayout').style.display=mode==='anim'?'flex':'none';
   document.getElementById('openAddPartBtn').style.display=mode==='items'?'inline-block':'none';
   document.querySelectorAll('.modeTabBtn').forEach(b=>b.classList.toggle('sel',b.dataset.mode===mode));
+  if(mode==='layout'){ renderLayoutSidebar(); renderLayoutMain(); }
   if(mode==='anim'){ renderAnimStateSidebar(); renderAnimMain(); }
 }
 let topMode='items';
@@ -680,7 +688,175 @@ function renderPositioner(parentRep,item){
 
 init();
 
-// ================= 동작(애니메이션) 설정 =================
+// ================= 전체 배치 (모든 기본 부위를 한 화면에서 위치 조정) =================
+let layoutSelectedPart=null;
+let layoutTemp={};
+function renderLayoutSidebar(){
+  const el=document.getElementById('layoutSidebar');
+  function renderLevel(parentKey,depth){
+    return childrenOf(parentKey).map(p=>{
+      const hasBase=items.some(i=>i.part_key===p.key&&i.is_base);
+      const badge=p.node_type==='joint'?(hasBase?'✅':'⚠️'):(hasBase?'🔗':'⚪');
+      return `<div class="part-row ${layoutSelectedPart===p.key?'sel':''}" data-p="${p.key}" style="padding-left:${14+depth*16}px;"><span>${badge} ${esc(p.label)}</span></div>`+renderLevel(p.key,depth+1);
+    }).join('');
+  }
+  el.innerHTML=renderLevel(null,0)||'<div class="center-msg">부위가 없어요.</div>';
+  el.querySelectorAll('.part-row').forEach(r=>{
+    r.addEventListener('click',()=>{ layoutSelectedPart=r.dataset.p; renderLayoutSidebar(); renderLayoutMain(); });
+  });
+}
+function renderLayoutMain(){
+  const mp=document.getElementById('layoutMainpanel');
+  const part=layoutSelectedPart?partByKey(layoutSelectedPart):null;
+  const baseItem=part?items.find(i=>i.part_key===part.key&&i.is_base):null;
+  mp.innerHTML=`
+    <div class="panel-title">전체 배치</div>
+    <div class="panel-sub">모든 기본(베이스) 부위가 조립된 모습이에요. 왼쪽에서 부위를 골라 위치를 맞춰보세요.</div>
+    <div class="two-col">
+      <div class="col" style="max-width:300px;">
+        <div class="card" style="text-align:center;">
+          <canvas id="layoutPreviewCanvas" width="260" height="320" style="background:#0f1c14;border-radius:12px;max-width:100%;"></canvas>
+        </div>
+      </div>
+      <div class="col">
+        ${!part?'<div style="color:#bbb;font-size:12px;">왼쪽에서 부위를 선택해주세요</div>':!baseItem?`<div style="color:#e63946;font-size:12px;">"${esc(part.label)}"에 기본(베이스) 아이템이 없어요. 먼저 "아이템 관리"에서 등록해주세요.</div>`:`
+        <div class="field-label">${esc(part.label)} - ${part.node_type==='joint'?'관절 기준점 · 뼈대 길이':'장식 위치(부모 기준)'}</div>
+        ${part.node_type==='joint'?`
+          <div class="edit-row"><label>기준점 X (0~1)</label><input type="number" id="layAnchorX" value="${baseItem.anchor_x??0.5}" step="0.02" min="0" max="1"></div>
+          <div class="edit-row"><label>기준점 Y (0~1)</label><input type="number" id="layAnchorY" value="${baseItem.anchor_y??0.05}" step="0.02" min="0" max="1"></div>
+          <div class="edit-row"><label>뼈대 길이</label><input type="number" id="layLength" value="${part.default_length||16}" step="1"></div>
+          <div style="font-size:10px;color:#999;margin-top:4px;">기준점 Y가 작을수록 위쪽이 관절축(아래로 뻗음), 클수록 아래쪽이 관절축(위로 뻗음)이에요.</div>
+        `:`
+          <div class="edit-row"><label>가로 위치 X (0~1)</label><input type="number" id="layOffsetX" value="${baseItem.offset_x??0.5}" step="0.02" min="0" max="1"></div>
+          <div class="edit-row"><label>세로 위치 Y (0~1)</label><input type="number" id="layOffsetY" value="${baseItem.offset_y??0.5}" step="0.02" min="0" max="1"></div>
+        `}
+        <div class="action-btn" id="saveLayoutBtn" style="margin-top:10px;">저장</div>
+        <div class="status-txt" id="layoutStatus"></div>
+        `}
+      </div>
+    </div>
+  `;
+  if(part&&baseItem){
+    layoutTemp = part.node_type==='joint'
+      ? {anchorX:baseItem.anchor_x??0.5, anchorY:baseItem.anchor_y??0.05, length:part.default_length||16}
+      : {offsetX:baseItem.offset_x??0.5, offsetY:baseItem.offset_y??0.5};
+    const redraw=()=>{
+      if(part.node_type==='joint'){
+        layoutTemp.anchorX=parseFloat(document.getElementById('layAnchorX').value)||0;
+        layoutTemp.anchorY=parseFloat(document.getElementById('layAnchorY').value)||0;
+        layoutTemp.length=parseFloat(document.getElementById('layLength').value)||16;
+      } else {
+        layoutTemp.offsetX=parseFloat(document.getElementById('layOffsetX').value)||0;
+        layoutTemp.offsetY=parseFloat(document.getElementById('layOffsetY').value)||0;
+      }
+      drawLayoutPreviewWrap();
+    };
+    ['layAnchorX','layAnchorY','layLength','layOffsetX','layOffsetY'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.addEventListener('input',redraw);
+    });
+    document.getElementById('saveLayoutBtn').addEventListener('click',async()=>{
+      const status=document.getElementById('layoutStatus');
+      status.style.color='#9c4dff'; status.textContent='저장 중...';
+      try{
+        if(part.node_type==='joint'){
+          await fetch(`${SUPABASE_URL}/rest/v1/character_items?id=eq.${baseItem.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({anchor_x:layoutTemp.anchorX,anchor_y:layoutTemp.anchorY})});
+          await fetch(`${SUPABASE_URL}/rest/v1/character_parts?key=eq.${encodeURIComponent(part.key)}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({default_length:layoutTemp.length})});
+        } else {
+          await fetch(`${SUPABASE_URL}/rest/v1/character_items?id=eq.${baseItem.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({offset_x:layoutTemp.offsetX,offset_y:layoutTemp.offsetY})});
+        }
+        status.style.color='#0f9e75'; status.textContent='저장 완료!';
+        await loadAll();
+      }catch(e){ status.style.color='#e63946'; status.textContent='실패: '+(e.message||e); }
+    });
+  }
+  drawLayoutPreviewWrap();
+}
+function baseInfoForLayout(key){
+  const it=items.find(i=>i.part_key===key&&i.is_base);
+  if(!it) return null;
+  const part=partByKey(key);
+  if(key===layoutSelectedPart&&part.node_type==='joint'){
+    return {url:it.url, anchorX:layoutTemp.anchorX, anchorY:layoutTemp.anchorY, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5};
+  }
+  if(key===layoutSelectedPart&&part.node_type==='attachment'){
+    return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:layoutTemp.offsetX, offsetY:layoutTemp.offsetY};
+  }
+  return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5};
+}
+function partLengthForLayout(key){
+  const part=partByKey(key);
+  if(key===layoutSelectedPart&&part.node_type==='joint') return layoutTemp.length;
+  return (part&&part.default_length)||16;
+}
+function drawJointStatic(ctx,key,highlightKey){
+  const part=partByKey(key);
+  if(!part) return;
+  ctx.save();
+  const h=partLengthForLayout(key);
+  const info=baseInfoForLayout(key);
+  let w=h, anchorX=0.5, anchorY=0.05;
+  if(info){
+    const img=getAnimImg(info.url);
+    if(img.complete&&img.naturalWidth){
+      w=h*(img.naturalWidth/img.naturalHeight);
+      ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
+      anchorX=info.anchorX; anchorY=info.anchorY;
+    }
+  }
+  if(key===highlightKey){
+    ctx.strokeStyle='#9c4dff'; ctx.lineWidth=1.5;
+    ctx.strokeRect(-w*anchorX,-h*anchorY,w,h);
+    ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fillStyle='#9c4dff'; ctx.fill();
+  }
+  const endLocalY=computeEndLocalAnim(h,anchorY);
+  childrenOf(key).forEach(child=>{
+    const atEnd=child.attach_end!==false;
+    if(child.node_type==='joint'){
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      drawJointStatic(ctx,child.key,highlightKey);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.translate(0,atEnd?endLocalY:0);
+      drawAttachmentStatic(ctx,child.key,{w,h,anchorX,anchorY},highlightKey);
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+function drawAttachmentStatic(ctx,key,parentInfo,highlightKey){
+  const info=baseInfoForLayout(key);
+  if(!info) return;
+  const img=getAnimImg(info.url);
+  if(!img.complete||!img.naturalWidth) return;
+  const localX=parentInfo.w*(info.offsetX-parentInfo.anchorX);
+  const localY=parentInfo.h*(info.offsetY-parentInfo.anchorY);
+  const fh=parentInfo.h*0.32;
+  const fw=fh*(img.naturalWidth/img.naturalHeight);
+  ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
+  if(key===highlightKey){
+    ctx.strokeStyle='#9c4dff'; ctx.lineWidth=1.5;
+    ctx.strokeRect(localX-fw/2,localY-fh/2,fw,fh);
+  }
+}
+function drawLayoutPreviewWrap(){
+  const canvas=document.getElementById('layoutPreviewCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
+  const groundY=canvas.height-40;
+  ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(canvas.width-20,groundY); ctx.stroke();
+  ctx.save();
+  ctx.translate(canvas.width/2,groundY-80);
+  childrenOf(null).forEach(r=>{ ctx.save(); drawJointStatic(ctx,r.key,layoutSelectedPart); ctx.restore(); });
+  ctx.restore();
+}
+
+
+// ================= 동작(애니메이션) 설정 - 프레임 기반 키프레임 =================
 const ANIM_STATES=[
   {key:'idle',label:'기본자세'},
   {key:'walk',label:'걷기'},
@@ -691,14 +867,22 @@ const ANIM_STATES=[
 ];
 let animConfig={states:{}};
 let animCurrentState='idle';
-function defaultPartAnim(){ return {baseAngle:0,amplitude:0,speed:1}; }
+let animCurrentFrame=0;
+let animPlaying=false;
+let animPlayRaf=null, animPlayLastTime=0;
+
+function defaultStateConfig(){ return {frameCount:60,loop:true,keyframes:{0:{}}}; }
 function ensureAnimConfigShape(){
   ANIM_STATES.forEach(s=>{
-    if(!animConfig.states[s.key]) animConfig.states[s.key]={};
-    parts.filter(p=>p.node_type==='joint').forEach(p=>{
-      if(!animConfig.states[s.key][p.key]) animConfig.states[s.key][p.key]=defaultPartAnim();
-    });
+    const cur=animConfig.states[s.key];
+    if(!cur||!cur.keyframes||typeof cur.frameCount!=='number'){
+      animConfig.states[s.key]=defaultStateConfig();
+    }
   });
+}
+function curStateConfig(){
+  if(!animConfig.states[animCurrentState]) animConfig.states[animCurrentState]=defaultStateConfig();
+  return animConfig.states[animCurrentState];
 }
 async function loadAnimConfig(){
   try{
@@ -726,91 +910,229 @@ function renderAnimStateSidebar(){
     `<div class="part-row ${animCurrentState===s.key?'sel':''}" data-s="${s.key}"><span>${esc(s.label)}</span></div>`
   ).join('');
   el.querySelectorAll('.part-row').forEach(r=>{
-    r.addEventListener('click',()=>{ animCurrentState=r.dataset.s; renderAnimStateSidebar(); renderAnimMain(); });
+    r.addEventListener('click',()=>{ animCurrentState=r.dataset.s; animCurrentFrame=0; stopAnimPlay(); renderAnimStateSidebar(); renderAnimMain(); });
   });
 }
 
-function flattenJoints(parentKey,depth){
-  return childrenOf(parentKey).flatMap(p=>{
-    const arr=p.node_type==='joint'?[{...p,depth}]:[];
-    return arr.concat(flattenJoints(p.key,depth+1));
-  });
+function flattenAnimatable(parentKey,depth){
+  return childrenOf(parentKey).flatMap(p=>[{...p,depth}].concat(flattenAnimatable(p.key,depth+1)));
+}
+
+// ---- 프레임별 값 조회 (각도는 보간, 이미지는 계단식 유지) ----
+function getAngleAtFrame(partKey,frame){
+  const st=curStateConfig();
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].angle!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return 0;
+  let prev=null,next=null;
+  kfNums.forEach(f=>{ if(f<=frame) prev=f; if(f>=frame&&next===null) next=f; });
+  if(prev===null) prev=next;
+  if(next===null) next=prev;
+  if(prev===next) return st.keyframes[prev][partKey].angle;
+  const t=(frame-prev)/(next-prev);
+  const a=st.keyframes[prev][partKey].angle, b=st.keyframes[next][partKey].angle;
+  return a+(b-a)*t;
+}
+function getItemIdAtFrame(partKey,frame){
+  const st=curStateConfig();
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].itemId!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return undefined;
+  let chosen=null;
+  kfNums.forEach(f=>{ if(f<=frame) chosen=f; });
+  if(chosen===null) chosen=kfNums[kfNums.length-1];
+  return st.keyframes[chosen][partKey].itemId;
+}
+function frameKeyframeList(partKey,field){
+  const st=curStateConfig();
+  return Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey][field]!==undefined).sort((a,b)=>a-b);
 }
 
 function renderAnimMain(){
   const mp=document.getElementById('animMainpanel');
   const stateLabel=(ANIM_STATES.find(s=>s.key===animCurrentState)||{}).label||'';
+  const st=curStateConfig();
+  if(animCurrentFrame>=st.frameCount) animCurrentFrame=st.frameCount-1;
   mp.innerHTML=`
     <div class="panel-title">${esc(stateLabel)} 동작 설정</div>
-    <div class="panel-sub">기본 캐릭터(베이스) 기준으로 미리보기가 나와요. 스킨은 이 동작을 그대로 물려받아요.</div>
+    <div class="panel-sub">기본 캐릭터(베이스) 기준 프레임 애니메이션이에요. 스킨은 이 동작을 그대로 물려받아요.</div>
     <div class="two-col">
-      <div class="col" style="max-width:260px;">
+      <div class="col" style="max-width:280px;">
         <div class="card" style="text-align:center;">
           <canvas id="animPreviewCanvas" width="220" height="260" style="background:#0f1c14;border-radius:12px;max-width:100%;"></canvas>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+            <div class="action-btn" id="playAnimBtn" style="padding:8px 12px;">${animPlaying?'⏸ 정지':'▶ 재생'}</div>
+            <input type="range" id="frameScrubber" min="0" max="${st.frameCount-1}" value="${animCurrentFrame}" style="flex:1;">
+            <span id="frameCounterLabel" style="font-size:11px;color:#666;min-width:44px;">${animCurrentFrame}/${st.frameCount-1}</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="edit-row"><label>총 프레임</label><input type="number" id="frameCountInput" value="${st.frameCount}" min="2"></div>
+          <div class="check-row"><input type="checkbox" id="loopInput" ${st.loop?'checked':''}> 반복 재생</div>
         </div>
         <div class="action-btn" id="saveAnimBtn" style="width:100%;text-align:center;box-sizing:border-box;">동작 설정 저장</div>
         <div class="status-txt" id="animStatus" style="text-align:center;"></div>
       </div>
       <div class="col">
-        <div class="field-label">관절별 각도 설정</div>
+        <div class="field-label">프레임 ${animCurrentFrame} - 부위별 키프레임</div>
         <div id="animPartsList"></div>
       </div>
     </div>
   `;
-  const list=document.getElementById('animPartsList');
-  const joints=flattenJoints(null,0);
-  if(!joints.length){
-    list.innerHTML='<div style="color:#bbb;font-size:12px;">관절 부위가 없어요. "아이템 관리"에서 먼저 관절 부위를 만들어주세요.</div>';
-  } else {
-    list.innerHTML=joints.map(p=>{
-      const cfg=(animConfig.states[animCurrentState]||{})[p.key]||defaultPartAnim();
-      return `
-        <div class="card" style="padding:10px 14px;margin-bottom:8px;">
-          <div style="font-weight:800;font-size:12px;margin-bottom:6px;">${'　'.repeat(p.depth)}${esc(p.label)}</div>
-          <div class="edit-row"><label>기본각도</label><input type="number" class="animInput" data-key="${p.key}" data-field="baseAngle" value="${cfg.baseAngle}"></div>
-          <div class="edit-row"><label>흔들림폭</label><input type="number" class="animInput" data-key="${p.key}" data-field="amplitude" value="${cfg.amplitude}"></div>
-          <div class="edit-row"><label>속도</label><input type="number" class="animInput" data-key="${p.key}" data-field="speed" value="${cfg.speed}" step="0.5"></div>
-        </div>
-      `;
-    }).join('');
-    list.querySelectorAll('.animInput').forEach(el=>{
-      el.addEventListener('change',()=>{
-        const key=el.dataset.key, field=el.dataset.field;
-        if(!animConfig.states[animCurrentState]) animConfig.states[animCurrentState]={};
-        if(!animConfig.states[animCurrentState][key]) animConfig.states[animCurrentState][key]=defaultPartAnim();
-        animConfig.states[animCurrentState][key][field]=parseFloat(el.value)||0;
-      });
-    });
-  }
+  document.getElementById('frameScrubber').addEventListener('input',e=>{
+    stopAnimPlay();
+    animCurrentFrame=parseInt(e.target.value)||0;
+    document.getElementById('frameCounterLabel').textContent=animCurrentFrame+'/'+(st.frameCount-1);
+    drawAnimPreviewAtFrame();
+    renderAnimPartsList();
+  });
+  document.getElementById('playAnimBtn').addEventListener('click',toggleAnimPlay);
+  document.getElementById('frameCountInput').addEventListener('change',e=>{
+    st.frameCount=Math.max(2,parseInt(e.target.value)||60);
+    renderAnimMain();
+  });
+  document.getElementById('loopInput').addEventListener('change',e=>{ st.loop=e.target.checked; });
   document.getElementById('saveAnimBtn').addEventListener('click',async()=>{
     const status=document.getElementById('animStatus');
     status.style.color='#9c4dff'; status.textContent='저장 중...';
     try{ await saveAnimConfig(); status.style.color='#0f9e75'; status.textContent='저장 완료!'; }
     catch(e){ status.style.color='#e63946'; status.textContent='실패: '+(e.message||e); }
   });
-  startAnimPreviewLoop();
+  renderAnimPartsList();
+  drawAnimPreviewAtFrame();
 }
 
-// ---- 동작 미리보기 (기본(베이스) 캐릭터 기준, 트리를 재귀적으로 따라가며 그림) ----
+function renderAnimPartsList(){
+  const list=document.getElementById('animPartsList');
+  if(!list) return;
+  const st=curStateConfig();
+  const allParts=flattenAnimatable(null,0);
+  if(!allParts.length){ list.innerHTML='<div style="color:#bbb;font-size:12px;">부위가 없어요. "아이템 관리"에서 먼저 만들어주세요.</div>'; return; }
+  list.innerHTML=allParts.map(p=>{
+    const indent='　'.repeat(p.depth);
+    if(p.node_type==='joint'){
+      const hasKf=st.keyframes[animCurrentFrame]&&st.keyframes[animCurrentFrame][p.key]&&st.keyframes[animCurrentFrame][p.key].angle!==undefined;
+      const curAngle=getAngleAtFrame(p.key,animCurrentFrame);
+      const kfCount=frameKeyframeList(p.key,'angle').length;
+      return `<div class="card" style="padding:10px 14px;margin-bottom:8px;">
+        <div style="font-weight:800;font-size:12px;margin-bottom:6px;">${indent}🦴 ${esc(p.label)} ${hasKf?'<span style="color:#9c4dff;">● 이 프레임 키프레임</span>':`<span style="color:#999;font-weight:400;">(보간중, 키프레임 ${kfCount}개)</span>`}</div>
+        <div class="edit-row"><label>각도</label><input type="number" class="jointAngleInput" data-key="${p.key}" value="${curAngle.toFixed(1)}" step="1"></div>
+        <div style="display:flex;gap:6px;">
+          <div class="ibtn setKfBtn" data-key="${p.key}" style="flex:1;text-align:center;padding:7px;border-radius:8px;background:#9c4dff;color:#fff;cursor:pointer;font-size:11px;font-weight:700;">이 프레임에 키프레임 추가</div>
+          ${hasKf?`<div class="ibtn delKfBtn" data-key="${p.key}" style="padding:7px 12px;border-radius:8px;background:#f5f5f5;color:#e63946;cursor:pointer;font-size:11px;font-weight:700;">삭제</div>`:''}
+        </div>
+      </div>`;
+    } else {
+      const hasKf=st.keyframes[animCurrentFrame]&&st.keyframes[animCurrentFrame][p.key]&&st.keyframes[animCurrentFrame][p.key].itemId!==undefined;
+      const curItemId=getItemIdAtFrame(p.key,animCurrentFrame);
+      const options=itemsForPart(p.key);
+      return `<div class="card" style="padding:10px 14px;margin-bottom:8px;">
+        <div style="font-weight:800;font-size:12px;margin-bottom:6px;">${indent}🔗 ${esc(p.label)} ${hasKf?'<span style="color:#9c4dff;">● 이 프레임 키프레임</span>':''}</div>
+        <select class="attachItemSelect" data-key="${p.key}" style="width:100%;padding:7px;border-radius:8px;border:1px solid #ddd;margin-bottom:6px;font-size:12px;">
+          <option value="">기본(베이스)</option>
+          ${options.map(o=>`<option value="${o.id}" ${curItemId===o.id?'selected':''}>${esc(o.name)}${o.is_base?' (기본)':''}</option>`).join('')}
+        </select>
+        <div style="display:flex;gap:6px;">
+          <div class="ibtn setKfItemBtn" data-key="${p.key}" style="flex:1;text-align:center;padding:7px;border-radius:8px;background:#9c4dff;color:#fff;cursor:pointer;font-size:11px;font-weight:700;">이 프레임에 이미지 키프레임 추가</div>
+          ${hasKf?`<div class="ibtn delKfItemBtn" data-key="${p.key}" style="padding:7px 12px;border-radius:8px;background:#f5f5f5;color:#e63946;cursor:pointer;font-size:11px;font-weight:700;">삭제</div>`:''}
+        </div>
+      </div>`;
+    }
+  }).join('');
+
+  list.querySelectorAll('.setKfBtn').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const key=el.dataset.key;
+      const input=list.querySelector(`.jointAngleInput[data-key="${key}"]`);
+      const val=parseFloat(input.value)||0;
+      const st2=curStateConfig();
+      if(!st2.keyframes[animCurrentFrame]) st2.keyframes[animCurrentFrame]={};
+      st2.keyframes[animCurrentFrame][key]={...st2.keyframes[animCurrentFrame][key],angle:val};
+      renderAnimPartsList();
+      drawAnimPreviewAtFrame();
+    });
+  });
+  list.querySelectorAll('.delKfBtn').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const key=el.dataset.key;
+      const st2=curStateConfig();
+      if(st2.keyframes[animCurrentFrame]&&st2.keyframes[animCurrentFrame][key]){
+        delete st2.keyframes[animCurrentFrame][key].angle;
+      }
+      renderAnimPartsList();
+      drawAnimPreviewAtFrame();
+    });
+  });
+  list.querySelectorAll('.setKfItemBtn').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const key=el.dataset.key;
+      const sel=list.querySelector(`.attachItemSelect[data-key="${key}"]`);
+      const val=sel.value?parseInt(sel.value):null;
+      const st2=curStateConfig();
+      if(!st2.keyframes[animCurrentFrame]) st2.keyframes[animCurrentFrame]={};
+      st2.keyframes[animCurrentFrame][key]={...st2.keyframes[animCurrentFrame][key],itemId:val};
+      renderAnimPartsList();
+      drawAnimPreviewAtFrame();
+    });
+  });
+  list.querySelectorAll('.delKfItemBtn').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const key=el.dataset.key;
+      const st2=curStateConfig();
+      if(st2.keyframes[animCurrentFrame]&&st2.keyframes[animCurrentFrame][key]){
+        delete st2.keyframes[animCurrentFrame][key].itemId;
+      }
+      renderAnimPartsList();
+      drawAnimPreviewAtFrame();
+    });
+  });
+}
+
+function toggleAnimPlay(){
+  animPlaying=!animPlaying;
+  const btn=document.getElementById('playAnimBtn');
+  if(btn) btn.textContent=animPlaying?'⏸ 정지':'▶ 재생';
+  if(animPlaying){ animPlayLastTime=0; animPlayRaf=requestAnimationFrame(animPlayLoop); }
+  else if(animPlayRaf){ cancelAnimationFrame(animPlayRaf); animPlayRaf=null; }
+}
+function stopAnimPlay(){
+  if(animPlaying){ animPlaying=false; if(animPlayRaf){ cancelAnimationFrame(animPlayRaf); animPlayRaf=null; } }
+}
+function animPlayLoop(ts){
+  if(!animPlaying) return;
+  const st=curStateConfig();
+  if(!animPlayLastTime) animPlayLastTime=ts;
+  if(ts-animPlayLastTime>1000/24){
+    animPlayLastTime=ts;
+    animCurrentFrame++;
+    if(animCurrentFrame>=st.frameCount){
+      if(st.loop) animCurrentFrame=0;
+      else { animCurrentFrame=st.frameCount-1; animPlaying=false; const btn=document.getElementById('playAnimBtn'); if(btn) btn.textContent='▶ 재생'; }
+    }
+    const scrubber=document.getElementById('frameScrubber');
+    if(scrubber){ scrubber.value=animCurrentFrame; }
+    const counterLabel=document.getElementById('frameCounterLabel');
+    if(counterLabel) counterLabel.textContent=animCurrentFrame+'/'+(st.frameCount-1);
+    drawAnimPreviewAtFrame();
+  }
+  if(animPlaying) animPlayRaf=requestAnimationFrame(animPlayLoop);
+}
+
+// ---- 프레임 기준 렌더링 (기본(베이스) 캐릭터, 트리를 재귀적으로 따라가며 그림) ----
 const animImgCache={};
 function getAnimImg(url){ if(!animImgCache[url]){ const img=new Image(); img.src=url; animImgCache[url]=img; } return animImgCache[url]; }
-function baseInfoFor(key){
-  const it=items.find(i=>i.part_key===key&&i.is_base);
+function computeEndLocalAnim(h,anchorY){ return anchorY<0.5?h*(1-anchorY):-h*anchorY; }
+function frameInfoFor(key,frame){
+  const itemId=getItemIdAtFrame(key,frame);
+  const it = itemId ? items.find(i=>i.id===itemId) : items.find(i=>i.part_key===key&&i.is_base);
   if(!it) return null;
   return {url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5};
 }
-function animPartAngle(key,phase){
-  const cfg=(animConfig.states[animCurrentState]||{})[key]||defaultPartAnim();
-  return (cfg.baseAngle+cfg.amplitude*Math.sin(phase*cfg.speed))*Math.PI/180;
-}
-function computeEndLocalAnim(h,anchorY){ return anchorY<0.5?h*(1-anchorY):-h*anchorY; }
-function drawJointAnim(ctx,key,phase){
+function drawJointFrame(ctx,key,frame){
   const part=partByKey(key);
   if(!part) return;
   ctx.save();
-  ctx.rotate(animPartAngle(key,phase));
+  ctx.rotate(getAngleAtFrame(key,frame)*Math.PI/180);
   const h=part.default_length||16;
-  const info=baseInfoFor(key);
+  const info=frameInfoFor(key,frame);
   let w=h, anchorX=0.5, anchorY=0.05;
   if(info){
     const img=getAnimImg(info.url);
@@ -824,21 +1146,15 @@ function drawJointAnim(ctx,key,phase){
   childrenOf(key).forEach(child=>{
     const atEnd=child.attach_end!==false;
     if(child.node_type==='joint'){
-      ctx.save();
-      ctx.translate(0,atEnd?endLocalY:0);
-      drawJointAnim(ctx,child.key,phase);
-      ctx.restore();
+      ctx.save(); ctx.translate(0,atEnd?endLocalY:0); drawJointFrame(ctx,child.key,frame); ctx.restore();
     } else {
-      ctx.save();
-      ctx.translate(0,atEnd?endLocalY:0);
-      drawAttachmentAnim(ctx,child.key,{w,h,anchorX,anchorY});
-      ctx.restore();
+      ctx.save(); ctx.translate(0,atEnd?endLocalY:0); drawAttachmentFrame(ctx,child.key,{w,h,anchorX,anchorY},frame); ctx.restore();
     }
   });
   ctx.restore();
 }
-function drawAttachmentAnim(ctx,key,parentInfo){
-  const info=baseInfoFor(key);
+function drawAttachmentFrame(ctx,key,parentInfo,frame){
+  const info=frameInfoFor(key,frame);
   if(!info) return;
   const img=getAnimImg(info.url);
   if(!img.complete||!img.naturalWidth) return;
@@ -848,33 +1164,22 @@ function drawAttachmentAnim(ctx,key,parentInfo){
   const fw=fh*(img.naturalWidth/img.naturalHeight);
   ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
 }
-function drawAnimPreview(ctx,cw,ch,phase){
-  ctx.clearRect(0,0,cw,ch);
+function drawAnimPreviewAtFrame(){
+  const canvas=document.getElementById('animPreviewCanvas');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
-  const groundY=ch-30;
-  ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(cw-20,groundY); ctx.stroke();
+  const groundY=canvas.height-30;
+  ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(canvas.width-20,groundY); ctx.stroke();
   ctx.save();
-  ctx.translate(cw/2,groundY-60);
-  childrenOf(null).forEach(r=>{ ctx.save(); drawJointAnim(ctx,r.key,phase); ctx.restore(); });
+  ctx.translate(canvas.width/2,groundY-60);
+  childrenOf(null).forEach(r=>{ ctx.save(); drawJointFrame(ctx,r.key,animCurrentFrame); ctx.restore(); });
   ctx.restore();
   if(!parts.some(p=>p.node_type==='joint')){
     ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('부위를 먼저 만들어주세요',cw/2,ch/2);
+    ctx.fillText('부위를 먼저 만들어주세요',canvas.width/2,canvas.height/2);
   }
-}
-let animPreviewPhase=0, animPreviewRaf=null;
-function startAnimPreviewLoop(){
-  const canvas=document.getElementById('animPreviewCanvas');
-  if(!canvas) return;
-  if(animPreviewRaf) cancelAnimationFrame(animPreviewRaf);
-  const ctx=canvas.getContext('2d');
-  function loop(){
-    if(!document.getElementById('animPreviewCanvas')){ animPreviewRaf=null; return; }
-    animPreviewPhase+=0.05;
-    drawAnimPreview(ctx,canvas.width,canvas.height,animPreviewPhase);
-    animPreviewRaf=requestAnimationFrame(loop);
-  }
-  loop();
 }
 
 </script>
