@@ -137,20 +137,20 @@ async function equipItem(partKey,itemId){
   }catch(e){ console.error('저장 실패:',e); }
 }
 
-// ---- 미리보기: 트리를 재귀적으로 따라가며 그리기 (관절 회전이 자식(장식 포함)에게 자동으로 전달돼요) ----
-function getAngleAtFrame(partKey,frame){
+// ---- 미리보기: 트리를 재귀적으로 따라가며 그리기 (부모 좌표계를 자식이 그대로 물려받아요) ----
+function interpField(partKey,field,frame,fallback){
   const st=animConfig.states&&animConfig.states.idle;
-  if(!st||!st.keyframes) return 0;
-  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].angle!==undefined).sort((a,b)=>a-b);
-  if(!kfNums.length) return 0;
+  if(!st||!st.keyframes) return fallback;
+  const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey][field]!==undefined).sort((a,b)=>a-b);
+  if(!kfNums.length) return fallback;
   let prev=null,next=null;
   kfNums.forEach(f=>{ if(f<=frame) prev=f; if(f>=frame&&next===null) next=f; });
   if(prev===null) prev=next;
   if(next===null) next=prev;
-  if(prev===next) return st.keyframes[prev][partKey].angle;
+  if(prev===next) return st.keyframes[prev][partKey][field];
   const t=(frame-prev)/(next-prev);
-  const a=st.keyframes[prev][partKey].angle, b=st.keyframes[next][partKey].angle;
-  return (a+(b-a)*t)*Math.PI/180;
+  const a=st.keyframes[prev][partKey][field], b=st.keyframes[next][partKey][field];
+  return a+(b-a)*t;
 }
 function getItemIdAtFrame(partKey,frame){
   const st=animConfig.states&&animConfig.states.idle;
@@ -162,75 +162,43 @@ function getItemIdAtFrame(partKey,frame){
   if(chosen===null) chosen=kfNums[kfNums.length-1];
   return st.keyframes[chosen][partKey].itemId;
 }
-function imgInfoFor(key,frame){
+function previewTransform(key,frame){
+  const part=partByKey(key);
+  return {
+    dx:interpField(key,'dx',frame,part.default_dx||0),
+    dy:interpField(key,'dy',frame,part.default_dy||0),
+    angle:interpField(key,'angle',frame,part.default_angle||0)
+  };
+}
+function previewImageInfo(key,frame){
   const equippedId=equipped[key];
   if(equippedId){
     const it=itemById(equippedId);
-    if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
+    if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
   }
   // 장착한 스킨이 없으면 기본 캐릭터의 애니메이션(눈깜빡임 등 이미지 전환)을 그대로 보여줘요
-  const frameItemId=frame!==undefined?getItemIdAtFrame(key,frame):undefined;
+  const frameItemId=getItemIdAtFrame(key,frame);
   const it=frameItemId?itemById(frameItemId):baseItemFor(key);
   if(!it) return null;
-  return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5, offsetX:it.offset_x??0.5, offsetY:it.offset_y??0.5 };
+  return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
 }
-function computeEndLocal(h,anchorY){
-  return anchorY<0.5 ? h*(1-anchorY) : -h*anchorY;
-}
-
-function drawJointImageAtOrigin(ctx,key,h,frame){
-  const info=imgInfoFor(key,frame);
-  if(!info) return {w:h,h,anchorX:0.5,anchorY:0.05};
-  const img=getImg(info.url);
-  if(!img.complete||!img.naturalWidth) return {w:h,h,anchorX:info.anchorX,anchorY:info.anchorY};
-  const w=h*(img.naturalWidth/img.naturalHeight);
-  ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
-  return {w,h,anchorX:info.anchorX,anchorY:info.anchorY};
-}
-function drawAttachmentAtParentLocal(ctx,key,parentInfo,frame){
-  const info=imgInfoFor(key,frame);
-  if(!info) return;
-  const img=getImg(info.url);
-  if(!img.complete||!img.naturalWidth) return;
-  const localX=parentInfo.w*(info.offsetX-parentInfo.anchorX);
-  const localY=parentInfo.h*(info.offsetY-parentInfo.anchorY);
-  const fh=parentInfo.h*0.32;
-  const fw=fh*(img.naturalWidth/img.naturalHeight);
-  ctx.drawImage(img,localX-fw/2,localY-fh/2,fw,fh);
-  return {localX,localY};
-}
-
-function renderNode(ctx,key,frame,facing){
+function renderNode(ctx,key,frame){
   const part=partByKey(key);
   if(!part) return;
-  if(part.node_type==='attachment'){
-    // 장식은 별도 회전 없이 부모 좌표계 그대로 사용 (renderJointChildren에서 위치까지 처리해서 호출함)
-    return;
-  }
-  const angle=getAngleAtFrame(key,frame);
+  const t=previewTransform(key,frame);
   ctx.save();
-  ctx.rotate(angle);
-  const info=drawJointImageAtOrigin(ctx,key,part.default_length||16,frame);
-  const endLocalY=computeEndLocal(info.h,info.anchorY);
-  childrenOf(key).forEach(child=>{
-    if(child.node_type==='joint'){
-      ctx.save();
-      const atEnd=child.attach_end!==false;
-      ctx.translate(0, atEnd?endLocalY:0);
-      renderNode(ctx,child.key,frame,facing);
-      ctx.restore();
-    } else {
-      const atEnd=child.attach_end!==false;
-      ctx.save();
-      ctx.translate(0, atEnd?endLocalY:0);
-      drawAttachmentAtParentLocal(ctx,child.key,info,frame);
-      // 장식에도 자식(예: 귀->귀고리)이 있을 수 있음 - 같은 좌표계에서 이어서 처리
-      childrenOf(child.key).forEach(grand=>{
-        if(grand.node_type==='attachment') drawAttachmentAtParentLocal(ctx,grand.key,info,frame);
-      });
-      ctx.restore();
+  ctx.translate(t.dx,t.dy);
+  ctx.rotate((t.angle||0)*Math.PI/180);
+  const info=previewImageInfo(key,frame);
+  const h=part.display_height||part.default_length||20;
+  if(info){
+    const img=getImg(info.url);
+    if(img.complete&&img.naturalWidth){
+      const w=h*(img.naturalWidth/img.naturalHeight);
+      ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
     }
-  });
+  }
+  childrenOf(key).forEach(child=>renderNode(ctx,child.key,frame));
   ctx.restore();
 }
 
@@ -250,7 +218,7 @@ function drawPreviewRig(ctx,cw,ch,frame){
   ctx.scale(facing,1);
   roots.forEach(r=>{
     ctx.save();
-    renderNode(ctx,r.key,frame,facing);
+    renderNode(ctx,r.key,frame);
     ctx.restore();
   });
   ctx.restore();
