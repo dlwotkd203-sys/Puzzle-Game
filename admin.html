@@ -51,14 +51,32 @@ const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
 const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
 const ADMIN_PW='ajskdlf;!';
 
+// index.html의 GAMES 목록과 동일하게 맞춰둠 (준비중인 'more' 카드는 제외)
 const GAMES=[
-  {id:'shikaku',name:'시카쿠'},
-  {id:'sudoku',name:'스도쿠'},
-  {id:'nonogram',name:'노노그램'},
-  {id:'2048',name:'2048'},
-  {id:'dodge',name:'닷지'},
-  {id:'memory',name:'짝맞추기'},
-  {id:'sorter',name:'분류하기'},
+  {id:'onecard',name:'원카드',icon:'🃏'},
+  {id:'sutda',name:'섯다',icon:'🎴'},
+  {id:'catchmind',name:'마인드캐치',icon:'🎨'},
+  {id:'hunter',name:'필드헌터',icon:'⚔️'},
+  {id:'alkkagi',name:'알까기',icon:'⚪'},
+  {id:'billiards',name:'당구',icon:'🎱'},
+  {id:'bowling',name:'볼링',icon:'🎳'},
+  {id:'shikaku',name:'시카쿠',icon:'⊞'},
+  {id:'sudoku',name:'스도쿠',icon:'#'},
+  {id:'2048',name:'2048',icon:'∞'},
+  {id:'dodge',name:'닷지',icon:'🔵'},
+  {id:'nonogram',name:'노노그램',icon:'▦'},
+  {id:'memory',name:'짝맞추기',icon:'🀄'},
+  {id:'sorter',name:'분류하기',icon:'🎯'},
+  {id:'minesweeper',name:'지뢰찾기',icon:'💣'},
+  {id:'breakout',name:'벽돌깨기',icon:'🧱'},
+  {id:'flow',name:'플로우',icon:'🌊'},
+  {id:'rps',name:'가위바위보',icon:'✊'},
+  {id:'reaction',name:'반응속도',icon:'⚡'},
+  {id:'olla',name:'올라올라',icon:'🪜'},
+  {id:'snake',name:'스네이크',icon:'🐍'},
+  {id:'colormatch',name:'색감 맞추기',icon:'🎨'},
+  {id:'omok',name:'오목',icon:'⚫'},
+  {id:'numrush',name:'숫자순서터치',icon:'🔢'},
 ];
 
 let isAuthed=false;
@@ -99,10 +117,12 @@ async function fetchSettings(){
 }
 
 async function saveSetting(key,value){
-  await fetch(`${SUPABASE_URL}/rest/v1/settings?key=eq.${key}`,{
-    method:'PATCH',
-    headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},
-    body:JSON.stringify({value:value})
+  // PATCH는 해당 key 행이 이미 있어야만 동작해서, 새로 추가된 게임처럼
+  // settings 테이블에 아직 행이 없는 key는 upsert(POST + on_conflict)로 처리해요.
+  await fetch(`${SUPABASE_URL}/rest/v1/settings?on_conflict=key`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Prefer':'resolution=merge-duplicates'},
+    body:JSON.stringify({key:key,value:value})
   });
 }
 
@@ -141,7 +161,7 @@ async function renderPanel(){
     const row=document.createElement('div');
     row.className='toggle-row';
     row.innerHTML=`
-      <span class="toggle-name">${game.name}</span>
+      <span class="toggle-name">${game.icon||''} ${game.name}</span>
       <label class="switch">
         <input type="checkbox" id="toggle-${game.id}" ${enabled?'checked':''} onchange="toggleGame('${game.id}',this.checked)">
         <span class="slider"></span>
