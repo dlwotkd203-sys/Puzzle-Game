@@ -132,8 +132,9 @@ function layoutJanggiSeat(pieces,seat,nextId){
   const specOf=t=>JANGGI_SET.find(s=>s.type===t);
   function place(type,colIdx,row){
     const spec=specOf(type);
+    const massMult = type==='궁' ? 1.1 : 1; // 왕은 10% 더 무겁게 (덜 밀리도록)
     pieces.push({
-      id:nextId(), seat, type, hanja:hanjaFor(type,seat), r:spec.r, mass:massForRadius(spec.r),
+      id:nextId(), seat, type, hanja:hanjaFor(type,seat), r:spec.r, mass:massForRadius(spec.r)*massMult,
       x:cols[colIdx], y:rowY(row), vx:0, vy:0, alive:true, trail:[]
     });
   }
@@ -382,7 +383,7 @@ async function maybeStartGame(){
   const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
   await patchRoom({
     status:'playing', players:freshPlayers,
-    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:0, stage:'playing', winner:null, postHandAt:null, turnStartedAt:now }
+    state:{ mode:room.mode, omokCount:room.omok_count, pieces:initPieces, turn:(Math.random()<0.5?0:1), stage:'playing', winner:null, postHandAt:null, turnStartedAt:now }
   });
 }
 
@@ -459,7 +460,15 @@ function updateTimerDisplay(){
   });
 }
 
+let introKey=null, introActive=false;
 function renderGame(area,st){
+  const key=room.id+':'+st.turnStartedAt;
+  if(introKey!==key){
+    introKey=key;
+    introActive=true;
+    playFirstTurnIntro(area,st);
+  }
+  if(introActive) return;
   if(!document.getElementById('boardCanvas')){
     area.innerHTML=`<div id="boardWrap"><canvas id="boardCanvas"></canvas></div><div id="bottomBar"></div>`;
     boardCanvasSetup=false;
@@ -482,6 +491,39 @@ function renderGame(area,st){
     boardCanvasSetup=true;
   }
   drawBoard();
+}
+
+function playFirstTurnIntro(area,st){
+  const players=room.players||[];
+  const names=players.map(p=>p.username||'?');
+  const winnerName=(players[st.turn]||{}).username||'?';
+  area.innerHTML=`
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;">
+      <div style="font-size:13px;color:#8fa899;margin-bottom:14px;letter-spacing:0.15em;font-weight:700;">선　공</div>
+      <div id="introName" style="font-size:30px;font-weight:900;transition:transform 0.2s, color 0.2s;">-</div>
+    </div>
+  `;
+  const nameEl=document.getElementById('introName');
+  let i=0;
+  const cycleTimer=setInterval(()=>{
+    const el=document.getElementById('introName');
+    if(!el){ clearInterval(cycleTimer); return; }
+    el.textContent=names[i%names.length];
+    i++;
+  },110);
+  setTimeout(()=>{
+    clearInterval(cycleTimer);
+    const el=document.getElementById('introName');
+    if(el){
+      el.textContent=winnerName;
+      el.style.color='#7ed957';
+      el.style.transform='scale(1.2)';
+    }
+    setTimeout(()=>{
+      introActive=false;
+      render();
+    },1000);
+  },1700);
 }
 
 let turnTickTimer=null, timeoutTriggeredKey=null;
@@ -935,6 +977,7 @@ async function returnToLobby(){
   opponentAwaySince=null;
   afkForfeitTriggeredKey=null;
   comThinking=false;
+  introKey=null; introActive=false;
   if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
   await patchRoom({status:'waiting',players});
 }
