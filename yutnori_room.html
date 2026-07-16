@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>윷놀이</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{width:100%;height:100%;background:#1a2e1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
+#app{max-width:430px;margin:0 auto;height:100%;display:flex;flex-direction:column;background:#1a2e1a;position:relative;}
+.top-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;flex-shrink:0;}
+.back-btn{background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:18px;padding:5px 11px;border-radius:10px;cursor:pointer;}
+.top-title{color:#fff;font-weight:700;font-size:14px;flex:1;}
+.center-msg{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;text-align:center;padding:2rem;}
+#mainArea{flex:1;display:flex;flex-direction:column;min-height:0;position:relative;}
+#playersStrip{display:flex;gap:6px;padding:8px 10px;flex-shrink:0;overflow-x:auto;}
+.p-chip{flex-shrink:0;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.08);border-radius:12px;padding:6px 10px;border:2px solid transparent;}
+.p-chip.turn{border-color:#ffd166;background:rgba(255,209,102,0.15);}
+.p-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+.p-name{color:#fff;font-size:11px;font-weight:700;white-space:nowrap;}
+.p-timer{color:#ffd166;font-size:10px;font-weight:800;}
+#boardWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:8px;min-height:0;}
+#boardCanvas{border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.4);max-width:100%;max-height:100%;background:#e9d3a3;}
+#bottomBar{flex-shrink:0;padding:10px 16px 18px;text-align:center;}
+.big-btn{width:100%;text-align:center;font-weight:800;font-size:15px;padding:14px;border-radius:16px;cursor:pointer;margin-top:10px;}
+.lobby-wrap{padding:20px;color:#fff;}
+.player-row{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+.player-name{font-weight:700;font-size:14px;}
+.ready-chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;background:rgba(255,255,255,0.15);}
+.ready-chip.on{background:#a9531c;}
+.result-wrap{padding:30px 20px;text-align:center;color:#fff;}
+.surrender-btn{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#e08080;background:rgba(224,128,128,0.12);padding:6px 14px;border-radius:10px;cursor:pointer;}
+.throw-fab{position:absolute;right:16px;bottom:90px;background:#a9531c;color:#fff;font-weight:800;font-size:13px;padding:14px 20px;border-radius:30px;box-shadow:0 4px 14px rgba(0,0,0,0.4);cursor:pointer;z-index:20;}
+.throw-fab.disabled{background:#555;color:#999;}
+#throwOverlay{position:absolute;inset:0;background:rgba(6,10,6,0.85);z-index:50;display:none;flex-direction:column;padding:14px;}
+#throwOverlay.show{display:flex;}
+#throwMount{flex:1;position:relative;touch-action:none;border-radius:20px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.5);}
+#throwMount canvas{display:block;width:100%;height:100%;}
+#throwResultLabel{position:absolute;top:14px;left:0;right:0;text-align:center;color:#fff;font-size:22px;font-weight:900;text-shadow:0 2px 6px rgba(0,0,0,0.6);pointer-events:none;}
+#tPowerBarWrap{position:absolute;left:16px;right:16px;bottom:14px;height:26px;border-radius:13px;background:rgba(255,255,255,0.15);overflow:hidden;pointer-events:none;}
+#tPowerBarFill{height:100%;width:0%;background:linear-gradient(90deg,#7ed957,#ffd166,#ff6b6b);transition:width 0.03s linear;}
+#tPowerBarLabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px;text-shadow:0 1px 3px rgba(0,0,0,0.6);}
+#throwBottomBar{flex-shrink:0;padding:14px 20px 22px;text-align:center;}
+#choiceOverlay{position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:60;display:none;align-items:center;justify-content:center;}
+#choiceOverlay.show{display:flex;}
+.choice-box{background:#fff;border-radius:16px;padding:18px;width:80%;max-width:280px;text-align:center;}
+.choice-btn{padding:12px;border-radius:12px;background:#f0f0f0;font-weight:700;font-size:13px;margin-top:8px;cursor:pointer;color:#333;}
+.pending-list{display:flex;gap:6px;justify-content:center;margin:8px 0;flex-wrap:wrap;}
+.pending-chip{font-size:11px;font-weight:800;padding:5px 10px;border-radius:10px;background:#ffe9c4;color:#a9531c;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top-bar">
+    <button class="back-btn" id="leaveBtn">←</button>
+    <span class="top-title" id="roomTitle">🪵 윷놀이</span>
+  </div>
+  <div id="mainArea"><div class="center-msg">불러오는 중...</div></div>
+  <div id="choiceOverlay"><div class="choice-box" id="choiceBox"></div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+const SUPABASE_URL='https://pampoyeyhwwdpzcaubdm.supabase.co';
+const SUPABASE_KEY='sb_publishable_xWRbj6jRwR_sojPBYCLfEg_DylayGH5';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const STARTING_POINTS=10000;
+
+let currentUser=null;
+try{currentUser=JSON.parse(localStorage.getItem('puzzle_user')||'null');}catch(e){}
+const params=new URLSearchParams(location.search);
+const roomId=params.get('id');
+
+function headers(){ return {'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function jheaders(){ return {'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}; }
+function esc(str){ return String(str??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+const SEAT_COLORS=['#e63946','#2f6fed','#2a9d34','#c084fc'];
+const SEAT_NAMES=['빨강','파랑','초록','보라'];
+
+// ================= 윷판 경로 그래프 =================
+// 바깥 20칸(0=출발/도착) + 지름길(5,10번 모서리에서 중앙을 거쳐 질러감)
+const BOARD_SIZE=380, MARGIN=36, STEP=(BOARD_SIZE-MARGIN*2)/5;
+function edgePos(cornerFrom,cornerTo,i){ // i=0..4, 0=corner
+  // 0번(출발/도착)을 우측 하단(5시 방향)에 두고, 위로->왼쪽->아래->오른쪽 순서(반시계방향)로 진행
+  const pts={0:[BOARD_SIZE-MARGIN,BOARD_SIZE-MARGIN],5:[BOARD_SIZE-MARGIN,MARGIN],10:[MARGIN,MARGIN],15:[MARGIN,BOARD_SIZE-MARGIN]};
+  const a=pts[cornerFrom], b=pts[cornerTo];
+  return [a[0]+(b[0]-a[0])*i/5, a[1]+(b[1]-a[1])*i/5];
+}
+const NODE_POS={};
+[[0,5],[5,10],[10,15],[15,0]].forEach(([from,to])=>{
+  for(let i=0;i<5;i++){
+    const idx=(from+i)%20;
+    NODE_POS[idx]=edgePos(from,to,i);
+  }
+});
+const CENTER=[BOARD_SIZE/2,BOARD_SIZE/2];
+NODE_POS['m1']=[NODE_POS[5][0]+(CENTER[0]-NODE_POS[5][0])*0.4, NODE_POS[5][1]+(CENTER[1]-NODE_POS[5][1])*0.4];
+NODE_POS['m3']=[NODE_POS[10][0]+(CENTER[0]-NODE_POS[10][0])*0.4, NODE_POS[10][1]+(CENTER[1]-NODE_POS[10][1])*0.4];
+NODE_POS['m2']=[NODE_POS[15][0]+(CENTER[0]-NODE_POS[15][0])*0.4, NODE_POS[15][1]+(CENTER[1]-NODE_POS[15][1])*0.4];
+NODE_POS['m4']=[NODE_POS[0][0]+(CENTER[0]-NODE_POS[0][0])*0.4, NODE_POS[0][1]+(CENTER[1]-NODE_POS[0][1])*0.4];
+NODE_POS['center']=CENTER;
+
+// 다음 칸(들) - 갈림길에서는 배열에 2개 이상
+function nextOptions(node){
+  if(node==='START') return [0];
+  if(node===0) return []; // 도착(더 이상 진행 없음 - 별도 처리)
+  if(node===5) return [6,'m1'];
+  if(node===10) return [11,'m3'];
+  if(node==='m1') return ['center'];
+  if(node==='m3') return ['center'];
+  if(node==='center') return ['m2','m4'];
+  if(node==='m2') return [15];
+  if(node==='m4') return [0];
+  if(node===19) return [0];
+  if(typeof node==='number') return [node+1];
+  return [];
+}
+const CORNER_NODES=[0,5,10,15,'center'];
+function isBranchNode(node){ return nextOptions(node).length>1; }
+
+// ================= 방/유저 상태 =================
+let room=null, mySeat=-1, pollTimer=null, lastHeartbeatAt=0, lastPresenceAt=0;
+let customizationCache={}; // user_id -> {pieceColor, yutSkin}
+async function loadCustomizationCache(){
+  const players=room.players||[];
+  const realUserIds=players.filter(p=>!p.isCom).map(p=>p.user_id);
+  if(!realUserIds.length) return;
+  try{
+    const orFilter=realUserIds.map(id=>`user_id.eq.${id}`).join(',');
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_customization?or=(${orFilter})&select=*`,{headers:headers()});
+    const data=await r.json();
+    data.forEach(row=>{ customizationCache[row.user_id]={pieceColor:row.piece_color,yutSkin:row.yut_skin}; });
+  }catch(e){}
+}
+let channel=null, channelReady=false;
+function safeSend(payload){
+  if(!channelReady||!channel) return;
+  try{ const res=channel.send(payload); if(res&&res.catch) res.catch(()=>{}); }catch(e){}
+}
+function isVsCom(){ return !!(room&&((room.players||[]).some(p=>p.isCom)||room.vs_com)); }
+
+async function ensurePoints(){
+  if(!currentUser) return null;
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_points?user_id=eq.${currentUser.id}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(!data.length){
+    const created={user_id:currentUser.id,username:currentUser.username,points:STARTING_POINTS};
+    await fetch(`${SUPABASE_URL}/rest/v1/yutnori_points`,{method:'POST',headers:jheaders(),body:JSON.stringify(created)});
+    return created;
+  }
+  return data[0];
+}
+
+async function fetchRoom(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+    const data=await r.json();
+    if(!data.length){ document.getElementById('mainArea').innerHTML='<div class="center-msg">방을 찾을 수 없어요.</div>'; clearInterval(pollTimer); return; }
+    room=data[0];
+    const players=room.players||[];
+    mySeat=currentUser?players.findIndex(p=>String(p.user_id)===String(currentUser.id)):-1;
+    const missingCache=players.some(p=>!p.isCom&&!customizationCache[p.user_id]);
+    if(missingCache) loadCustomizationCache();
+    if(!throwActive) render();
+    const now=Date.now();
+    if(mySeat>=0&&now-lastHeartbeatAt>20000){
+      lastHeartbeatAt=now;
+      fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({last_active_at:new Date().toISOString()})}).catch(()=>{});
+    }
+    if(mySeat>=0&&now-lastPresenceAt>5000){
+      lastPresenceAt=now;
+      const np=players.map((p,i)=>i===mySeat?{...p,lastSeenAt:now}:p);
+      fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({players:np})}).catch(()=>{});
+    }
+    if(room.status==='waiting'){ maybeStartGame(); }
+    if(isVsCom()) maybeRunComTurn();
+  }catch(e){}
+}
+
+async function patchRoom(patch){
+  let attempts=0;
+  while(attempts<6){
+    attempts++;
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}&move_count=eq.${room.move_count}`,{
+      method:'PATCH',headers:{...jheaders(),'Prefer':'return=representation'},
+      body:JSON.stringify({...patch,move_count:room.move_count+1})
+    });
+    const data=await res.json();
+    if(data&&data.length){ room=data[0]; return true; }
+    await fetchRoom();
+  }
+  return false;
+}
+
+function render(){
+  const area=document.getElementById('mainArea');
+  document.getElementById('roomTitle').textContent='🪵 '+esc(room.host_username)+'님의 방';
+  if(room.status==='waiting'){
+    renderLobby(area);
+  } else if(room.status==='playing'){
+    const st=room.state;
+    if(st.stage==='result'){ renderResult(area,st); }
+    else { renderGame(area,st); }
+  }
+}
+
+function renderLobby(area){
+  const players=room.players||[];
+  const isIn=mySeat>=0;
+  const myReady=isIn&&players[mySeat].ready;
+  let html='<div class="lobby-wrap">';
+  html+='<div style="text-align:center;font-size:40px;margin-bottom:6px;">🪵</div>';
+  html+=`<div style="text-align:center;color:#bcd8bc;font-size:12px;margin-bottom:14px;">윷놀이 · ${room.max_players}인 · ${room.upgi_allowed?'업기 허용':'업기 없음'}</div>`;
+  players.forEach((p,i)=>{
+    html+=`<div class="player-row"><span class="player-name"><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${SEAT_COLORS[i]};margin-right:6px;"></span>${esc(p.username)}${currentUser&&String(p.user_id)===String(currentUser.id)?' (나)':''}</span><span class="ready-chip ${p.ready?'on':''}">${p.ready?'준비완료':'대기중'}</span></div>`;
+  });
+  for(let i=players.length;i<room.max_players;i++){
+    html+='<div class="player-row" style="opacity:0.4;"><span class="player-name">— 빈 자리 —</span></div>';
+  }
+  if(isIn){
+    html+=`<div class="big-btn" id="readyBtn" style="background:${myReady?'#555':'#a9531c'};color:#fff;">${myReady?'준비 취소':'준비완료'}</div>`;
+    html+=`<div class="big-btn" id="customizeBtn" style="background:rgba(255,255,255,0.12);color:#fff;">🎨 내 말/윷 커스터마이징</div>`;
+  }
+  html+='</div>';
+  area.innerHTML=html;
+  if(isIn){
+    document.getElementById('readyBtn').addEventListener('click',async()=>{
+      const np=players.map((p,i)=>i===mySeat?{...p,ready:!p.ready}:p);
+      await patchRoom({players:np});
+    });
+    document.getElementById('customizeBtn').addEventListener('click',openCustomizeModal);
+  }
+}
+
+// ================= 게임 시작 / 말 초기화 =================
+let startTriggeredKey=null;
+async function maybeStartGame(){
+  const isHost=currentUser&&String(room.host_user_id)===String(currentUser.id);
+  if(!isHost) return;
+  const players=room.players||[];
+  if(players.length<room.max_players||!players.every(p=>p.ready)) return;
+  const key=room.id+':'+room.move_count;
+  if(startTriggeredKey===key) return;
+  startTriggeredKey=key;
+  const pieces=[];
+  let pid=0;
+  players.forEach((p,seat)=>{
+    for(let i=0;i<(room.piece_count||4);i++) pieces.push({id:pid++, seat, pos:null, finished:false});
+  });
+  const now=Date.now();
+  const freshPlayers=players.map(p=>({...p,lastSeenAt:now}));
+  await patchRoom({
+    status:'playing', players:freshPlayers,
+    state:{
+      stage:'playing', turn:Math.floor(Math.random()*players.length),
+      pieces, pendingThrows:[], bonusOwed:false,
+      lastThrowLabel:null, winner:null, postHandAt:null, turnStartedAt:now
+    }
+  });
+}
+
+// ================= 이동 경로 계산 =================
+function resolveStep(cur){
+  if(cur===null) return [1];
+  if(cur===0) return [];
+  return nextOptions(cur);
+}
+async function movePieceSteps(startPos,steps,askChoice){
+  let cur=startPos;
+  for(let s=0;s<steps;s++){
+    const opts=resolveStep(cur);
+    if(opts.length===0) break; // 이미 도착지점 - 남은 걸음 버림
+    if(opts.length===1){ cur=opts[0]; }
+    else { cur=await askChoice(cur,opts); }
+  }
+  return cur;
+}
+function piecesAt(state,seat,pos){
+  return state.pieces.filter(p=>p.seat===seat&&p.pos===pos&&!p.finished);
+}
+async function applyMoveToState(state,seat,pieceRef,steps,askChoice){
+  let startPos, groupIds;
+  if(pieceRef==='NEW'){
+    const np=state.pieces.find(p=>p.seat===seat&&p.pos===null&&!p.finished);
+    if(!np) return {didCapture:false,ok:false};
+    startPos=null; groupIds=[np.id];
+  } else {
+    const piece=state.pieces.find(p=>p.id===pieceRef);
+    if(!piece) return {didCapture:false,ok:false};
+    startPos=piece.pos;
+    groupIds=piecesAt(state,seat,startPos).map(p=>p.id);
+  }
+  const finalPos=await movePieceSteps(startPos,steps,askChoice);
+  let didCapture=false;
+  if(finalPos===0){
+    state.pieces.forEach(p=>{ if(groupIds.includes(p.id)){ p.finished=true; p.pos=null; } });
+  } else {
+    const captured=state.pieces.filter(p=>p.seat!==seat&&p.pos===finalPos&&!p.finished);
+    if(captured.length){
+      state.pieces.forEach(p=>{ if(captured.some(c=>c.id===p.id)) p.pos=null; });
+      didCapture=true;
+    }
+    state.pieces.forEach(p=>{ if(groupIds.includes(p.id)) p.pos=finalPos; });
+  }
+  return {didCapture,ok:true};
+}
+function allFinished(state,seat){
+  return state.pieces.filter(p=>p.seat===seat).every(p=>p.finished);
+}
+
+// ================= 게임 화면 (2D 말판) =================
+let boardCanvasReady=false;
+let throwActive=false; // 던지기 팝업이 떠있는 동안 폴링 렌더 중단
+let myTurnBusy=false; // 내 턴 진행 로직이 돌고 있는 동안(중복 클릭 방지)
+
+function renderGame(area,st){
+  if(!document.getElementById('boardCanvas')){
+    area.innerHTML=`
+      <div id="playersStrip"></div>
+      <div id="boardWrap"><canvas id="boardCanvas" width="380" height="380"></canvas></div>
+      <div id="bottomBar"></div>
+      <div class="throw-fab" id="throwFab">🎲 윷 던지기</div>
+      <div id="throwOverlay"><div id="throwMount"><div id="throwResultLabel"></div></div><div id="throwBottomBar"></div></div>
+    `;
+    boardCanvasReady=false;
+    document.getElementById('leaveBtn').style.display='';
+  }
+  renderPlayersStrip(st);
+  renderBoard(st);
+  const players=room.players||[];
+  const myTurn=st.turn===mySeat;
+  const curName=(players[st.turn]||{}).username||'';
+  const fab=document.getElementById('throwFab');
+  const canThrow = myTurn && st.pendingThrows.length===0 && !myTurnBusy;
+  fab.classList.toggle('disabled',!canThrow);
+  fab.textContent = myTurn ? (st.pendingThrows.length>0?'말을 골라주세요':'🎲 윷 던지기') : `${esc(curName)}님 차례`;
+  fab.onclick = canThrow ? doThrowFlow : null;
+  document.getElementById('bottomBar').innerHTML =
+    `<div style="color:#cfe9d8;font-size:12px;">${st.lastThrowLabel?('마지막 결과: '+esc(st.lastThrowLabel)):'윷을 던져서 말을 이동시켜요'}</div>`+
+    '<div class="surrender-btn" id="surrenderBtn">🏳️ 기권하기</div>';
+  const sb=document.getElementById('surrenderBtn');
+  if(sb) sb.addEventListener('click',surrender);
+  startTurnTicker();
+
+  // 내 턴이고, 이미 적용 안 한 pendingThrows가 있으면 말 선택 흐름 진행
+  if(myTurn&&st.pendingThrows.length>0&&!myTurnBusy){
+    myTurnBusy=true;
+    runPieceChoiceFlow().finally(()=>{ myTurnBusy=false; });
+  }
+}
+
+function renderPlayersStrip(st){
+  const strip=document.getElementById('playersStrip');
+  const players=room.players||[];
+  strip.innerHTML=players.map((p,i)=>{
+    const isTurn=st.turn===i;
+    const finishedCnt=st.pieces.filter(pc=>pc.seat===i&&pc.finished).length;
+    return `<div class="p-chip ${isTurn?'turn':''}"><span class="p-dot" style="background:${SEAT_COLORS[i]};"></span><span class="p-name">${esc(p.username)} (${finishedCnt}/${room.piece_count||4})</span>${isTurn?'<span class="p-timer" id="turnTimerLbl">25</span>':''}</div>`;
+  }).join('');
+}
+
+function nodeScreenPos(pos){
+  if(pos===null) return null;
+  return NODE_POS[pos];
+}
+function renderBoard(st){
+  const canvas=document.getElementById('boardCanvas');
+  if(!canvas) return;
+  const dpr=window.devicePixelRatio||1;
+  const cssSize=Math.min(document.getElementById('boardWrap').clientWidth,document.getElementById('boardWrap').clientHeight,420);
+  if(canvas.style.width!==cssSize+'px'){
+    canvas.style.width=cssSize+'px'; canvas.style.height=cssSize+'px';
+    canvas.width=Math.round(BOARD_SIZE*dpr); canvas.height=Math.round(BOARD_SIZE*dpr);
+  }
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,BOARD_SIZE,BOARD_SIZE);
+  // 배경
+  ctx.fillStyle='#e9d3a3'; ctx.fillRect(0,0,BOARD_SIZE,BOARD_SIZE);
+  // 바깥 테두리 선
+  ctx.strokeStyle='#6b4a26'; ctx.lineWidth=3;
+  ctx.strokeRect(MARGIN,MARGIN,BOARD_SIZE-MARGIN*2,BOARD_SIZE-MARGIN*2);
+  // 대각선(지름길)
+  ctx.strokeStyle='rgba(107,74,38,0.55)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(...NODE_POS[5]); ctx.lineTo(...NODE_POS['center']); ctx.lineTo(...NODE_POS[15]); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(...NODE_POS[10]); ctx.lineTo(...NODE_POS['center']); ctx.lineTo(...NODE_POS[0]); ctx.stroke();
+  // 칸(노드) 그리기
+  const allNodeKeys=[...Array(20).keys(),'m1','m2','m3','m4','center'];
+  allNodeKeys.forEach(k=>{
+    const p=NODE_POS[k];
+    const isCorner=CORNER_NODES.includes(k);
+    ctx.beginPath(); ctx.arc(p[0],p[1],isCorner?12:7,0,Math.PI*2);
+    ctx.fillStyle=isCorner?'#fff3d8':'#fffaf0';
+    ctx.fill();
+    ctx.strokeStyle='#6b4a26'; ctx.lineWidth=1.5; ctx.stroke();
+    if(k===0){ ctx.fillStyle='#a9531c'; ctx.font='bold 8px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('시작/도착',p[0],p[1]-18); }
+  });
+  // 말 그리기 (같은 칸에 여러개면 살짝 부채꼴로 펼쳐서)
+  const grouped={};
+  st.pieces.forEach(pc=>{
+    if(pc.finished||pc.pos===null) return;
+    const key=pc.seat+':'+pc.pos;
+    if(!grouped[key]) grouped[key]=[];
+    grouped[key].push(pc);
+  });
+  Object.entries(grouped).forEach(([key,list])=>{
+    const seat=list[0].seat, pos=list[0].pos;
+    const p=NODE_POS[pos];
+    const color=SEAT_COLORS[seat]||'#888';
+    const r=9;
+    ctx.beginPath(); ctx.arc(p[0]-6,p[1]-6,r,0,Math.PI*2);
+    ctx.fillStyle=getPieceSkinColor(seat)||color; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(list.length),p[0]-6,p[1]-6+1);
+  });
+}
+function getPieceSkinColor(seat){
+  const players=room.players||[];
+  const p=players[seat];
+  if(!p) return null;
+  const cached=customizationCache[p.user_id];
+  return cached&&cached.pieceColor;
+}
+
+// ================= 턴 진행 흐름 (던지기 -> 말 선택 -> 갈림길 선택 -> 반영) =================
+async function doThrowFlow(){
+  if(myTurnBusy) return;
+  myTurnBusy=true;
+  try{
+    const result=await openThrowOverlay(); // {value, label, valid}
+    const st=room.state;
+    let newState={...st, pieces:st.pieces.map(p=>({...p})), pendingThrows:[...st.pendingThrows]};
+    if(!result.valid){
+      newState.lastThrowLabel='낙 (무효)';
+      newState.pendingThrows=[];
+      newState.turn=nextSeatWithPieces(newState,st.turn);
+      newState.turnStartedAt=Date.now();
+      await patchRoom({state:newState});
+      return;
+    }
+    newState.lastThrowLabel=result.label;
+    newState.pendingThrows.push(result.value);
+    if(result.value===4||result.value===5){
+      newState.turnStartedAt=Date.now();
+      await patchRoom({state:newState});
+      myTurnBusy=false;
+      await doThrowFlow(); // 윷/모는 한번 더 던짐
+      return;
+    }
+    newState.turnStartedAt=Date.now();
+    await patchRoom({state:newState});
+  } finally { myTurnBusy=false; }
+}
+
+function nextSeatWithPieces(state,fromSeat){
+  const n=(room.players||[]).length;
+  let s=fromSeat;
+  for(let i=0;i<n;i++){
+    s=(s+1)%n;
+    if(!allFinished(state,s)) return s;
+  }
+  return (fromSeat+1)%n;
+}
+
+// 내 턴에 pendingThrows가 남아있으면, 말 하나 골라서 적용 -> 갈림길 있으면 선택 -> 반영, 다 소진되면 턴 넘김
+async function runPieceChoiceFlow(){
+  while(true){
+    await fetchRoomFresh();
+    const st=room.state;
+    if(!st||st.turn!==mySeat||st.pendingThrows.length===0) return;
+    const value=st.pendingThrows[0];
+    const pieceRef=await promptPieceChoice(st,mySeat,value);
+    if(pieceRef===null) return; // 선택 취소(있을 수 없지만 방어)
+    let newState={...st, pieces:st.pieces.map(p=>({...p})), pendingThrows:st.pendingThrows.slice(1)};
+    const {didCapture}=await applyMoveToState(newState,mySeat,pieceRef,value,(node,opts)=>promptBranchChoice(node,opts));
+    if(didCapture) newState.pendingThrows.push('BONUS');
+    // BONUS 마커는 실제 숫자가 아니라 "한번 더 던지기"가 필요하다는 표시
+    if(newState.pendingThrows.length&&newState.pendingThrows[0]==='BONUS'){
+      newState.pendingThrows.shift();
+      newState.lastThrowLabel=(newState.lastThrowLabel||'')+' · 잡기 성공! 한번더';
+      await patchRoom({state:newState});
+      await doThrowFlow();
+      continue;
+    }
+    if(allFinished(newState,mySeat)){
+      newState.stage='result'; newState.winner=mySeat; newState.postHandAt=Date.now();
+      await patchRoom({state:newState});
+      await settleMatch(mySeat);
+      return;
+    }
+    if(newState.pendingThrows.length===0){
+      newState.turn=nextSeatWithPieces(newState,mySeat);
+      newState.turnStartedAt=Date.now();
+    }
+    await patchRoom({state:newState});
+  }
+}
+async function fetchRoomFresh(){
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}&select=*`,{headers:headers()});
+  const data=await r.json();
+  if(data.length) room=data[0];
+}
+
+// ================= 말/갈림길 선택 UI (사람) =================
+function promptPieceChoice(st,seat,value){
+  return new Promise(resolve=>{
+    const mine=st.pieces.filter(p=>p.seat===seat&&!p.finished);
+    const onBoardGroups={};
+    mine.forEach(p=>{ if(p.pos!==null){ const k=p.pos; (onBoardGroups[k]=onBoardGroups[k]||[]).push(p); } });
+    const offBoardExists=mine.some(p=>p.pos===null);
+    const overlay=document.getElementById('choiceOverlay');
+    const box=document.getElementById('choiceBox');
+    let html=`<div style="font-weight:800;font-size:15px;margin-bottom:4px;">이번 결과: ${valueLabel(value)}</div><div style="font-size:12px;color:#888;margin-bottom:10px;">어떤 말을 움직일까요?</div>`;
+    if(offBoardExists) html+=`<div class="choice-btn" data-ref="NEW">🆕 새 말 출발시키기</div>`;
+    Object.entries(onBoardGroups).forEach(([pos,group])=>{
+      html+=`<div class="choice-btn" data-ref="${group[0].id}">📍 ${posLabel(pos)}의 말 ${group.length>1?'('+group.length+'개 업힘)':''} 움직이기</div>`;
+    });
+    box.innerHTML=html;
+    overlay.classList.add('show');
+    box.querySelectorAll('.choice-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        overlay.classList.remove('show');
+        const ref=btn.dataset.ref;
+        resolve(ref==='NEW'?'NEW':parseInt(ref));
+      });
+    });
+  });
+}
+function promptBranchChoice(node,options){
+  return new Promise(resolve=>{
+    const overlay=document.getElementById('choiceOverlay');
+    const box=document.getElementById('choiceBox');
+    box.innerHTML=`<div style="font-weight:800;font-size:15px;margin-bottom:10px;">갈림길이에요! 어디로 갈까요?</div>`+
+      options.map(o=>`<div class="choice-btn" data-o="${o}">${branchLabel(o)}</div>`).join('');
+    overlay.classList.add('show');
+    box.querySelectorAll('.choice-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        overlay.classList.remove('show');
+        const raw=btn.dataset.o;
+        resolve(isNaN(raw)?raw:parseInt(raw));
+      });
+    });
+  });
+}
+function valueLabel(v){ return {1:'도(1칸)',2:'개(2칸)',3:'걸(3칸)',4:'윷(4칸)',5:'모(5칸)',[-1]:'빽도(1칸 뒤로)'}[v]||v; }
+function posLabel(pos){
+  if(pos==='center') return '중앙';
+  if(pos==='m1'||pos==='m2'||pos==='m3'||pos==='m4') return '지름길';
+  return pos+'번';
+}
+function branchLabel(o){
+  if(o==='m1') return '↘ 지름길로 (중앙 방향)';
+  if(o==='m3') return '↙ 지름길로 (중앙 방향)';
+  if(o==='m2') return '15번 모서리 방향으로';
+  if(o==='m4') return '🏁 바로 도착점(집)으로!';
+  return o+'번 칸으로 (바깥길 계속)';
+}
+
+// ================= 3D 윷 던지기 =================
+const STICK_LEN=0.19, STICK_W=0.034, STICK_H=0.02;
+const THROW_MAX_SPEED=6.5;
+let tScene,tCamera,tRenderer,tWorld,stickBodies=[],stickMeshes=[],throwReady=false;
+let pendingPower=0, powerOscRunning=false, powerOscRaf=null, powerOscStart=0;
+
+function setupThrowThree(mount,skinOverride){
+  tScene=new THREE.Scene();
+  tScene.background=new THREE.Color(0x11190f);
+  tCamera=new THREE.PerspectiveCamera(55,1,0.05,10);
+  tCamera.position.set(0,2.0,1.7);
+  tCamera.lookAt(0,0,0);
+  tRenderer=new THREE.WebGLRenderer({antialias:true});
+  tRenderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  mount.appendChild(tRenderer.domElement);
+  const amb=new THREE.AmbientLight(0xaebcdd,1.1); tScene.add(amb);
+  const spot=new THREE.SpotLight(0xfff6e0,1.6,8,Math.PI/4,0.5); spot.position.set(0,2.2,0.6); tScene.add(spot);
+  const floorGeo=new THREE.CircleGeometry(0.85,32);
+  const floorMat=new THREE.MeshStandardMaterial({color:0xd8c39a,roughness:0.6});
+  const floor=new THREE.Mesh(floorGeo,floorMat); floor.rotation.x=-Math.PI/2; tScene.add(floor);
+  const ringGeo=new THREE.RingGeometry(0.73,0.78,32);
+  const ring=new THREE.Mesh(ringGeo,new THREE.MeshBasicMaterial({color:0xa9531c,side:THREE.DoubleSide}));
+  ring.rotation.x=-Math.PI/2; ring.position.y=0.001; tScene.add(ring);
+
+  const skin=skinOverride||getMySkin();
+  const stickGeo=new THREE.BoxGeometry(STICK_LEN,STICK_H,STICK_W);
+  stickMeshes=[]; stickBodies=[];
+  for(let i=0;i<4;i++){
+    const flatMat=new THREE.MeshStandardMaterial({color:skin.flatColor,roughness:0.5});
+    const roundMat=new THREE.MeshStandardMaterial({color:skin.roundColor,roughness:0.7});
+    const sideMat=new THREE.MeshStandardMaterial({color:0xcbb078,roughness:0.7});
+    const mats=[sideMat,sideMat,flatMat,roundMat,sideMat,sideMat]; // +x,-x,+y(flat),-y(round),+z,-z
+    const mesh=new THREE.Mesh(stickGeo,mats);
+    if(i===3){
+      const dot=new THREE.Mesh(new THREE.CircleGeometry(0.012,10),new THREE.MeshBasicMaterial({color:0xe63946}));
+      dot.rotation.x=-Math.PI/2; dot.position.set(0,STICK_H/2+0.001,0);
+      mesh.add(dot);
+    }
+    tScene.add(mesh);
+    stickMeshes.push(mesh);
+  }
+}
+function setupThrowWorld(){
+  tWorld=new CANNON.World({gravity:new CANNON.Vec3(0,-9.82,0)});
+  tWorld.solver.iterations=15;
+  const floorMat=new CANNON.Material('tfloor');
+  const stickMat=new CANNON.Material('tstick');
+  tWorld.addContactMaterial(new CANNON.ContactMaterial(floorMat,stickMat,{friction:0.4,restitution:0.35}));
+  tWorld.addContactMaterial(new CANNON.ContactMaterial(stickMat,stickMat,{friction:0.3,restitution:0.3}));
+  const floorBody=new CANNON.Body({mass:0,material:floorMat});
+  floorBody.addShape(new CANNON.Plane());
+  floorBody.quaternion.setFromEuler(-Math.PI/2,0,0);
+  tWorld.addBody(floorBody);
+  const wallShapeR=new CANNON.Cylinder(0.55,0.55,0.6,24);
+  // 바깥 낙 판정용 벽은 물리 충돌 대신 위치로만 체크(자연스러운 굴러감을 위해 벽 충돌은 약하게)
+  stickBodies=[];
+  for(let i=0;i<4;i++){
+    const b=new CANNON.Body({mass:0.09,material:stickMat,linearDamping:0.25,angularDamping:0.3});
+    b.addShape(new CANNON.Box(new CANNON.Vec3(STICK_LEN/2,STICK_H/2,STICK_W/2)));
+    tWorld.addBody(b);
+    stickBodies.push(b);
+  }
+}
+function resetThrowSticks(){
+  stickBodies.forEach((b,i)=>{
+    const ang=(i/4)*Math.PI*2;
+    b.position.set(Math.cos(ang)*0.06,0.5+i*0.07,Math.sin(ang)*0.06);
+    b.quaternion.setFromEuler(Math.random()*Math.PI,Math.random()*Math.PI,Math.random()*Math.PI);
+    b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0);
+  });
+}
+function syncThrowMeshes(){
+  stickBodies.forEach((b,i)=>{ stickMeshes[i].position.copy(b.position); stickMeshes[i].quaternion.copy(b.quaternion); });
+}
+function getMySkin(){
+  const players=room.players||[];
+  const me=players[mySeat]||{};
+  const cached=customizationCache[me.user_id];
+  return (cached&&cached.yutSkin)||{flatColor:'#3a2c18',roundColor:'#e8d3a0'};
+}
+function getSpectatorSkin(seat){
+  const players=room.players||[];
+  const p=players[seat]||{};
+  const cached=customizationCache[p.user_id];
+  return (cached&&cached.yutSkin)||{flatColor:'#3a2c18',roundColor:'#e8d3a0'};
+}
+
+function openThrowOverlay(){
+  return new Promise(resolve=>{
+    throwActive=true;
+    const overlay=document.getElementById('throwOverlay');
+    overlay.classList.add('show');
+    const mount=document.getElementById('throwMount');
+    mount.innerHTML='<div id="throwResultLabel"></div><div id="tPowerBarWrap"><div id="tPowerBarFill"></div><div id="tPowerBarLabel">0%</div></div>';
+    document.getElementById('throwBottomBar').innerHTML=`<div style="color:#cfe9d8;font-size:12px;">화면을 꾹 눌렀다가, 원하는 세기에서 손을 떼면 던져져요</div>`;
+
+    setupThrowThree(mount);
+    setupThrowWorld();
+    resetThrowSticks();
+    resizeThrowThree(mount);
+    syncThrowMeshes();
+    tRenderer.render(tScene,tCamera);
+    throwReady=true;
+
+    let fired=false;
+    const onDown=(e)=>{
+      if(fired) return;
+      e.preventDefault();
+      startPowerOscillation();
+    };
+    const onUp=(e)=>{
+      if(fired||!powerOscRunning) return;
+      fired=true;
+      const power=pendingPower;
+      stopPowerOscillation();
+      mount.removeEventListener('pointerdown',onDown);
+      mount.removeEventListener('pointerup',onUp);
+      mount.removeEventListener('pointercancel',onUp);
+      runThrowSimulation(power,resolve,overlay);
+    };
+    mount.addEventListener('pointerdown',onDown);
+    mount.addEventListener('pointerup',onUp);
+    mount.addEventListener('pointercancel',onUp);
+    window.addEventListener('resize',()=>resizeThrowThree(mount));
+  });
+}
+function resizeThrowThree(mount){
+  if(!tRenderer) return;
+  const w=mount.clientWidth,h=mount.clientHeight;
+  if(w<10||h<10) return;
+  tRenderer.setSize(w,h);
+  tCamera.aspect=w/h; tCamera.updateProjectionMatrix();
+}
+function startPowerOscillation(){
+  if(powerOscRunning) return;
+  powerOscRunning=true; powerOscStart=performance.now();
+  function loop(ts){
+    if(!powerOscRunning) return;
+    const t=(ts-powerOscStart)/1000, cycle=1.0;
+    const phase=(t%cycle)/cycle;
+    pendingPower=phase<0.5?phase*2:(1-phase)*2;
+    drawTPowerSlider();
+    powerOscRaf=requestAnimationFrame(loop);
+  }
+  powerOscRaf=requestAnimationFrame(loop);
+}
+function stopPowerOscillation(){
+  powerOscRunning=false;
+  if(powerOscRaf){ cancelAnimationFrame(powerOscRaf); powerOscRaf=null; }
+}
+function drawTPowerSlider(){
+  const fill=document.getElementById('tPowerBarFill');
+  const label=document.getElementById('tPowerBarLabel');
+  if(!fill||!label) return;
+  fill.style.width=(pendingPower*100)+'%';
+  label.textContent=Math.round(pendingPower*100)+'%';
+}
+
+let throwSimStep=0, lastThrowBroadcastAt=0;
+function isFlatUp(body){
+  const up=new CANNON.Vec3(0,1,0);
+  const worldUp=body.quaternion.vmult(up);
+  return worldUp.y>0.3; // 두꺼운 면(Y축)이 위를 향하면 '평평한(마크된) 면'이 위
+}
+function runThrowSimulation(power,resolve,overlay){
+  // 윷가락 4개를 제자리에서 위로 띄워서 구르게 함 (파워는 주로 높이/회전에 영향, 멀리 날아가지 않도록)
+  stickBodies.forEach((b,i)=>{
+    const spread=(i-1.5)*0.1;
+    b.velocity.set(spread+(Math.random()-0.5)*0.22, 1.5+power*2.0, (Math.random()-0.5)*0.22);
+    b.angularVelocity.set((Math.random()-0.5)*(14+power*8),(Math.random()-0.5)*(14+power*8),(Math.random()-0.5)*(14+power*8));
+  });
+  safeSend({type:'broadcast',event:'yutThrowStart',payload:{seat:mySeat,skin:getMySkin()}});
+  throwSimStep=0;
+  function frame(){
+    tWorld.step(1/60);
+    syncThrowMeshes();
+    tRenderer.render(tScene,tCamera);
+    throwSimStep++;
+    const now=Date.now();
+    if(now-lastThrowBroadcastAt>90){
+      lastThrowBroadcastAt=now;
+      safeSend({type:'broadcast',event:'yutThrowFrame',payload:{
+        sticks:stickBodies.map(b=>[b.position.x,b.position.y,b.position.z,b.quaternion.x,b.quaternion.y,b.quaternion.z,b.quaternion.w])
+      }});
+    }
+    const settled=stickBodies.every(b=>b.velocity.length()<0.12&&b.angularVelocity.length()<0.12);
+    if((settled&&throwSimStep>25)||throwSimStep>360){
+      const result=computeThrowResult();
+      document.getElementById('throwResultLabel').textContent=result.label;
+      safeSend({type:'broadcast',event:'yutThrowEnd',payload:{seat:mySeat,label:result.label}});
+      setTimeout(()=>{
+        overlay.classList.remove('show');
+        throwActive=false;
+        resolve(result);
+      },900);
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+function computeThrowResult(){
+  const OUT_R=0.75;
+  const outOfBounds=stickBodies.some(b=>Math.hypot(b.position.x,b.position.z)>OUT_R+0.08);
+  if(outOfBounds) return {valid:false,label:'낙!'};
+  const flatFlags=stickBodies.map(isFlatUp);
+  const flatCount=flatFlags.filter(Boolean).length;
+  if(flatCount===4) return {valid:true,value:4,label:'윷! (4칸, 한번더)'};
+  if(flatCount===0) return {valid:true,value:5,label:'모! (5칸, 한번더)'};
+  if(flatCount===1){
+    if(flatFlags[3]) return {valid:true,value:-1,label:'빽도! (1칸 뒤로)'};
+    return {valid:true,value:1,label:'도 (1칸)'};
+  }
+  if(flatCount===2) return {valid:true,value:2,label:'개 (2칸)'};
+  return {valid:true,value:3,label:'걸 (3칸)'};
+}
+
+// ================= 실시간 채널 (남이 던질 때 구경) =================
+let spectatingThrow=false;
+async function joinChannel(){
+  channel=sb.channel('yutnori-room-'+roomId, { config:{ broadcast:{ self:false } } });
+  channel.on('broadcast', {event:'yutThrowStart'}, ({payload})=>{
+    if(payload.seat===mySeat) return;
+    spectatingThrow=true;
+    throwActive=true;
+    const overlay=document.getElementById('throwOverlay');
+    if(!overlay) return;
+    overlay.classList.add('show');
+    const mount=document.getElementById('throwMount');
+    mount.innerHTML='<div id="throwResultLabel"></div>';
+    document.getElementById('throwBottomBar').innerHTML=`<div style="color:#cfe9d8;font-size:12px;">상대가 윷을 던지고 있어요...</div>`;
+    window.__specSkin=payload.skin;
+    setupThrowThree(mount,payload.skin);
+    setupThrowWorld();
+    resizeThrowThree(mount);
+    tRenderer.render(tScene,tCamera);
+  });
+  channel.on('broadcast', {event:'yutThrowFrame'}, ({payload})=>{
+    if(!spectatingThrow||!throwReady) return;
+    payload.sticks.forEach((s,i)=>{
+      if(!stickBodies[i]) return;
+      stickBodies[i].position.set(s[0],s[1],s[2]);
+      stickBodies[i].quaternion.set(s[3],s[4],s[5],s[6]);
+    });
+    syncThrowMeshes();
+    tRenderer.render(tScene,tCamera);
+  });
+  channel.on('broadcast', {event:'yutThrowEnd'}, ({payload})=>{
+    if(payload.seat===mySeat) return;
+    const lbl=document.getElementById('throwResultLabel');
+    if(lbl) lbl.textContent=payload.label;
+    setTimeout(()=>{
+      const overlay=document.getElementById('throwOverlay');
+      if(overlay) overlay.classList.remove('show');
+      throwActive=false; spectatingThrow=false;
+    },900);
+  });
+  await new Promise(resolve=>{
+    channel.subscribe(status=>{ if(status==='SUBSCRIBED'){ channelReady=true; resolve(); } });
+  });
+}
+
+// ================= 컴퓨터(COM) 봇 =================
+let comThinking=false;
+function comAskPieceChoice(state,seat,value){
+  const mine=state.pieces.filter(p=>p.seat===seat&&!p.finished);
+  const groups={};
+  mine.forEach(p=>{ if(p.pos!==null){ const k=p.pos; (groups[k]=groups[k]||[]).push(p); } });
+  const offBoard=mine.filter(p=>p.pos===null);
+  // 우선순위: 잡을 수 있으면 잡기 > 도착에 가까운 말 전진 > 새 말 출발
+  let best=null, bestScore=-Infinity;
+  Object.entries(groups).forEach(([pos,group])=>{
+    const finalPos=simulateFinal(pos,value,(node,opts)=>opts[opts.length-1]); // 봇은 항상 마지막 선택지(대체로 지름길/도착)를 우선
+    let score=1;
+    if(finalPos===0) score+=50;
+    const captureBonus=state.pieces.some(p=>p.seat!==seat&&p.pos===finalPos&&!p.finished)?30:0;
+    score+=captureBonus;
+    if(score>bestScore){ bestScore=score; best=group[0].id; }
+  });
+  if(offBoard.length){
+    const finalPos=simulateFinal(null,value,(node,opts)=>opts[opts.length-1]);
+    let score=5;
+    const captureBonus=state.pieces.some(p=>p.seat!==seat&&p.pos===finalPos&&!p.finished)?30:0;
+    score+=captureBonus;
+    if(score>bestScore){ bestScore=score; best='NEW'; }
+  }
+  return best!==null?best:(offBoard.length?'NEW':(mine[0]?mine[0].id:'NEW'));
+}
+function simulateFinal(startPos,steps,choiceFn){
+  let cur=startPos;
+  for(let s=0;s<steps;s++){
+    const opts=resolveStep(cur);
+    if(opts.length===0) break;
+    cur=opts.length===1?opts[0]:choiceFn(cur,opts);
+  }
+  return cur;
+}
+async function maybeRunComTurn(){
+  if(comThinking) return;
+  const st=room.state;
+  if(!st||st.stage!=='playing') return;
+  const players=room.players||[];
+  const comSeat=st.turn;
+  if(!players[comSeat]||!players[comSeat].isCom) return;
+  comThinking=true;
+  try{
+    await new Promise(r=>setTimeout(r,700+Math.random()*500));
+    await fetchRoomFresh();
+    let cur=room.state;
+    if(!cur||cur.turn!==comSeat||cur.stage!=='playing') return;
+    if(cur.pendingThrows.length===0){
+      const value=Math.random()<0.12?4:(Math.random()<0.12?5:1+Math.floor(Math.random()*3));
+      let newState={...cur, pieces:cur.pieces.map(p=>({...p})), pendingThrows:[...cur.pendingThrows,value], lastThrowLabel:valueLabel(value), turnStartedAt:Date.now()};
+      await patchRoom({state:newState});
+      if(value===4||value===5){ comThinking=false; await maybeRunComTurn(); }
+      return;
+    }
+    // pendingThrows 처리
+    const value=cur.pendingThrows[0];
+    let newState={...cur, pieces:cur.pieces.map(p=>({...p})), pendingThrows:cur.pendingThrows.slice(1)};
+    const pieceRef=comAskPieceChoice(newState,comSeat,value);
+    const {didCapture}=await applyMoveToState(newState,comSeat,pieceRef,value,(node,opts)=>opts[opts.length-1]);
+    if(didCapture){
+      const bonusVal=Math.random()<0.12?4:(Math.random()<0.12?5:1+Math.floor(Math.random()*3));
+      newState.pendingThrows.push(bonusVal);
+      newState.lastThrowLabel=(newState.lastThrowLabel||'')+' · 잡기! 한번더('+valueLabel(bonusVal)+')';
+    }
+    if(allFinished(newState,comSeat)){
+      newState.stage='result'; newState.winner=comSeat; newState.postHandAt=Date.now();
+      await patchRoom({state:newState});
+      await settleMatch(comSeat);
+      return;
+    }
+    if(newState.pendingThrows.length===0){
+      newState.turn=nextSeatWithPieces(newState,comSeat);
+      newState.turnStartedAt=Date.now();
+    }
+    await patchRoom({state:newState});
+  } finally { comThinking=false; }
+}
+
+// ================= 턴 타이머 + 자리비움 =================
+let turnTickTimer=null, timeoutTriggeredKey=null;
+function startTurnTicker(){
+  if(turnTickTimer) return;
+  turnTickTimer=setInterval(()=>{
+    if(!room||room.status!=='playing'||!room.state||room.state.stage==='result'||throwActive) return;
+    const st=room.state;
+    const lbl=document.getElementById('turnTimerLbl');
+    const elapsed=(Date.now()-(st.turnStartedAt||Date.now()))/1000;
+    const remain=Math.max(0,Math.ceil(30-elapsed));
+    if(lbl) lbl.textContent=remain;
+    if(isVsCom()) return;
+    if(elapsed>=30){
+      const key=room.id+':'+room.move_count+':timeout';
+      if(timeoutTriggeredKey!==key&&st.turn===mySeat&&!myTurnBusy){
+        timeoutTriggeredKey=key;
+        autoPassTurn();
+      }
+    }
+  },250);
+}
+async function autoPassTurn(){
+  const st=room.state;
+  if(!st) return;
+  const newState={...st, pendingThrows:[], turn:nextSeatWithPieces(st,st.turn), turnStartedAt:Date.now(), lastThrowLabel:'(시간초과로 턴 넘김)'};
+  await patchRoom({state:newState});
+}
+async function surrender(){
+  if(!confirm('정말 기권하시겠어요? 남은 인원들끼리 게임이 계속돼요.')) return;
+  const st=room.state;
+  const remainingSeats=(room.players||[]).map((p,i)=>i).filter(i=>i!==mySeat&&!allFinished(st,i));
+  if(remainingSeats.length<=1){
+    const winner=remainingSeats[0]!==undefined?remainingSeats[0]:mySeat;
+    await patchRoom({state:{...st, stage:'result', winner, postHandAt:Date.now()}});
+    await settleMatch(winner);
+    return;
+  }
+  const newState={...st, pieces:st.pieces.map(p=>p.seat===mySeat?{...p,finished:true,pos:null,surrendered:true}:p)};
+  if(newState.turn===mySeat) newState.turn=nextSeatWithPieces(newState,mySeat);
+  newState.turnStartedAt=Date.now();
+  await patchRoom({state:newState});
+}
+async function settleMatch(winnerSeat){
+  const players=room.players||[];
+  const winP=players[winnerSeat];
+  if(!winP) return;
+  const vsCom=isVsCom();
+  try{
+    for(let i=0;i<players.length;i++){
+      const p=players[i];
+      if(p.isCom) continue;
+      const isWinner=i===winnerSeat;
+      const pts=isWinner?(vsCom?75:300):(vsCom?0:-100);
+      const r=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_points?user_id=eq.${p.user_id}&select=*`,{headers:headers()});
+      const d=(await r.json())[0];
+      if(d){
+        await fetch(`${SUPABASE_URL}/rest/v1/yutnori_points?user_id=eq.${p.user_id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify({
+          points:Math.max(0,(d.points||0)+pts),
+          wins:(d.wins||0)+(isWinner?1:0),
+          losses:(d.losses||0)+(isWinner?0:1)
+        })});
+      }
+    }
+  }catch(e){ console.error('점수 반영 실패:',e); }
+}
+
+function renderResult(area,st){
+  const players=room.players||[];
+  const iWon=st.winner===mySeat;
+  const winP=players[st.winner];
+  area.innerHTML=`
+    <div class="result-wrap">
+      <div style="font-size:44px;margin-bottom:10px;">${iWon?'🏆':'🪵'}</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:6px;">${winP?esc(winP.username):''}님 승리!</div>
+      <div style="font-size:12px;color:#bcd8bc;margin-bottom:20px;">말 4개를 모두 도착시켰어요</div>
+      <div class="big-btn" id="backToLobbyBtn" style="background:#a9531c;color:#fff;">방으로 돌아가기</div>
+    </div>
+  `;
+  document.getElementById('backToLobbyBtn').addEventListener('click',returnToLobby);
+}
+async function returnToLobby(){
+  const players=(room.players||[]).map(p=>({...p,ready:p.isCom?true:false}));
+  startTriggeredKey=null;
+  boardCanvasReady=false;
+  timeoutTriggeredKey=null;
+  comThinking=false;
+  if(turnTickTimer){ clearInterval(turnTickTimer); turnTickTimer=null; }
+  await patchRoom({status:'waiting',players});
+}
+
+// ================= 커스터마이징 (말 색상 / 윷 스킨) - 영구 저장, 어느 방에서나 동일 적용 =================
+const PIECE_COLOR_OPTS=['#e63946','#2f6fed','#2a9d34','#c084fc','#ff9f4a','#4adfd0','#ff6fb5','#1a1a1a'];
+const YUT_SKIN_OPTS=[
+  {name:'전통 원목',flatColor:'#3a2c18',roundColor:'#e8d3a0'},
+  {name:'하양',flatColor:'#222222',roundColor:'#f5f5f5'},
+  {name:'붉은 옻칠',flatColor:'#f5e6c8',roundColor:'#7a1c1c'},
+  {name:'푸른빛',flatColor:'#f5f5f5',roundColor:'#2f4fa8'}
+];
+async function saveMyCustomization(patch){
+  const check=await fetch(`${SUPABASE_URL}/rest/v1/yutnori_customization?user_id=eq.${currentUser.id}&select=user_id`,{headers:headers()});
+  const exists=(await check.json()).length>0;
+  const body={user_id:currentUser.id, username:currentUser.username, ...patch};
+  if(exists){
+    await fetch(`${SUPABASE_URL}/rest/v1/yutnori_customization?user_id=eq.${currentUser.id}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+  } else {
+    await fetch(`${SUPABASE_URL}/rest/v1/yutnori_customization`,{method:'POST',headers:jheaders(),body:JSON.stringify(body)});
+  }
+}
+function openCustomizeModal(){
+  const me=customizationCache[currentUser.id]||{};
+  const overlay=document.getElementById('choiceOverlay');
+  const box=document.getElementById('choiceBox');
+  if(!overlay||!box) return;
+  box.innerHTML=`
+    <div style="font-weight:800;font-size:15px;margin-bottom:10px;">내 말 색상</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px;">
+      ${PIECE_COLOR_OPTS.map(c=>`<div class="pieceColorOpt" data-c="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${me.pieceColor===c?'#a9531c':'transparent'};"></div>`).join('')}
+    </div>
+    <div style="font-weight:800;font-size:15px;margin-bottom:10px;">윷 스킨</div>
+    ${YUT_SKIN_OPTS.map((s,i)=>`<div class="choice-btn yutSkinOpt" data-i="${i}" style="${JSON.stringify(me.yutSkin)===JSON.stringify(s)?'background:#ffe9c4;color:#a9531c;':''}">${s.name}</div>`).join('')}
+    <div class="choice-btn" id="closeCustomizeBtn" style="margin-top:10px;background:#eee;">닫기</div>
+  `;
+  overlay.classList.add('show');
+  box.querySelectorAll('.pieceColorOpt').forEach(el=>{
+    el.addEventListener('click',async()=>{
+      await saveMyCustomization({piece_color:el.dataset.c});
+      customizationCache[currentUser.id]={...customizationCache[currentUser.id],pieceColor:el.dataset.c};
+      openCustomizeModal();
+    });
+  });
+  box.querySelectorAll('.yutSkinOpt').forEach(el=>{
+    el.addEventListener('click',async()=>{
+      const skin=YUT_SKIN_OPTS[parseInt(el.dataset.i)];
+      await saveMyCustomization({yut_skin:skin});
+      customizationCache[currentUser.id]={...customizationCache[currentUser.id],yutSkin:skin};
+      openCustomizeModal();
+    });
+  });
+  document.getElementById('closeCustomizeBtn').addEventListener('click',()=>{ overlay.classList.remove('show'); });
+}
+
+// ================= 나가기 =================
+async function leaveRoom(){
+  try{
+    if(mySeat>=0&&room){
+      if(room.status==='playing'){
+        // 게임중엔 놔두고 나가면 자연스럽게 자리비움 처리(간단화를 위해 별도 강제퇴장 로직은 생략)
+      } else {
+        const np=(room.players||[]).filter((_,i)=>i!==mySeat).map((p,i)=>({...p,seat:i}));
+        if(np.length===0){
+          await fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}`,{method:'DELETE',headers:headers()});
+        } else {
+          const patch={players:np};
+          if(String(room.host_user_id)===String(currentUser.id)){ patch.host_user_id=np[0].user_id; patch.host_username=np[0].username; }
+          await fetch(`${SUPABASE_URL}/rest/v1/yutnori_rooms?id=eq.${roomId}`,{method:'PATCH',headers:jheaders(),body:JSON.stringify(patch)});
+        }
+      }
+    }
+  }catch(e){}
+  location.href='yutnori_rooms.html';
+}
+document.getElementById('leaveBtn').addEventListener('click',leaveRoom);
+
+// ================= 초기화 =================
+async function init(){
+  if(!roomId){ document.getElementById('mainArea').innerHTML='<div class="center-msg">잘못된 접근이에요.</div>'; return; }
+  if(currentUser) await ensurePoints();
+  await fetchRoom();
+  await loadCustomizationCache();
+  await joinChannel();
+  pollTimer=setInterval(fetchRoom,1000);
+}
+init();
+</script>
+</body>
+</html>
