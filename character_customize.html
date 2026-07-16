@@ -61,10 +61,12 @@ async function init(){
     link.addEventListener('click',()=>location.href='character_admin.html');
   }
   content.innerHTML=`
-    <div id="previewWrap"><canvas id="previewCanvas" width="220" height="260"></canvas></div>
+    <div id="previewWrap"><canvas id="previewCanvas" width="220" height="260"></canvas><div id="flipBtn" style="position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,0.4);color:#fff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:10px;cursor:pointer;">↔ 반전</div></div>
     <div class="part-tabs" id="partTabs"></div>
     <div class="item-grid" id="itemGrid"></div>
   `;
+  document.getElementById('previewWrap').style.position='relative';
+  document.getElementById('flipBtn').addEventListener('click',()=>{ myFacing*=-1; });
   await loadAll();
   currentPart=(parts[0]||{}).key||null;
   renderTabs();
@@ -72,7 +74,7 @@ async function init(){
   startPreviewLoop();
 }
 
-let animConfig={states:{}};
+let animConfig={motion:{},expression:{}};
 async function loadAll(){
   const [pr,ir,ur,ar]=await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/character_parts?select=*`,{headers:headers()}),
@@ -85,7 +87,9 @@ async function loadAll(){
   const ud=await ur.json();
   equipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
   const ad=await ar.json();
-  animConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{states:{}};
+  animConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{motion:{},expression:{}};
+  if(!animConfig.motion) animConfig.motion={};
+  if(!animConfig.expression) animConfig.expression={};
 }
 
 let currentPart=null;
@@ -138,8 +142,8 @@ async function equipItem(partKey,itemId){
 }
 
 // ---- 미리보기: 트리를 재귀적으로 따라가며 그리기 (부모 좌표계를 자식이 그대로 물려받아요) ----
-function interpField(partKey,field,frame,fallback){
-  const st=animConfig.states&&animConfig.states.idle;
+// 모션(idle) 트랙과 표정(normal) 트랙을 합쳐서 보여줘요 - 표정 트랙에 값이 있으면 우선, 없으면 모션 트랙
+function interpFieldIn(st,partKey,field,frame,fallback){
   if(!st||!st.keyframes) return fallback;
   const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey][field]!==undefined).sort((a,b)=>a-b);
   if(!kfNums.length) return fallback;
@@ -152,8 +156,11 @@ function interpField(partKey,field,frame,fallback){
   const a=st.keyframes[prev][partKey][field], b=st.keyframes[next][partKey][field];
   return a+(b-a)*t;
 }
-function getItemIdAtFrame(partKey,frame){
-  const st=animConfig.states&&animConfig.states.idle;
+function fieldHasKf(st,partKey,field){
+  if(!st||!st.keyframes) return false;
+  return Object.values(st.keyframes).some(kf=>kf[partKey]&&kf[partKey][field]!==undefined);
+}
+function itemIdIn(st,partKey,frame){
   if(!st||!st.keyframes) return undefined;
   const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].itemId!==undefined).sort((a,b)=>a-b);
   if(!kfNums.length) return undefined;
@@ -162,34 +169,47 @@ function getItemIdAtFrame(partKey,frame){
   if(chosen===null) chosen=kfNums[kfNums.length-1];
   return st.keyframes[chosen][partKey].itemId;
 }
-function previewTransform(key,frame){
+function previewTransform(key,motionFrame,exprFrame){
   const part=partByKey(key);
+  const mSt=animConfig.motion.idle, eSt=animConfig.expression.normal;
+  function pick(field,fallback){
+    if(fieldHasKf(eSt,key,field)) return interpFieldIn(eSt,key,field,exprFrame,fallback);
+    if(fieldHasKf(mSt,key,field)) return interpFieldIn(mSt,key,field,motionFrame,fallback);
+    return fallback;
+  }
   return {
-    dx:interpField(key,'dx',frame,part.default_dx||0),
-    dy:interpField(key,'dy',frame,part.default_dy||0),
-    angle:interpField(key,'angle',frame,part.default_angle||0)
+    dx:pick('dx',part.default_dx||0),
+    dy:pick('dy',part.default_dy||0),
+    angle:pick('angle',part.default_angle||0)
   };
 }
-function previewImageInfo(key,frame){
+function previewImageInfo(key,motionFrame,exprFrame){
   const equippedId=equipped[key];
   if(equippedId){
     const it=itemById(equippedId);
     if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
   }
   // 장착한 스킨이 없으면 기본 캐릭터의 애니메이션(눈깜빡임 등 이미지 전환)을 그대로 보여줘요
-  const frameItemId=getItemIdAtFrame(key,frame);
+  const mSt=animConfig.motion.idle, eSt=animConfig.expression.normal;
+  let frameItemId;
+  if(fieldHasKf(eSt,key,'itemId')) frameItemId=itemIdIn(eSt,key,exprFrame);
+  else if(fieldHasKf(mSt,key,'itemId')) frameItemId=itemIdIn(mSt,key,motionFrame);
   const it=frameItemId?itemById(frameItemId):baseItemFor(key);
   if(!it) return null;
   return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
 }
-function renderNode(ctx,key,frame){
+function renderNode(ctx,key,motionFrame,exprFrame){
   const part=partByKey(key);
   if(!part) return;
-  const t=previewTransform(key,frame);
+  const t=previewTransform(key,motionFrame,exprFrame);
   ctx.save();
   ctx.translate(t.dx,t.dy);
   ctx.rotate((t.angle||0)*Math.PI/180);
-  const info=previewImageInfo(key,frame);
+  const children=childrenOf(key);
+  const backChildren=children.filter(c=>c.layer_mode==='back');
+  const frontChildren=children.filter(c=>c.layer_mode!=='back');
+  backChildren.forEach(child=>renderNode(ctx,child.key,motionFrame,exprFrame));
+  const info=previewImageInfo(key,motionFrame,exprFrame);
   const h=part.display_height||part.default_length||20;
   if(info){
     const img=getImg(info.url);
@@ -198,27 +218,28 @@ function renderNode(ctx,key,frame){
       ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
     }
   }
-  childrenOf(key).forEach(child=>renderNode(ctx,child.key,frame));
+  frontChildren.forEach(child=>renderNode(ctx,child.key,motionFrame,exprFrame));
   ctx.restore();
 }
 
-function drawPreviewRig(ctx,cw,ch,frame){
+let myFacing=1;
+function drawPreviewRig(ctx,cw,ch,motionFrame,exprFrame){
   ctx.clearRect(0,0,cw,ch);
   const groundY=ch-30;
   ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(20,groundY); ctx.lineTo(cw-20,groundY); ctx.stroke();
 
-  const x=cw/2, facing=1;
+  const x=cw/2;
   // 최상위(부모 없는) 부위들을 전부 같은 기준점(대략 골반 높이)에서 시작
   const roots=childrenOf(null);
   const hipY=groundY-60;
 
   ctx.save();
   ctx.translate(x,hipY);
-  ctx.scale(facing,1);
+  ctx.scale(myFacing,1);
   roots.forEach(r=>{
     ctx.save();
-    renderNode(ctx,r.key,frame);
+    renderNode(ctx,r.key,motionFrame,exprFrame);
     ctx.restore();
   });
   ctx.restore();
@@ -229,20 +250,23 @@ function drawPreviewRig(ctx,cw,ch,frame){
     ctx.fillText('여기서 캐릭터가 보여요',cw/2,ch/2+8);
   }
 }
-let previewFrame=0, previewRafId=null, previewLastTime=0;
+let previewMotionFrame=0, previewExprFrame=0, previewRafId=null, previewLastTime=0;
 function startPreviewLoop(){
   const canvas=document.getElementById('previewCanvas');
   if(!canvas) return;
   const ctx=canvas.getContext('2d');
   function loop(ts){
-    const idleState=(animConfig.states&&animConfig.states.idle)||{frameCount:60,loop:true};
+    const motionSt=animConfig.motion.idle||{frameCount:60,loop:true};
+    const exprSt=animConfig.expression.normal||{frameCount:60,loop:true};
     if(!previewLastTime) previewLastTime=ts||0;
     if((ts||0)-previewLastTime>1000/24){
       previewLastTime=ts||0;
-      previewFrame++;
-      if(previewFrame>=idleState.frameCount) previewFrame=idleState.loop?0:idleState.frameCount-1;
+      previewMotionFrame++;
+      if(previewMotionFrame>=motionSt.frameCount) previewMotionFrame=motionSt.loop?0:motionSt.frameCount-1;
+      previewExprFrame++;
+      if(previewExprFrame>=exprSt.frameCount) previewExprFrame=exprSt.loop?0:exprSt.frameCount-1;
     }
-    drawPreviewRig(ctx,canvas.width,canvas.height,previewFrame);
+    drawPreviewRig(ctx,canvas.width,canvas.height,previewMotionFrame,previewExprFrame);
     previewRafId=requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);

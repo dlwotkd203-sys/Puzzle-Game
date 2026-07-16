@@ -448,7 +448,7 @@ function goHome(){renderHome();showScreen('home');}
 const charImgCache={};
 function charGetImg(url){ if(!charImgCache[url]){ const img=new Image(); img.src=url; charImgCache[url]=img; } return charImgCache[url]; }
 let myParts=[], myCharItems=[], myEquipped={};
-let myAnimConfig={states:{}};
+let myAnimConfig={motion:{},expression:{}};
 async function loadMyCharacterPreview(u){
   try{
     const h={'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY};
@@ -463,15 +463,16 @@ async function loadMyCharacterPreview(u){
     const ud=await ur.json();
     myEquipped=(ud&&ud[0]&&ud[0].equipped)?ud[0].equipped:{};
     const ad=await ar.json();
-    myAnimConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{states:{}};
+    myAnimConfig=(ad&&ad[0]&&ad[0].config)?ad[0].config:{motion:{},expression:{}};
+    if(!myAnimConfig.motion) myAnimConfig.motion={};
+    if(!myAnimConfig.expression) myAnimConfig.expression={};
   }catch(e){ myParts=[]; myEquipped={}; myCharItems=[]; }
   startMyCharLoop();
 }
 function myPartByKey(k){ return myParts.find(p=>p.key===k); }
 function myChildrenOf(pk){ return myParts.filter(p=>(p.parent_key||null)===(pk||null)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)); }
 function myBaseItemFor(key){ return myCharItems.find(i=>i.part_key===key&&i.is_base); }
-function myInterpField(partKey,field,frame,fallback){
-  const st=myAnimConfig.states&&myAnimConfig.states.idle;
+function myInterpFieldIn(st,partKey,field,frame,fallback){
   if(!st||!st.keyframes) return fallback;
   const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey][field]!==undefined).sort((a,b)=>a-b);
   if(!kfNums.length) return fallback;
@@ -484,8 +485,11 @@ function myInterpField(partKey,field,frame,fallback){
   const a=st.keyframes[prev][partKey][field], b=st.keyframes[next][partKey][field];
   return a+(b-a)*t;
 }
-function myGetItemIdAtFrame(partKey,frame){
-  const st=myAnimConfig.states&&myAnimConfig.states.idle;
+function myFieldHasKf(st,partKey,field){
+  if(!st||!st.keyframes) return false;
+  return Object.values(st.keyframes).some(kf=>kf[partKey]&&kf[partKey][field]!==undefined);
+}
+function myItemIdIn(st,partKey,frame){
   if(!st||!st.keyframes) return undefined;
   const kfNums=Object.keys(st.keyframes).map(Number).filter(f=>st.keyframes[f][partKey]&&st.keyframes[f][partKey].itemId!==undefined).sort((a,b)=>a-b);
   if(!kfNums.length) return undefined;
@@ -494,33 +498,46 @@ function myGetItemIdAtFrame(partKey,frame){
   if(chosen===null) chosen=kfNums[kfNums.length-1];
   return st.keyframes[chosen][partKey].itemId;
 }
-function myTransform(key,frame){
+function myTransform(key,motionFrame,exprFrame){
   const part=myPartByKey(key);
+  const mSt=myAnimConfig.motion.idle, eSt=myAnimConfig.expression.normal;
+  function pick(field,fallback){
+    if(myFieldHasKf(eSt,key,field)) return myInterpFieldIn(eSt,key,field,exprFrame,fallback);
+    if(myFieldHasKf(mSt,key,field)) return myInterpFieldIn(mSt,key,field,motionFrame,fallback);
+    return fallback;
+  }
   return {
-    dx:myInterpField(key,'dx',frame,part.default_dx||0),
-    dy:myInterpField(key,'dy',frame,part.default_dy||0),
-    angle:myInterpField(key,'angle',frame,part.default_angle||0)
+    dx:pick('dx',part.default_dx||0),
+    dy:pick('dy',part.default_dy||0),
+    angle:pick('angle',part.default_angle||0)
   };
 }
-function myImgInfoFor(key,frame){
+function myImgInfoFor(key,motionFrame,exprFrame){
   const id=myEquipped[key];
   if(id){
     const it=myCharItems.find(i=>i.id===id);
     if(it) return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
   }
-  const frameItemId=myGetItemIdAtFrame(key,frame);
+  const mSt=myAnimConfig.motion.idle, eSt=myAnimConfig.expression.normal;
+  let frameItemId;
+  if(myFieldHasKf(eSt,key,'itemId')) frameItemId=myItemIdIn(eSt,key,exprFrame);
+  else if(myFieldHasKf(mSt,key,'itemId')) frameItemId=myItemIdIn(mSt,key,motionFrame);
   const it=frameItemId?myCharItems.find(i=>i.id===frameItemId):myBaseItemFor(key);
   if(!it) return null;
   return { url:it.url, anchorX:it.anchor_x??0.5, anchorY:it.anchor_y??0.5 };
 }
-function myRenderNode(ctx,key,frame){
+function myRenderNode(ctx,key,motionFrame,exprFrame){
   const part=myPartByKey(key);
   if(!part) return;
-  const t=myTransform(key,frame);
+  const t=myTransform(key,motionFrame,exprFrame);
   ctx.save();
   ctx.translate(t.dx,t.dy);
   ctx.rotate((t.angle||0)*Math.PI/180);
-  const info=myImgInfoFor(key,frame);
+  const children=myChildrenOf(key);
+  const backChildren=children.filter(c=>c.layer_mode==='back');
+  const frontChildren=children.filter(c=>c.layer_mode!=='back');
+  backChildren.forEach(child=>myRenderNode(ctx,child.key,motionFrame,exprFrame));
+  const info=myImgInfoFor(key,motionFrame,exprFrame);
   const h=part.display_height||part.default_length||9;
   if(info){
     const img=charGetImg(info.url);
@@ -529,10 +546,10 @@ function myRenderNode(ctx,key,frame){
       ctx.drawImage(img,-w*info.anchorX,-h*info.anchorY,w,h);
     }
   }
-  myChildrenOf(key).forEach(child=>myRenderNode(ctx,child.key,frame));
+  frontChildren.forEach(child=>myRenderNode(ctx,child.key,motionFrame,exprFrame));
   ctx.restore();
 }
-let myCharFrame=0, myCharRaf=null, myCharLastTime=0;
+let myCharMotionFrame=0, myCharExprFrame=0, myCharRaf=null, myCharLastTime=0;
 function startMyCharLoop(){
   const canvas=document.getElementById('myCharCanvas');
   if(!canvas) return;
@@ -540,18 +557,21 @@ function startMyCharLoop(){
   const ctx=canvas.getContext('2d');
   function loop(ts){
     if(!document.getElementById('myCharCanvas')){ myCharRaf=null; return; }
-    const idleState=(myAnimConfig.states&&myAnimConfig.states.idle)||{frameCount:60,loop:true};
+    const motionSt=myAnimConfig.motion.idle||{frameCount:60,loop:true};
+    const exprSt=myAnimConfig.expression.normal||{frameCount:60,loop:true};
     if(!myCharLastTime) myCharLastTime=ts||0;
     if((ts||0)-myCharLastTime>1000/24){
       myCharLastTime=ts||0;
-      myCharFrame++;
-      if(myCharFrame>=idleState.frameCount) myCharFrame=idleState.loop?0:idleState.frameCount-1;
+      myCharMotionFrame++;
+      if(myCharMotionFrame>=motionSt.frameCount) myCharMotionFrame=motionSt.loop?0:motionSt.frameCount-1;
+      myCharExprFrame++;
+      if(myCharExprFrame>=exprSt.frameCount) myCharExprFrame=exprSt.loop?0:exprSt.frameCount-1;
     }
     ctx.clearRect(0,0,canvas.width,canvas.height);
     const x=canvas.width/2, groundY=canvas.height-6, hipY=groundY-24;
     ctx.save();
     ctx.translate(x,hipY);
-    myChildrenOf(null).forEach(r=>{ ctx.save(); myRenderNode(ctx,r.key,myCharFrame); ctx.restore(); });
+    myChildrenOf(null).forEach(r=>{ ctx.save(); myRenderNode(ctx,r.key,myCharMotionFrame,myCharExprFrame); ctx.restore(); });
     ctx.restore();
     myCharRaf=requestAnimationFrame(loop);
   }
